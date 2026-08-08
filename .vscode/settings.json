@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "*.ino": "cpp"
+  },
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "platformio-ide.useBuiltinPIOCore": true
+}
