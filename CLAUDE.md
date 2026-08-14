@@ -56,6 +56,39 @@ Questi valori sono presi da `User_Setup.h` di TFT_eSPI usato realmente nei
 progetti per questa scheda (non dedotti da datasheet generico), quindi sono
 il punto di partenza corretto: non serve ridedurli.
 
+### Correzione verificata: mirror pannello e ordine colore
+
+Durante l'esperimentazione in `esp32Prism` (repo sorella, stessa scheda
+fisica) sono emersi due problemi hardware **non coperti dal `User_Setup.h`
+sopra**, entrambi da applicare in `display.cpp` quando verrà scritto (vedi
+`examples/cube/README.md` e `examples/corner_calibration/README.md` per la
+derivazione completa):
+
+1. **Il pannello di quella unità è specchiato orizzontalmente rispetto a
+   quanto il bit `MX` di `MADCTL` assume di default.** `tft.setRotation()`
+   da solo non può correggerlo — tutte le sue 4 combinazioni standard
+   (0/90/180/270°) sono rotazioni proprie e preservano lo specchiamento
+   invece di rimuoverlo (dimostrato sia matematicamente che empiricamente:
+   `setRotation(2)`, cioè `MX+MY`, risultava ancora specchiato). Serve una
+   scrittura raw del registro dopo `setRotation()`:
+   ```c
+   tft.writecommand(TFT_MADCTL);
+   tft.writedata(TFT_MAD_MX | TFT_MAD_BGR);  // solo MX, non MX|MY
+   ```
+2. **Ordine colore BGR, non RGB come indicato sopra** — su quella unità,
+   `TFT_RGB_ORDER = RGB` mostra i colori con R e B scambiati (giallo →
+   ciano, verde invariato: firma classica dello scambio canali). Il
+   `TFT_MAD_BGR` nello snippet sopra copre già questo, ma se si passa per
+   `User_Setup.h`/`build_flags` invece che una scrittura raw, impostare
+   `TFT_RGB_ORDER TFT_BGR` (non `TFT_RGB`).
+
+**Possibile variazione di lotto/pannello tra unità**: questi due valori sono
+stati verificati su UNA scheda fisica specifica. Prima di fidarsi ciecamente
+sull'unità di questo progetto, rieseguire il test rapido in
+`examples/corner_calibration/` (4 quadrati colorati negli angoli, nessuna
+matematica 3D) — richiede pochi minuti e isola esattamente questi due
+problemi da qualunque bug nella pipeline di rendering.
+
 ## 3. Linguaggio e toolchain — decisione e motivazione
 
 **Scelto: C++ su framework Arduino (via PlatformIO), libreria `TFT_eSPI`.**
@@ -164,6 +197,15 @@ reali (vedi `TFT_eSPI/User_Setup.h` in nishad2m8/WS-1.3).
 | [VolosR/esp32Prism](https://github.com/VolosR/esp32Prism) | Ologramma a piramide, cartella `holly/`: playback di 79 frame precompilati (immagini RGB565 in PROGMEM) via sprite; cartella `speed/`: quadrante analogico animato disegnato ogni frame | Pattern doppio buffer (`TFT_eSprite` 240×240, `setSwapBytes(true)`, `pushSprite(0,0)`), `tft.setRotation(4)`, `tft.invertDisplay(1)`, backlight su GPIO 20 |
 | [nishad2m8/WS-1.3](https://github.com/nishad2m8/WS-1.3) | Orologio con fasi lunari, versione LVGL + PlatformIO | Progetto PlatformIO funzionante per questa scheda esatta (board json, `User_Setup.h` reale), uso di `WS_QMI8658` per l'IMU |
 | [LINXX3/ESP32-S3-LCD-1.3---Prism-Version---Weather-Station](https://github.com/LINXX3/ESP32-S3-LCD-1.3---Prism-Version---Weather-Station) | Stazione meteo versione prisma | Riferimento aggiuntivo per layout contenuti pensati per la visione attraverso il cubo |
+
+Esempi propri sviluppati in `esp32Prism` e copiati in `examples/` di questo
+repo (non demo esterne — banchi di prova scritti apposta per preparare questo
+progetto):
+
+| Cartella | Cosa fa | Cosa prendere come riferimento |
+|---|---|---|
+| `examples/cube/` | Cubo 3D a facce piene colorate, rotazione continua su 3 assi, illuminazione di profondità | Pipeline di rendering 3D completa (rotazione incrementale, proiezione prospettica, backface culling via area con segno 2D, ombreggiatura per profondità) — mappa direttamente su `render3d.h/.cpp`, vedi §5 |
+| `examples/corner_calibration/` | 4 quadrati colorati negli angoli dello sprite, nessuna matematica 3D | Metodologia per verificare la trasformazione sprite→vista fisica attraverso il cubo prisma prima di fidarsi di ipotesi geometriche — rilevante per la domanda aperta in §8 |
 
 Punto architetturale importante osservato in `holly.ino`: il contenuto è
 centrato sullo schermo (non diviso in quadranti). Per una piramide a 4 facce
