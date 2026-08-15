@@ -38,29 +38,53 @@ Genera gli output di riferimento per la funzione d'onda (`out/js/`,
 
 ## Nuvola di punti: stesso seme, stessi punti — non solo stessa statistica
 
-`sampleOrbitalPoint()`/`sample_orbital_point()` campiona (r,θ,φ) per rigetto
-dalla densità di probabilità fisica |ψ|²·r²·sin(θ) (il fattore r²sin(θ) è
-l'elemento di volume in coordinate sferiche — senza non si campionerebbe la
-probabilità *fisica*, solo dove |ψ| è grande). Invece di confrontare le tre
+`sampleOrbitalPoint()`/`sample_orbital_point()` campiona (r,θ,φ) dalla densità
+di probabilità fisica |ψ|²·r²·sin(θ) (il fattore r²sin(θ) è l'elemento di
+volume in coordinate sferiche — senza non si campionerebbe la probabilità
+*fisica*, solo dove |ψ| è grande). Invece di confrontare le tre
 implementazioni solo statisticamente (istogrammi, ecc.), tutte e tre usano lo
 **stesso generatore pseudocasuale portabile** (`XorShift32`, il triplo
 (13,17,5) di Marsaglia, mai gli shift/xor di libreria del linguaggio) con lo
-stesso seme e lo stesso ordine di estrazione per tentativo (r, θ, φ, u, in
-quest'ordine, a ogni tentativo, accettato o no). Risultato: dato lo stesso
-seme, le tre implementazioni producono la **stessa identica sequenza di punti
+stesso seme e lo stesso ordine di estrazione. Risultato: dato lo stesso seme,
+le tre implementazioni producono la **stessa identica sequenza di punti
 accettati** (a meno dell'arrotondamento macchina in double, o di uno
 scostamento maggiore atteso in float32 — vedi passate 3/4/6 sotto). Questo è
 un confronto molto più severo di un confronto statistico: cattura anche bug
 sottili (es. un fattore mancante nella densità, o un bound scorretto) che uno
 scostamento nella sola forma complessiva della nuvola potrebbe non rivelare.
 
-`initOrbitalSampler()`/`init_orbital_sampler()` precalcola un bound valido
-sulla densità (necessario per il rigetto) dal massimo tabulato di `|r·R(r)|`
-e `|P_l^m(θ)|`, con un margine di sicurezza (`DENSITY_BOUND_MARGIN = 1.15`,
-identico nei tre porting) contro il rischio che il vero massimo continuo
-cada tra due punti tabulati — non è una garanzia rigorosa, ma sufficiente per
-una nuvola di punti visuale (stesso spirito pragmatico delle approssimazioni
-già documentate in CLAUDE.md §5.3).
+**r, θ, φ sono campionati come tre campionatori per rigetto indipendenti**,
+non con un unico rigetto 3D congiunto (una versione precedente, congiunta, è
+conservata nella cronologia git). Questo è esatto, non un'approssimazione: la
+densità bersaglio si fattorizza come
+
+```
+|ψ|²·r²·sin(θ)  =  [r·R(r)]²  ×  [P_l^m(θ)²·sin(θ)]  ×  azimuthal(φ)²
+                      solo r         solo θ              solo φ
+```
+
+cioè un prodotto di tre funzioni di una sola variabile ciascuna — campionare
+ogni fattore marginale indipendentemente e combinare i risultati riproduce
+esattamente la densità congiunta. È anche molto più veloce: il tasso di
+accettazione di un campionatore congiunto è il *prodotto* di quello che
+sarebbe il tasso di ciascun asse da solo (misurato ~2% per un orbitale
+impegnativo, cioè ~50 tentativi scartati per punto accettato, ognuno con una
+valutazione completa di R(r)*P(θ)); campionare gli assi separatamente
+richiede solo la *somma* dei tentativi di ciascun asse (molto più alti presi
+singolarmente), e ogni tentativo costa anche meno (valuta solo R(r) o solo
+P(θ), mai entrambi insieme). Vedi "Prestazioni" più sotto per i numeri
+misurati che hanno motivato questo cambio.
+
+`initOrbitalSampler()`/`init_orbital_sampler()` precalcola, per ciascun asse,
+un bound valido sul proprio fattore di densità (necessario per il rigetto)
+dal massimo tabulato di `[r·R(r)]²` e di `P_l^m(θ)²·sin(θ)`, con un margine
+di sicurezza (`DENSITY_BOUND_MARGIN = 1.15`, identico nei tre porting) contro
+il rischio che il vero massimo continuo cada tra due punti tabulati — non è
+una garanzia rigorosa, ma sufficiente per una nuvola di punti visuale (stesso
+spirito pragmatico delle approssimazioni già documentate in CLAUDE.md §5.3).
+Per φ: se m=0 il fattore azimutale è costante (1), quindi si campiona φ
+uniforme direttamente, senza rigetto; altrimenti si rigetta contro
+cos²(mφ)/sin²(mφ) (inviluppo 1, ~2 tentativi in media).
 
 ## Sei passate di confronto, tolleranze diverse apposta
 
@@ -133,15 +157,25 @@ risultanti e li confronta con `out/js`/`out/points_js` — richiede `mpremote`
   di fallimento (`9_7_3_psi_samples.csv`, riga vicina a uno zero della
   funzione d'onda, non un bug). L'hardware reale si comporta esattamente
   come previsto dallo studio di precisione float32 già fatto sul PC.
-- **Prestazioni**: costruire una tabella da 1001 punti richiede ~70-80ms;
-  campionare 100 punti per rigetto richiede da pochi ms (orbitali semplici)
-  a **~6.3 secondi per il caso più difficile** (n=9,ℓ=7,m=3 — bassa frazione
-  di accettazione per un orbitale angolarmente complesso, moltiplicata per
-  l'overhead dell'interprete). L'intero sweep di 11 casi (tabelle + 280
-  campioni psi + 100 punti ciascuno) impiega **~55 secondi sul dispositivo**.
-  Accettabile per una generazione "una tantum all'avvio", non per
-  rigenerare la nuvola ogni frame — coerente con l'architettura already
-  prevista in CLAUDE.md §5 (i punti si generano una volta, poi si ruotano).
+- **Prestazioni**: costruire una tabella da 1001 punti richiede ~70-80ms.
+  Il campionamento dei punti è stato riscritto da rigetto 3D congiunto a
+  rigetto separabile per asse (vedi sezione sopra) proprio a causa di questi
+  numeri — misurati **sulla stessa scheda fisica, prima e dopo**:
+
+  | caso (n,ℓ,m) | congiunto (prima) | separabile (dopo) | rapporto |
+  |---|---|---|---|
+  | 9,7,3 (il più difficile) | 6.28 s / 100 pt (62.8 ms/pt) | 0.40 s / 100 pt (4.0 ms/pt) | **~15.7×** |
+  | 11 casi, solo campionamento punti (100 pt ciascuno) | ~27 s (stimato: sweep totale meno la parte tabelle/psi, invariata) | 3.05 s (misurato) | **~8.9×** |
+  | sweep completo `device_gen.py` (tabelle + 280 campioni psi + 100 punti, 11 casi) | ~55 s (misurato) | ~30 s (misurato) | ~1.8× (limitato dalla parte tabelle/psi, invariata e già veloce) |
+
+  A questo ritmo, generare una nuvola più densa (es. 3000 punti, dell'ordine
+  di grandezza indicato in CLAUDE.md §5 per gli orbitali reali) sul caso più
+  difficile costa ~12 s con il campionamento separabile, contro i ~3 min
+  (proiettati) del congiunto — la differenza tra "generazione una tantum
+  accettabile all'avvio" e "praticamente inutilizzabile". Resta comunque
+  un costo da pagare una volta sola, non per frame — coerente con
+  l'architettura già prevista in CLAUDE.md §5 (i punti si generano una
+  volta, poi si ruotano).
 - **Trasferimento file**: `mpremote fs cp -r` (copia ricorsiva) si è
   rivelato inaffidabile su questo setup (solleva `IsADirectoryError` a metà
   copia, sembra un bug/edge-case di mpremote 1.28.0 con questa combinazione
