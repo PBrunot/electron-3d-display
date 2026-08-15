@@ -28,13 +28,58 @@ portable PRNG (XorShift32) is mirrored bit-for-bit in src/pointcloud.h/.cpp
 and tools/orbitals_host/js_reference.js, so the same seed produces the same
 accepted point sequence across all three ports -- see tools/orbitals_host/
 for the cross-check that relies on this.
+
+Optimized per docs.micropython.org/en/latest/reference/speed_python.html,
+same techniques as orbitals.py (see that module's docstring for the
+`@micropython.native` / CPython-compatibility tradeoff, which applies here
+too), plus one more: the three inverse-CDF tables and the scratch weight/cdf
+arrays used to build them are `array.array('d', ...)` instead of `list`.
+MicroPython's `list` stores each element as a separately heap-allocated
+boxed object; `array.array` packs raw doubles into one contiguous buffer, so
+building a table (1001 elements, done 3x per orbital in init_orbital_sampler
+plus 2x more per table in _build_inverse_cdf's scratch cdf/inv_table -- ~9000
+element-writes total per orbital) avoids thousands of small allocations and
+the GC pressure they create. Typecode 'd' (not 'f') is deliberate: on the
+unix port (double-precision floats, used for the tight cross-check gate)
+'f' would silently truncate every stored value to float32, masking real
+precision loss as if it were a formatting artifact; 'd' preserves full
+double precision there. On the actual ESP32 build (float32-only), 'd' costs
+nothing extra -- every float on that build is already single-precision
+under the hood, array typecode notwithstanding (verified empirically: 'd'
+and 'f' arrays round-trip identically on that board).
+
+Viper (the other code-emitter docs.micropython.org describes, promising
+still more speed for integer/bitwise code -- and XorShift32.next() is
+exactly that) was deliberately NOT applied here. Its typed integers are a
+different underlying representation than plain Python ints, and this
+project's entire cross-language validation strategy depends on XorShift32
+producing bit-identical output to the C++ and JS ports for the same seed;
+a subtle wraparound/representation mismatch in viper's integer semantics
+could silently break that without changing any *visible* behavior enough to
+notice casually. Not worth the risk for one function already sped up by
+`@micropython.native` (which does not change integer semantics, only how
+the same operations are executed) -- revisit only if profiling on real
+hardware shows XorShift32 itself is now the bottleneck.
 """
 
+import array
 import math
 
 import orbitals
 
 _MASK32 = 0xFFFFFFFF
+
+_sin = math.sin
+_cos = math.cos
+_pi = math.pi
+
+# Stable function references, cached at module scope to avoid an
+# "orbitals" global lookup plus an attribute lookup on every call inside
+# the ~1001-iteration loops in init_orbital_sampler() and on every call to
+# sample_orbital_point() (which runs once per generated point).
+_hydrogen_radial_function = orbitals.hydrogen_radial_function
+_compute_plm = orbitals.compute_plm
+_get_value_from_lookup_table = orbitals.get_value_from_lookup_table
 
 
 class XorShift32:
@@ -50,6 +95,7 @@ class XorShift32:
     def __init__(self, seed):
         self.state = seed if seed != 0 else 1
 
+    @micropython.native
     def next(self):
         """Return the next raw 32-bit value in the sequence, advancing state."""
         x = self.state
@@ -59,6 +105,7 @@ class XorShift32:
         self.state = x
         return x
 
+    @micropython.native
     def uniform01(self):
         """Return the next value mapped to [0, 1)."""
         return self.next() / 4294967296.0  # 2**32
@@ -83,6 +130,7 @@ class OrbitalSampler:
         self.inv_phi_table = inv_phi_table      # Inverse CDF of azimuthal(phi)^2.
 
 
+@micropython.native
 def _build_inverse_cdf(weight, domain_max):
     """Given non-negative sample weights of a density over [0, domain_max]
     taken at evenly spaced points, build the inverse CDF: result[k] is the
@@ -91,23 +139,23 @@ def _build_inverse_cdf(weight, domain_max):
     non-decreasing, and the target quantile is non-decreasing in k), so this
     is O(len(weight)) total -- no per-point search survives into sampling
     either, since the result is later read directly via
-    orbitals.get_value_from_lookup_table().
+    get_value_from_lookup_table().
     """
     count = len(weight)
     delta = domain_max / (count - 1)
 
-    cdf = [0.0] * count
+    cdf = array.array('d', bytes(8 * count))
     cumulative = 0.0
     for i in range(count):
         cumulative += weight[i]
         cdf[i] = cumulative
-    total = cdf[-1]
+    total = cdf[count - 1]
     if total <= 0.0:
         total = 1.0  # degenerate guard; shouldn't occur for valid quantum numbers
     for i in range(count):
         cdf[i] /= total
 
-    inv_table = [0.0] * count
+    inv_table = array.array('d', bytes(8 * count))
     j = 0
     for k in range(count):
         u = k / (count - 1)
@@ -122,6 +170,7 @@ def _build_inverse_cdf(weight, domain_max):
     return inv_table
 
 
+@micropython.native
 def init_orbital_sampler(n, ell, m):
     """Precompute an OrbitalSampler for (n, ell, m): builds the three
     inverse-CDF tables above from orbitals.hydrogen_radial_function()'s
@@ -139,41 +188,46 @@ def init_orbital_sampler(n, ell, m):
     """
     radial_coeff = orbitals.laguerre_coeffs(n, ell)
     legendre_coeff = orbitals.legendre_coeffs(ell, m)
+    radial_fn = _hydrogen_radial_function  # local alias: fastest possible lookup inside the loops below
+    plm_fn = _compute_plm
+    sin = _sin
+    cos = _cos
 
     max_r = 6 * n * n
     table_size = orbitals.TABLE_SIZE
 
     delta_r = max_r / (table_size - 1)
-    r_weight = [0.0] * table_size
+    r_weight = array.array('d', bytes(8 * table_size))
     for i in range(table_size):
         r = i * delta_r
-        radial = orbitals.hydrogen_radial_function(r, n, ell, radial_coeff)
+        radial = radial_fn(r, n, ell, radial_coeff)
         r_weight[i] = (r * radial) * (r * radial)
     inv_r_table = _build_inverse_cdf(r_weight, max_r)
 
-    delta_theta = math.pi / (table_size - 1)
-    theta_weight = [0.0] * table_size
+    delta_theta = _pi / (table_size - 1)
+    theta_weight = array.array('d', bytes(8 * table_size))
     for i in range(table_size):
         theta = i * delta_theta
-        p_val = orbitals.compute_plm(theta, ell, m, legendre_coeff)
-        theta_weight[i] = p_val * p_val * math.sin(theta)
-    inv_theta_table = _build_inverse_cdf(theta_weight, math.pi)
+        p_val = plm_fn(theta, ell, m, legendre_coeff)
+        theta_weight[i] = p_val * p_val * sin(theta)
+    inv_theta_table = _build_inverse_cdf(theta_weight, _pi)
 
-    two_pi = 2 * math.pi
+    two_pi = 2 * _pi
     delta_phi = two_pi / (table_size - 1)
-    phi_weight = [0.0] * table_size
+    phi_weight = array.array('d', bytes(8 * table_size))
     for i in range(table_size):
         phi = i * delta_phi
         if m >= 0:
-            azimuthal = math.cos(m * phi)
+            azimuthal = cos(m * phi)
         else:
-            azimuthal = math.sin(-m * phi)
+            azimuthal = sin(-m * phi)
         phi_weight[i] = azimuthal * azimuthal  # m==0 -> constant 1, uniform phi
     inv_phi_table = _build_inverse_cdf(phi_weight, two_pi)
 
     return OrbitalSampler(n, ell, m, max_r, inv_r_table, inv_theta_table, inv_phi_table)
 
 
+@micropython.native
 def sample_orbital_point(sampler, rng):
     """Draw one point from the (r, theta, phi) probability density
     |psi_{n,l,m}|^2 * r^2 * sin(theta) via inverse-CDF (quantile) sampling:
@@ -191,12 +245,13 @@ def sample_orbital_point(sampler, rng):
     Returns:
         A tuple (x, y, z): the sampled point in Cartesian coordinates.
     """
-    r = orbitals.get_value_from_lookup_table(rng.uniform01(), sampler.inv_r_table)
-    theta = orbitals.get_value_from_lookup_table(rng.uniform01(), sampler.inv_theta_table)
-    phi = orbitals.get_value_from_lookup_table(rng.uniform01(), sampler.inv_phi_table)
+    lookup = _get_value_from_lookup_table
+    r = lookup(rng.uniform01(), sampler.inv_r_table)
+    theta = lookup(rng.uniform01(), sampler.inv_theta_table)
+    phi = lookup(rng.uniform01(), sampler.inv_phi_table)
 
-    sin_theta = math.sin(theta)
-    x = r * sin_theta * math.cos(phi)
-    y = r * sin_theta * math.sin(phi)
-    z = r * math.cos(theta)
+    sin_theta = _sin(theta)
+    x = r * sin_theta * _cos(phi)
+    y = r * sin_theta * _sin(phi)
+    z = r * _cos(theta)
     return x, y, z

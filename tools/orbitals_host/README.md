@@ -166,29 +166,94 @@ risultanti e li confronta con `out/js`/`out/points_js` — richiede `mpremote`
   funzione d'onda, non un bug). L'hardware reale si comporta esattamente
   come previsto dallo studio di precisione float32 già fatto sul PC.
 - **Prestazioni**: costruire una tabella da 1001 punti richiede ~70-80ms. Il
-  campionamento dei punti è passato per tre iterazioni — rigetto 3D
-  congiunto, poi rigetto separabile per asse, poi (questa) CDF inversa
-  precalcolata (vedi sezione sopra) — misurate **sulla stessa scheda fisica**
-  a ogni passaggio:
+  campionamento dei punti è passato per quattro iterazioni — rigetto 3D
+  congiunto, rigetto separabile per asse, CDF inversa precalcolata, poi CDF
+  inversa + ottimizzazioni a livello Python (vedi sezione dedicata sotto) —
+  misurate **sulla stessa scheda fisica** a ogni passaggio:
 
-  | caso (n,ℓ,m) | congiunto | separabile | CDF inversa | congiunto→CDF |
-  |---|---|---|---|---|
-  | 9,7,3 (il più difficile) | 6.28 s / 100 pt (62.8 ms/pt) | 0.40 s / 100 pt (4.0 ms/pt) | 0.05-0.07 s / 100 pt (0.5-0.7 ms/pt) | **~90-125×** |
-  | 11 casi, solo campionamento punti (100 pt ciascuno) | ~27 s (stimato) | 3.05 s (misurato) | 0.78 s (misurato) | **~35×** |
+  | caso (n,ℓ,m) | congiunto | separabile | CDF inversa | CDF + ottimizzato | congiunto→finale |
+  |---|---|---|---|---|---|
+  | 9,7,3 (il più difficile) | 6.28 s / 100 pt (62.8 ms/pt) | 0.40 s / 100 pt (4.0 ms/pt) | 0.05-0.07 s / 100 pt (0.5-0.7 ms/pt) | 0.038 s / 100 pt (0.38 ms/pt) | **~165×** |
+  | 11 casi, solo campionamento punti (100 pt ciascuno) | ~27 s (stimato) | 3.05 s (misurato) | 0.78 s (misurato) | 0.42 s (misurato) | **~64×** |
 
   La CDF inversa aggiunge un costo di inizializzazione per orbitale che le
   versioni a rigetto non avevano in questa forma (costruire tre tabelle
-  invertite anziché solo scansionare un massimo): **~300-430ms per
-  orbitale**, misurato sulla scheda — ma è un costo fisso pagato una sola
-  volta per (n,ℓ,m), non per punto, e il campionamento vero e proprio lo
-  ripaga rapidamente. Generare 3000 punti sul caso più difficile costa ora
-  init (~0.4s) + campionamento (~1.9s) ≈ **~2.3s totali**, contro i ~12s
-  (separabile) o ~3 min (congiunto, proiettati) di prima — abbastanza veloce
-  da poter essere rigenerato **a ogni cambio di orbitale scelto
-  dall'utente**, non solo una tantum all'avvio (rilevante per l'interattività
-  di CLAUDE.md M3), pur restando comunque un costo per-orbitale e non per-frame
-  — coerente con l'architettura di CLAUDE.md §5 (i punti si generano una
-  volta per orbitale, poi si ruotano).
+  invertite anziché solo scansionare un massimo): **~255-300ms per
+  orbitale** dopo le ottimizzazioni (era ~300-430ms prima) — ma è un costo
+  fisso pagato una sola volta per (n,ℓ,m), non per punto. Generare 3000 punti
+  sul caso più difficile costa ora init (~0.3s) + campionamento (~1.1s) ≈
+  **~1.4s totali**, contro ~2.3s (CDF non ottimizzata), ~12s (separabile) o
+  ~3 min (congiunto, proiettati) di prima — abbastanza veloce da poter essere
+  rigenerato **a ogni cambio di orbitale scelto dall'utente**, non solo una
+  tantum all'avvio (rilevante per l'interattività di CLAUDE.md M3), pur
+  restando comunque un costo per-orbitale e non per-frame — coerente con
+  l'architettura di CLAUDE.md §5 (i punti si generano una volta per
+  orbitale, poi si ruotano).
+
+  Nota: lo sweep completo di `device_gen.py` (tabelle + 280 campioni psi +
+  punti, 11 casi) è rimasto quasi invariato (~28-30s) nonostante questi
+  guadagni — perché quel numero è dominato dal codice dell'**harness di
+  test stesso** (formattazione `%.17g` di ~26k valori, scrittura file),
+  mai ottimizzato perché non fa parte del firmware reale. Il numero che
+  conta per il prodotto finale è quello di campionamento punti sopra, che
+  è migliorato ~1.9× in più rispetto alla CDF non ottimizzata.
+
+## Ottimizzazioni MicroPython (docs.micropython.org/.../speed_python.html)
+
+Applicate a `micropython/orbitals.py` e `micropython/pointcloud.py` dopo aver
+letto la guida ufficiale alle prestazioni, nell'ordine che raccomanda lei
+stessa (prima l'efficienza Python, poi l'emettitore nativo, poi — non fatto
+qui, vedi sotto — Viper):
+
+- **Alias di modulo per `math.sin`/`cos`/`sqrt`/`exp`/`pow`/`pi`** e per le
+  funzioni stabili di `orbitals` usate da `pointcloud.py` — evita la doppia
+  ricerca (nome del modulo + attributo) a ogni chiamata, significativo nei
+  loop da 1001 iterazioni.
+- **Eliminazione di ricalcoli invarianti nel loop**: es. `legendre_coeffs()`
+  ricalcolava `math.pi/2` e `math.pi/100` a ogni iterazione di un loop
+  invece di calcolarli una volta prima; `build_legendre_table()` ricalcolava
+  `math.pi/(n-1)` implicitamente a ogni passo invece di un singolo
+  `delta_theta` precalcolato (stesso pattern già usato correttamente da
+  `build_radial_table()`, ora uniformato).
+- **`array.array('d', ...)` al posto di `list`** per le tabelle interne di
+  `pointcloud.py` (le tre CDF inverse e gli array scratch di
+  `_build_inverse_cdf`) — una `list` di MicroPython alloca ogni elemento
+  float come oggetto separato sull'heap; `array.array` impacchetta i valori
+  in un unico buffer contiguo, evitando ~9000 allocazioni piccole (e la
+  pressione sul garbage collector che comportano) per ogni orbitale
+  inizializzato. Typecode `'d'` (non `'f'`) deliberatamente: su `'f'` l'unix
+  port tronca ogni valore a float32 in scrittura, il che avrebbe
+  silenziosamente degradato la precisione del gate di correttezza stretto
+  (rtol=1e-9); su `'d'` la precisione doppia dell'unix port resta intatta,
+  mentre sulla scheda reale (build a precisione singola) `'d'` non costa
+  nulla in più — verificato empiricamente che `'d'` e `'f'` restituiscono
+  gli stessi valori troncati a float32 su quella build.
+- **`@micropython.native`** su tutte le funzioni calde di entrambi i moduli
+  (compilazione a opcode nativi invece che bytecode, ~2× secondo la guida).
+  È una direttiva riconosciuta dal compilatore MicroPython per la sintassi
+  letterale `micropython.native` (non un vero decorator importabile), quindi
+  non esiste uno shim `try/except ImportError` che la preservi: i due moduli
+  non girano più sotto CPython semplice (proprietà dichiarata nei docstring
+  originali ma mai sfruttata da questa cartella, che esegue sempre e solo
+  sotto `micropython` reale) — un compromesso deliberato.
+- **Viper NON applicato**, deliberatamente. La guida lo raccomanda proprio
+  per codice intero/bitwise come `XorShift32.next()` — il candidato ideale
+  sulla carta — ma i tipi interi di Viper sono una rappresentazione diversa
+  dai normali `int` Python, e l'intera strategia di validazione incrociata
+  di questo progetto dipende dal fatto che `XorShift32` produca output
+  bit-identico tra i tre porting per lo stesso seme. Un mismatch sottile nel
+  wraparound/nella rappresentazione Viper potrebbe rompere silenziosamente
+  questa proprietà senza un cambiamento di comportamento abbastanza
+  evidente da notare casualmente — rischio non giustificato per una singola
+  funzione già velocizzata da `@micropython.native` (che non cambia la
+  semantica intera, solo come viene eseguita la stessa logica). Da
+  rivalutare solo se il profiling su hardware reale mostrasse
+  `XorShift32` stesso come collo di bottiglia residuo.
+
+Tutte le ottimizzazioni sono state riverificate con `run_crosscheck.sh`
+(44/44 + 11/11 a epsilon macchina, invariato) e `run_on_device.sh` (43/44 +
+11/11 entro tolleranza float32, stesso identico caso noto di prima) prima di
+fidarsi dei numeri di prestazione sopra.
 - **Trasferimento file**: `mpremote fs cp -r` (copia ricorsiva) si è
   rivelato inaffidabile su questo setup (solleva `IsADirectoryError` a metà
   copia, sembra un bug/edge-case di mpremote 1.28.0 con questa combinazione
