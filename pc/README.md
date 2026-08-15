@@ -7,12 +7,12 @@ math/visuals without a round-trip through `mpremote` and real hardware
 every time.
 
 See `orbital_view_pc.py`'s module docstring for exactly what's shared with
-the device code unmodified (the orbital math in `micropython/orbitals.py`
-and `micropython/pointcloud.py`, plus `micropython/nudge.py`'s gesture
-detector) versus what's re-implemented for the PC (the ESP32's Q8
-fixed-point/viper render loop has no PC equivalent — plain floats are fast
-enough on a desktop CPU; there's no real accelerometer, so arrow keys
-stand in for nudges).
+the device code unmodified — `micropython/cloud_common.py` (orbital math,
+sampling, ranking, point-turnover) and `micropython/nudge.py` (gesture
+detector) — versus what's genuinely PC-only (the ESP32's Q8 fixed-point/
+viper render loop has no PC equivalent — plain floats are fast enough on a
+desktop CPU; there's no real accelerometer, so arrow keys stand in for
+nudges; the bounding-sphere/marker overlay).
 
 ## Requirements
 
@@ -53,14 +53,11 @@ Close the window to quit.
 
 ## Keeping this in sync with the device
 
-`orbital_view_pc.py` duplicates the ESP32 firmware's orchestration layer
-(`build_point_cloud()`, `point_colors()`, `_scale_from_radii()`, the
-resample/"buzz" logic, `ORBITAL_PRESETS`) rather than importing it, because
-`micropython/orbital_view.py` unconditionally imports ESP32-only hardware
-drivers (`framebuf`, `display`, `st7789py`) at module scope and can't be
-imported under CPython at all. If you change one of those algorithms on
-the device, mirror the change here (they're written to read as a close
-line-by-line match specifically so a diff is easy) — or do the module
-split that would let both share one file, noted in `orbital_view_pc.py`'s
-docstring as the "correct" fix this tool didn't attempt, to avoid touching
-already-verified, deployed device code in the same change that added it.
+The orchestration layer (orbital math, ranking, scale-from-radii,
+point-turnover, `ORBITAL_PRESETS`) lives in `micropython/cloud_common.py`
+and is imported by both `orbital_view_pc.py` and the ESP32 firmware
+(`micropython/orbital_view.py`) — change it once, both stay in sync. Only
+genuinely platform-specific code is duplicated by necessity: the ESP32's
+Q8 fixed-point/viper render loop and RGB565 panel encoding have no PC
+equivalent, and PC-only extras (bounding sphere/marker, tkinter/PIL
+rendering, keyboard nudges) have no device equivalent.
