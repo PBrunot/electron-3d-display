@@ -6,3 +6,6 @@
 .vscode/launch.json
 .vscode/ipch
 compile_commands.json
+examples/js-calculations/Quantum physics online.html
+/examples/js-calculations/Quantum physics online_files
+/tools/orbitals_host/out
