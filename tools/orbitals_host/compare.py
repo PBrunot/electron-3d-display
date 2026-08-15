@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Cross-check JS-reference vs C++-reference CSV artifacts for the hydrogen
-orbital math port (src/orbitals.cpp vs tools/orbitals_host/js_reference.js).
+"""Cross-check JS/C++/MicroPython-reference CSV artifacts for the hydrogen
+orbital math and point-cloud ports (src/orbitals.h/.cpp + src/pointcloud.h/.cpp,
+micropython/orbitals.py + micropython/pointcloud.py, vs
+tools/orbitals_host/js_reference.js).
 
 Usage:
     python3 compare.py <js_dir> <c_dir> --rtol 1e-9 --atol 1e-12
@@ -25,6 +27,7 @@ VALUE_COLUMNS = {
     '_legendre_table.csv': ['value'],
     '_radial_table.csv': ['value'],
     '_psi_samples.csv': ['psi'],
+    '_points.csv': ['x', 'y', 'z'],
 }
 
 

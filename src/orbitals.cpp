@@ -3,10 +3,6 @@
 #include <algorithm>
 #include <cmath>
 
-namespace {
-constexpr orb_real_t kPi = orb_real_t(3.14159265358979323846);
-}
-
 void legendreCoeffs(int ell, int m, orb_real_t* coeff) {
     for (int i = 0; i <= ell; i++)
         coeff[i] = orb_real_t(0);
@@ -32,7 +28,7 @@ void legendreCoeffs(int ell, int m, orb_real_t* coeff) {
     // in quantum-physics.js exactly (same step count/bound), so the two
     // implementations converge to the same normalization constant.
     orb_real_t maxValue = orb_real_t(0);
-    for (orb_real_t theta = orb_real_t(0); theta < kPi / 2; theta += kPi / 100) {
+    for (orb_real_t theta = orb_real_t(0); theta < kOrbitalPi / 2; theta += kOrbitalPi / 100) {
         orb_real_t value = computePLM(theta, ell, m, coeff);
         maxValue = std::max(maxValue, std::abs(value));
     }
@@ -59,7 +55,7 @@ void buildLegendreTable(int ell, int m, orb_real_t* table, int n) {
     orb_real_t coeff[kOrbitalEllMax + 1];
     legendreCoeffs(ell, m, coeff);
     for (int i = 0; i < n; i++) {
-        orb_real_t theta = kPi * orb_real_t(i) / orb_real_t(n - 1);
+        orb_real_t theta = kOrbitalPi * orb_real_t(i) / orb_real_t(n - 1);
         table[i] = computePLM(theta, ell, m, coeff);
     }
 }
