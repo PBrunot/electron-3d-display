@@ -22,18 +22,39 @@ ORBITAL_M = 0
 N_POINTS = 3000
 SEED = 12345  # fixed for a reproducible-looking demo across boots
 
-# (n, ell, m, label) presets cycled through on a nudge/keypress. n<=3 per
-# ORBITALI.md's closed-form recommendation; index 2 (2p_z) is the original
-# default orbital.
+# (n, ell, m, label) presets cycled through on a nudge/keypress.
+#
+# ORBITALI.md's "n<=3, hardcode closed-form" recommendation is about the
+# *on-device C++* path (not yet built); this MicroPython path instead calls
+# orbitals.py's general laguerre_coeffs()/legendre_coeffs() at load time
+# (valid for any 0<=ell<=n-1, -ell<=m<=ell, n up to orbitals.N_MAX=16), so
+# it isn't limited to closed-form n<=3 -- the catalog below goes to n=4 for
+# variety, not as a hard ceiling.
+#
+# psi_real()'s m>=0 -> cos(m*phi) / m<0 -> sin(|m|*phi) convention already
+# *is* the real-spherical-harmonic combination ORBITALI.md SS3 describes by
+# linear combination (p_x/p_y, d_xz/d_yz, d_x2-y2/d_xy) -- no separate
+# combining step needed, so labels below use the textbook chemistry names.
+#
+# index 6 (2p_z) is the original default orbital.
 ORBITAL_PRESETS = (
     (1, 0, 0, "1s"),
     (2, 0, 0, "2s"),
+    (2, 1, 1, "2p_x"),
+    (2, 1, -1, "2p_y"),
     (2, 1, 0, "2p_z"),
-    (2, 1, 1, "2p (m=+1)"),
+    (3, 0, 0, "3s"),
+    (3, 1, 1, "3p_x"),
+    (3, 1, -1, "3p_y"),
     (3, 1, 0, "3p_z"),
     (3, 2, 0, "3d_z2"),
+    (3, 2, 1, "3d_xz"),
+    (3, 2, -1, "3d_yz"),
+    (3, 2, 2, "3d_x2-y2"),
+    (3, 2, -2, "3d_xy"),
+    (4, 3, 0, "4f_z3"),
 )
-DEFAULT_PRESET_INDEX = 2
+DEFAULT_PRESET_INDEX = 4
 
 COLOR_MIN_LEVEL = 60  # keeps the dimmest points visible instead of fading to black
 COLOR_MAX_LEVEL = 255
@@ -42,11 +63,14 @@ COLOR_MAX_LEVEL = 255
 # out from center. Measured per preset (scale_from_radii()) rather than a
 # global constant, since radial extent depends on n, l, AND m, not n alone.
 P90_TARGET_PX = 100.0
-ZOOM_AMPLITUDE_FRACTION = 0.23  # dolly-breathing swing, as a fraction of base_scale
+ZOOM_AMPLITUDE_FRACTION = 0.4  # dolly-breathing swing, as a fraction of base_scale -- raised from
+                                # 0.23 for a more pronounced constant in/out motion, on top of the
+                                # periodic deep-dive zoom excursions (see ZOOM_EXCURSION_* in
+                                # orbital_view.py / pc/orbital_view_pc.py)
 
 CULL_FRACTION = 0.01        # point-turnover: fraction of the cloud resampled...
 CULL_REFRESH_FRAMES = 3     # ...every this many frames
-BUZZ_FRACTION = 0.04        # per-frame flicker fraction (device-only effect; see orbital_view.py)
+BUZZ_FRACTION = 0.40        # per-frame flicker fraction (device-only effect; see orbital_view.py)
 
 
 def title_for_preset(preset):
@@ -56,7 +80,12 @@ def title_for_preset(preset):
 
 def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
     """Sample `count` points from the (n, ell, m) orbital's probability
-    density via inverse-CDF sampling, plus psi^2 (unnormalized) at each.
+    density via inverse-CDF sampling, plus psi^2 (unnormalized) and
+    sign(psi) at each. psi_real() returns the *signed* real wavefunction --
+    psi2 alone (used for brightness ranking) loses that sign the instant
+    it's squared, so it's captured separately here for level_to_rgb()'s
+    phase coloring (see ORBITALI.md SS3 / CLAUDE.md SS8: which lobe is
+    "positive" vs "negative" is only meaningful before squaring).
     Also returns sampler/rng/radial_coeff/legendre_coeff so
     resample_levels() can keep drawing from the same distribution later.
     """
@@ -69,6 +98,7 @@ def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
     ys = array.array('f', bytes(4 * count))
     zs = array.array('f', bytes(4 * count))
     psi2 = array.array('f', bytes(4 * count))
+    signs = array.array('b', bytes(count))
 
     for i in range(count):
         x, y, z = pointcloud.sample_orbital_point(sampler, rng)
@@ -80,16 +110,28 @@ def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
         phi = math.atan2(y, x)
         psi = orbitals.psi_real(r, theta, phi, n, ell, m, radial_coeff, legendre_coeff)
         psi2[i] = psi * psi
+        signs[i] = 1 if psi >= 0.0 else -1
 
-    return xs, ys, zs, psi2, sampler, rng, radial_coeff, legendre_coeff
+    return xs, ys, zs, psi2, signs, sampler, rng, radial_coeff, legendre_coeff
 
 
-def level_to_rgb(level):
-    """Brightness level -> (r, g, b), slightly blue-shifted. Each platform
-    encodes this into its own pixel format (RGB565+swap on the device,
-    a plain tuple on PC).
+# Phase colors -- chemistry-diagram convention: positive lobe warm
+# (red/orange), negative lobe cool (blue/cyan). s orbitals (ell=0) are
+# single-signed everywhere, so they render as a uniform warm cloud with no
+# visible split -- expected, not a bug (no phase change without a node).
+PHASE_POSITIVE_RGB = (255, 120, 40)
+PHASE_NEGATIVE_RGB = (40, 120, 255)
+
+
+def level_to_rgb(level, sign):
+    """Brightness level + wavefunction sign -> (r, g, b): scales
+    PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB by level/255 so COLOR_MIN_LEVEL's
+    "keep dim points visible" floor still applies per-channel. Each platform
+    encodes the result into its own pixel format (RGB565+swap on the
+    device, a plain tuple on PC).
     """
-    return (level // 3, level // 2, level)
+    base = PHASE_POSITIVE_RGB if sign >= 0 else PHASE_NEGATIVE_RGB
+    return (base[0] * level // 255, base[1] * level // 255, base[2] * level // 255)
 
 
 def compute_levels(psi2, min_level=COLOR_MIN_LEVEL, max_level=COLOR_MAX_LEVEL):
@@ -175,8 +217,9 @@ class ResampleState:
 def resample_levels(state, xs, ys, zs, count):
     """Replace `count` points (round-robin via state.cursor) with fresh
     samples from state's orbital distribution, updating xs/ys/zs in place.
-    Returns a list of (idx, level) pairs for the caller to turn into its
-    own pixel-color format at each changed index.
+    Returns a list of (idx, level, sign) triples for the caller to turn into
+    its own pixel-color format (via level_to_rgb(level, sign)) at each
+    changed index.
 
     level can exceed COLOR_MAX_LEVEL when a fresh sample's psi^2 beats
     everything in the frozen reference (psi^2 is heavily right-skewed --
@@ -214,5 +257,6 @@ def resample_levels(state, xs, ys, zs, count):
 
         rank = bisect_rank(psi2_sorted, psi2)
         level = COLOR_MIN_LEVEL + (rank * level_span) // sorted_span
-        changed.append((idx, level))
+        sign = 1 if psi >= 0.0 else -1
+        changed.append((idx, level, sign))
     return changed
