@@ -53,6 +53,7 @@ ORBITAL_PRESETS = (
     (3, 2, 2, "3d_x2-y2"),
     (3, 2, -2, "3d_xy"),
     (4, 3, 0, "4f_z3"),
+    (5, 2, 0, "5p_z3"),
 )
 DEFAULT_PRESET_INDEX = 4
 

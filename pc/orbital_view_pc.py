@@ -49,7 +49,7 @@ CENTER = WIDTH // 2
 DISPLAY_SCALE = 3  # tkinter window is WIDTH*DISPLAY_SCALE square; math stays at WIDTH/HEIGHT
 DISPLAY_SIZE = (WIDTH * DISPLAY_SCALE, HEIGHT * DISPLAY_SCALE)
 
-N_POINTS = 20000  # higher than the device's 3000 -- a desktop CPU has the headroom for it
+N_POINTS = 10000  # higher than the device's 3000 -- a desktop CPU has the headroom for it
 
 # Bounding sphere + rotation marker (PC-only, see module docstring). The
 # circle sits at radius r_ref (same p90 radius base_scale is calibrated
@@ -222,6 +222,121 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
             buf[idx], buf[idx + 1], buf[idx + 2] = colors[i]
 
 
+def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_text=MARKER_TEXT):
+    """Bounding-sphere + rotating marker overlay -- see MARKER_TEXT's module
+    comment for why this exists (a pure-orthographic cue for rotation on
+    presets/clouds whose silhouette alone doesn't show it). Free function
+    (not a method) so pc/atom_view_pc.py can reuse it unmodified with its
+    own marker_text (the element symbol) instead of the hydrogen demo's
+    fixed "H" -- an atom's spherically-averaged cloud (see atom_cloud.py)
+    needs this cue even more, since its silhouette looks the same from
+    every angle by construction.
+    """
+    px_r = r_ref * scale
+    draw.ellipse((CENTER - px_r, CENTER - px_r, CENTER + px_r, CENTER + px_r),
+                 outline=BOUNDING_SPHERE_COLOR)
+
+    # Reference vector (horizontal_r, y0, 0) before rotation; rotated by the
+    # same yaw+tilt+roll three-axis transform as every sampled point (see
+    # render_frame()). Roll (about Z) never changes the Z coordinate, so
+    # `rz` computed pre-roll is still the correct depth cue post-roll --
+    # only rx/ry need the extra roll step.
+    horizontal_r = r_ref * math.cos(_MARKER_ELEVATION_RAD)
+    y0 = r_ref * math.sin(_MARKER_ELEVATION_RAD)
+    cos_yaw = math.cos(angle)
+    sin_yaw = math.sin(angle)
+    cos_tilt = math.cos(tilt_angle)
+    sin_tilt = math.sin(tilt_angle)
+    cos_roll = math.cos(roll_angle)
+    sin_roll = math.sin(roll_angle)
+    rx1 = horizontal_r * cos_yaw
+    rz1 = -horizontal_r * sin_yaw
+    ry2 = y0 * cos_tilt - rz1 * sin_tilt
+    rz = y0 * sin_tilt + rz1 * cos_tilt  # depth cue only -- render_frame()'s points don't need this
+    rx3 = rx1 * cos_roll - ry2 * sin_roll
+    ry3 = rx1 * sin_roll + ry2 * cos_roll
+    marker_x = CENTER + rx3 * scale
+    marker_y = CENTER - ry3 * scale
+
+    # depth_frac: 0 rotating away from the viewer, 1 rotating toward -- the
+    # only depth signal an orthographic projection can give. r_ref (not
+    # horizontal_r) is the right normalizer now that yaw+tilt can swing rz
+    # across the marker vector's full length, not just its horizontal
+    # component (rotation preserves vector length, so |rz| never exceeds
+    # r_ref).
+    depth_frac = (rz / r_ref + 1.0) / 2.0 if r_ref > 1e-6 else 0.5
+    marker_color = tuple(
+        int(MARKER_COLOR_BEHIND[c] + depth_frac * (MARKER_COLOR_FRONT[c] - MARKER_COLOR_BEHIND[c]))
+        for c in range(3))
+
+    # Spoke from the nucleus to the marker -- same depth-interpolated color
+    # as the marker text itself, so the whole radius (not just the letter)
+    # reads as gray when rotating behind / lit up in front.
+    draw.line((CENTER, CENTER, marker_x, marker_y), fill=marker_color)
+
+    draw.text((marker_x, marker_y), marker_text, fill=marker_color, font=_MARKER_FONT, anchor='mm')
+
+
+# Bottom-left physical-size reference bar (see draw_scale_bar() below).
+# "Nice" round lengths only (1/2/5 x a power of ten -- the same ladder a
+# ruler or a map's scale bar uses) so the printed number is always easy to
+# read at a glance, never something like "37 px = 0.68374 units".
+_SCALE_BAR_CANDIDATES = (
+    0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,
+    1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
+)
+SCALE_BAR_MARGIN_X = 8
+SCALE_BAR_MARGIN_Y = 8
+SCALE_BAR_MAX_PX = 90
+SCALE_BAR_TICK_PX = 4
+SCALE_BAR_COLOR = (210, 210, 210)
+
+
+def _pick_scale_bar_length(pixels_per_unit, max_bar_px):
+    """Largest candidate from _SCALE_BAR_CANDIDATES whose on-screen length
+    (candidate * pixels_per_unit) still fits under max_bar_px -- i.e. the
+    most precise round number the bar can show without overflowing. Falls
+    back to the smallest candidate if even that one would be too long
+    (only possible at extreme zoom-in, where the bar is allowed to overflow
+    max_bar_px rather than disappear to zero length).
+    """
+    best = _SCALE_BAR_CANDIDATES[0]
+    for candidate in _SCALE_BAR_CANDIDATES:
+        if candidate * pixels_per_unit <= max_bar_px:
+            best = candidate
+        else:
+            break
+    return best
+
+
+def draw_scale_bar(draw, pixels_per_unit, unit_label, canvas_height=HEIGHT, max_bar_px=SCALE_BAR_MAX_PX):
+    """Bottom-left physical-size reference bar, the way a microscope or map
+    view shows one: a horizontal line `length` physical units long (a
+    "nice" round number, see _pick_scale_bar_length()), labeled with that
+    length and unit_label. Recomputed from the CURRENT pixels_per_unit
+    every call (callers pass in the frame's live rendering scale, not a
+    fixed one), so it tracks the camera's zoom-breathing/excursion dives
+    instead of only being accurate at rest scale.
+
+    pixels_per_unit <= 0 draws nothing (defensive only -- render_frame()'s
+    scale is never <= 0 in normal operation).
+    """
+    if pixels_per_unit <= 0:
+        return
+    length = _pick_scale_bar_length(pixels_per_unit, max_bar_px)
+    bar_px = length * pixels_per_unit
+
+    x0 = SCALE_BAR_MARGIN_X
+    y = canvas_height - SCALE_BAR_MARGIN_Y
+    x1 = x0 + bar_px
+
+    draw.line((x0, y, x1, y), fill=SCALE_BAR_COLOR)
+    draw.line((x0, y - SCALE_BAR_TICK_PX, x0, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR)
+    draw.line((x1, y - SCALE_BAR_TICK_PX, x1, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR)
+
+    draw.text((x0, y - SCALE_BAR_TICK_PX - 12), "%g %s" % (length, unit_label), fill=SCALE_BAR_COLOR)
+
+
 class OrbitalViewApp:
     """tkinter app driving render_frame() -- the PC equivalent of
     orbital_view.py's run(), restructured around tkinter's non-blocking
@@ -277,54 +392,11 @@ class OrbitalViewApp:
         self.canvas.itemconfig(self.image_id, image=self.photo)
 
     def _draw_bounding_sphere_and_marker(self, draw, scale):
-        """See BOUNDING_SPHERE_COLOR's comment. Rotated by the same `angle`
+        """See draw_orbit_marker()'s docstring. Rotated by the same `angle`
         the cloud itself is rotated by, so it always matches the current
         frame.
         """
-        r_ref = self.preset.r_ref
-        px_r = r_ref * scale
-        draw.ellipse((CENTER - px_r, CENTER - px_r, CENTER + px_r, CENTER + px_r),
-                     outline=BOUNDING_SPHERE_COLOR)
-
-        # Reference vector (horizontal_r, y0, 0) before rotation; rotated by
-        # the same yaw+tilt+roll three-axis transform as every sampled point
-        # (see render_frame()). Roll (about Z) never changes the Z
-        # coordinate, so `rz` computed pre-roll is still the correct depth
-        # cue post-roll -- only rx/ry need the extra roll step.
-        horizontal_r = r_ref * math.cos(_MARKER_ELEVATION_RAD)
-        y0 = r_ref * math.sin(_MARKER_ELEVATION_RAD)
-        cos_yaw = math.cos(self.angle)
-        sin_yaw = math.sin(self.angle)
-        cos_tilt = math.cos(self.tilt_angle)
-        sin_tilt = math.sin(self.tilt_angle)
-        cos_roll = math.cos(self.roll_angle)
-        sin_roll = math.sin(self.roll_angle)
-        rx1 = horizontal_r * cos_yaw
-        rz1 = -horizontal_r * sin_yaw
-        ry2 = y0 * cos_tilt - rz1 * sin_tilt
-        rz = y0 * sin_tilt + rz1 * cos_tilt  # depth cue only -- render_frame()'s points don't need this
-        rx3 = rx1 * cos_roll - ry2 * sin_roll
-        ry3 = rx1 * sin_roll + ry2 * cos_roll
-        marker_x = CENTER + rx3 * scale
-        marker_y = CENTER - ry3 * scale
-
-        # depth_frac: 0 rotating away from the viewer, 1 rotating toward --
-        # the only depth signal an orthographic projection can give. r_ref
-        # (not horizontal_r) is the right normalizer now that yaw+tilt can
-        # swing rz across the marker vector's full length, not just its
-        # horizontal component (rotation preserves vector length, so |rz|
-        # never exceeds r_ref).
-        depth_frac = (rz / r_ref + 1.0) / 2.0 if r_ref > 1e-6 else 0.5
-        marker_color = tuple(
-            int(MARKER_COLOR_BEHIND[c] + depth_frac * (MARKER_COLOR_FRONT[c] - MARKER_COLOR_BEHIND[c]))
-            for c in range(3))
-
-        # Spoke from the nucleus to the marker -- same depth-interpolated
-        # color as the "H" itself, so the whole radius (not just the
-        # letter) reads as gray when rotating behind / lit up in front.
-        draw.line((CENTER, CENTER, marker_x, marker_y), fill=marker_color)
-
-        draw.text((marker_x, marker_y), MARKER_TEXT, fill=marker_color, font=_MARKER_FONT, anchor='mm')
+        draw_orbit_marker(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle)
 
     def _fly_over(self, start_scale, end_scale, frames):
         """PC equivalent of orbital_view.py's _fly_over() -- blocking (uses
