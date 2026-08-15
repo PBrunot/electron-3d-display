@@ -95,21 +95,63 @@ in tutti i generatori):
 Lo script esce con codice non zero se una qualunque delle passate 1/3/5/6
 (correttezza) fallisce; le passate 2/4 sono solo informative.
 
-## Nota sulla precisione di MicroPython
+## Nota sulla precisione di MicroPython (unix port vs ESP32 reale)
 
 L'unix port installato qui (pacchetto Ubuntu `micropython`, v1.17) usa float a
 **doppia precisione** — verificato empiricamente (`1/3` stampa 16 cifre
 significative, non le ~7 di un float32). Questo rende le passate 5/6 un vero
 gate di correttezza (double vs double), **non** una misura della precisione
-che si avrà realmente sul firmware ESP32: build diverse di MicroPython per
-ESP32 possono usare float singola o doppia precisione a seconda della
-configurazione della scheda. Prima di usare questa cartella per decidere se
-MicroPython è "abbastanza preciso" sull'hardware finale, verificare la
-precisione float del firmware ESP32 target (es. `1.0 + 1e-10 == 1.0` nella
-REPL: `True` → singola precisione, `False` → doppia) — e tenere presente che
-la doppia precisione su un microcontrollore senza FPU per double è anche
-molto più lenta, un fattore rilevante quanto la precisione per la scelta
-ESP-IDF/C++ vs MicroPython.
+che si avrà realmente sul firmware ESP32.
+
+## Eseguito anche su un ESP32-S3 reale: `run_on_device.sh`
+
+```sh
+./run_on_device.sh [porta-seriale]   # default /dev/ttyACM0
+```
+
+Copia `micropython/orbitals.py`, `micropython/pointcloud.py` e
+`test_cases.csv` su un ESP32-S3 collegato via USB (già flashato con
+MicroPython — firmware ufficiale `ESP32_GENERIC_S3-SPIRAM_OCT` da
+[micropython.org/download/ESP32_GENERIC_S3](https://micropython.org/download/ESP32_GENERIC_S3/),
+la variante Octal-SPIRAM perché questa scheda usa PSRAM OPI/ottale, vedi
+CLAUDE.md §2), esegue `device_gen.py` **sul microcontrollore stesso**
+(stessi 11 casi, stesse tabelle, stessi 100 punti/caso), recupera i CSV
+risultanti e li confronta con `out/js`/`out/points_js` — richiede `mpremote`
+(`pip3 install --user mpremote`).
+
+**Risultati misurati su una Waveshare ESP32-S3-LCD-1.3 reale (MicroPython
+1.28.0, build `ESP32_GENERIC_S3-SPIRAM_OCT`):**
+
+- **Precisione: singola precisione (float32)**, a differenza dell'unix port.
+  Verificato con la stessa sonda (`1.0 + 1e-10 == 1.0` → `True` sul REPL del
+  dispositivo; `1/3` stampa `0.33333334`, 8 cifre). Questo era esattamente il
+  dubbio aperto lasciato nella nota precedente — ora risolto con una misura
+  diretta, non più una supposizione.
+- **Correttezza**: 43/44 file funzione d'onda e 11/11 file nuvola di punti
+  entro la tolleranza informativa (rtol=2e-3), lo stesso identico schema
+  visto per il build C++ float32 sul PC — compreso lo stesso identico caso
+  di fallimento (`9_7_3_psi_samples.csv`, riga vicina a uno zero della
+  funzione d'onda, non un bug). L'hardware reale si comporta esattamente
+  come previsto dallo studio di precisione float32 già fatto sul PC.
+- **Prestazioni**: costruire una tabella da 1001 punti richiede ~70-80ms;
+  campionare 100 punti per rigetto richiede da pochi ms (orbitali semplici)
+  a **~6.3 secondi per il caso più difficile** (n=9,ℓ=7,m=3 — bassa frazione
+  di accettazione per un orbitale angolarmente complesso, moltiplicata per
+  l'overhead dell'interprete). L'intero sweep di 11 casi (tabelle + 280
+  campioni psi + 100 punti ciascuno) impiega **~55 secondi sul dispositivo**.
+  Accettabile per una generazione "una tantum all'avvio", non per
+  rigenerare la nuvola ogni frame — coerente con l'architettura already
+  prevista in CLAUDE.md §5 (i punti si generano una volta, poi si ruotano).
+- **Trasferimento file**: `mpremote fs cp -r` (copia ricorsiva) si è
+  rivelato inaffidabile su questo setup (solleva `IsADirectoryError` a metà
+  copia, sembra un bug/edge-case di mpremote 1.28.0 con questa combinazione
+  device/transport) — `run_on_device.sh` copia invece i 55 file noti uno per
+  uno, incatenati con `+` in un'unica sessione mpremote. Anche
+  `mpremote run device_gen.py` con lo script che stampava ~20k righe di CSV
+  direttamente sulla console seriale ha prodotto output interlacciato/
+  corrotto sotto carico sostenuto (bytes riordinati, non un bug nel calcolo
+  — le stesse tabelle scritte su file e poi lette sono risultate corrette);
+  per questo `device_gen.py` scrive su file (`/out_dev/`) invece di stampare.
 
 ## File
 
@@ -130,6 +172,9 @@ ESP-IDF/C++ vs MicroPython.
   (`abs_err <= atol + rtol*|riferimento|`), stampa una tabella riassuntiva,
   exit code non zero se qualcosa fallisce. Sa confrontare sia i CSV della
   funzione d'onda che quelli della nuvola di punti (colonne `x,y,z`).
+- `device_gen.py` / `run_on_device.sh` / `parse_device_output.py` — eseguono
+  lo stesso confronto ma **sul microcontrollore ESP32-S3 reale** invece che
+  sull'unix port; vedi la sezione dedicata sopra.
 - `out/` — generato, non committato (vedi `.gitignore`).
 
 ## Nota sui file `_coeffs.csv`
