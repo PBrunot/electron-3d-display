@@ -74,7 +74,7 @@ run_pass "Pass 3/6: C++ double precision point cloud vs JS -- correctness gate, 
     "$OUT_DIR/points_js" "$OUT_DIR/points_c_f64" 1e-9 1e-12 || POINTS_F64_STATUS=$?
 
 POINTS_F32_STATUS=0
-run_pass "Pass 4/6: C++ float precision point cloud vs JS -- informational (accept/reject boundary can differ)" \
+run_pass "Pass 4/6: C++ float precision point cloud vs JS -- informational (float32 CDF table build accumulates more rounding)" \
     "$OUT_DIR/points_js" "$OUT_DIR/points_c_f32" 2e-3 1e-4 || POINTS_F32_STATUS=$?
 
 MPY_STATUS=0
@@ -94,7 +94,7 @@ else
     echo "RESULT: C++ double-precision port DOES NOT match the JS reference -- fix src/orbitals.cpp / src/pointcloud.cpp before trusting anything else."
 fi
 if [ "$F32_STATUS" -ne 0 ] || [ "$POINTS_F32_STATUS" -ne 0 ]; then
-    echo "NOTE: C++ float precision diverges beyond the informational tolerance for some cases (see Pass 2/4 above) -- expected for some (n,l) combos, especially points near a rejection-sampling accept/reject boundary; review before relying on them on real hardware."
+    echo "NOTE: C++ float precision diverges beyond the informational tolerance for some cases (see Pass 2/4 above) -- expected for some (n,l) combos, in particular the CDF table build's running cumulative sum (~1001 float32 additions) accumulating more rounding than a per-point evaluation would; review before relying on them on real hardware."
 fi
 if [ "$HAVE_MPY" -eq 1 ]; then
     if [ "$MPY_STATUS" -eq 0 ] && [ "$POINTS_MPY_STATUS" -eq 0 ]; then

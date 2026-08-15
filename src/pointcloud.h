@@ -1,26 +1,27 @@
-// Rejection-sampled point cloud generation for hydrogen orbitals, built on
-// top of the wavefunction engine in orbitals.h. This is the M2 step
-// mentioned in CLAUDE.md §5/§7: given a validated psiReal(), draw points
-// (x, y, z) distributed according to the probability density
+// Point cloud generation for hydrogen orbitals, built on top of the
+// wavefunction engine in orbitals.h. This is the M2 step mentioned in
+// CLAUDE.md §5/§7: given a validated psiReal(), draw points (x, y, z)
+// distributed according to the probability density
 // |psi_{n,l,m}(r,theta,phi)|^2 * r^2 * sin(theta) (the r^2*sin(theta) factor
 // is the spherical-coordinates volume element, so points end up distributed
 // in *physical* probability, not just where |psi| happens to be large).
 //
-// Samples r, theta, phi as three INDEPENDENT rejection samplers rather than
-// one joint 3D rejection sampler. This is exact, not an approximation: the
-// target density factors as
+// Samples r, theta, phi from three INDEPENDENT precomputed inverse-CDF
+// (quantile) tables rather than rejection sampling. This is exact, not an
+// approximation: the target density factors as
 //   |psi|^2 * r^2 * sin(theta) = [r*R(r)]^2 * [P_l^m(theta)^2*sin(theta)] * azimuthal(phi)^2
 // i.e. a product of three single-variable functions, so sampling each
 // marginal independently and combining the results reproduces the joint
-// density exactly. It's also much faster: a joint 3D rejection sampler's
-// acceptance rate is the *product* of what each axis's rate would be alone
-// (measured ~2% for a demanding orbital, i.e. ~50 wasted attempts per
-// accepted point, each paying for a full R(r)*P(theta) evaluation); sampling
-// the axes separately needs only the sum of each axis's much higher
-// individual attempt count, and each attempt is cheaper too (evaluates only
-// R(r) or only P(theta), never both). See tools/orbitals_host/README.md for
-// the measured numbers that motivated this (a prior joint-sampling version
-// is preserved in git history).
+// density exactly (same factorization a prior separable-rejection version
+// used -- preserved in git history -- exploited). Each marginal's inverse
+// CDF is built once per orbital with a single monotonic forward sweep (no
+// per-point search), so sampling a point costs exactly three table lookups
+// (interpolated, O(1)) plus the trig to convert to Cartesian -- no rejection
+// loop anywhere, so no variance in per-point cost. This refines an earlier
+// per-axis *rejection* version (also preserved in git history) the same way
+// stef1949/Electron-Orbital-Simulator's GPU sampler does it: precompute the
+// inverse function itself, not just the CDF, so there's no search at sample
+// time either.
 //
 // Same three-way porting/cross-check discipline as orbitals.h: this is pure
 // C++17, no Arduino dependency, and uses a small portable PRNG (XorShift32)
@@ -64,26 +65,27 @@ struct OrbitalPoint {
 
 /**
  * Precomputed data needed to repeatedly sample a given (n, ell, m) orbital
- * without recomputing coefficients/tables/bounds on every draw. Build once
- * with initOrbitalSampler(), then pass to sampleOrbitalPoint() as many times
- * as needed.
+ * without recomputing anything on every draw. Build once with
+ * initOrbitalSampler(), then pass to sampleOrbitalPoint() as many times as
+ * needed. n/ell/m are kept only as caller-convenience metadata (e.g. for a
+ * UI label) -- sampling itself never needs them again once the tables below
+ * are built.
  */
 struct OrbitalSampler {
     int n, ell, m;
-    orb_real_t radialCoeff[kOrbitalNMax];
-    orb_real_t legendreCoeff[kOrbitalEllMax + 1];
-    orb_real_t maxR;          // r is sampled uniformly in [0, maxR] (= 6*n*n, see orbitals.h).
-    orb_real_t maxRWeight;    // Upper bound on [r*R(r)]^2, the r-marginal's rejection envelope.
-    orb_real_t maxThetaWeight; // Upper bound on P_l^m(theta)^2*sin(theta), the theta-marginal's envelope.
+    orb_real_t maxR;                             // r ranges over [0, maxR] (= 6*n*n, see orbitals.h).
+    orb_real_t invRTable[kOrbitalTableSize];      // Inverse CDF of [r*R(r)]^2: invRTable[k] = r at quantile k/(N-1).
+    orb_real_t invThetaTable[kOrbitalTableSize];  // Inverse CDF of P_l^m(theta)^2*sin(theta), same convention.
+    orb_real_t invPhiTable[kOrbitalTableSize];    // Inverse CDF of azimuthal(phi)^2, same convention.
 };
 
 /**
- * Precompute an OrbitalSampler for (n, ell, m): coefficients (via
- * laguerreCoeffs()/legendreCoeffs()) plus valid upper bounds for each
- * marginal's rejection envelope, obtained from the peak magnitudes of
- * buildRadialTable()'s r*R(r) and buildLegendreTable()'s
- * P_l^m(theta)^2*sin(theta) (each padded by a small safety margin to guard
- * against the true continuous peak falling between two tabulated points).
+ * Precompute an OrbitalSampler for (n, ell, m): builds the three inverse-CDF
+ * tables above from buildRadialTable()'s r*R(r), buildLegendreTable()'s
+ * P_l^m(theta), and the azimuthal factor cos(m*phi)/sin(|m|*phi) (evaluated
+ * directly, no separate table dependency). Each inverse table is built with
+ * a single monotonic forward sweep over the (already monotonic) CDF, so
+ * this is O(kOrbitalTableSize) per axis, not O(n log n).
  *
  * @param sampler  [out] Sampler state to initialize.
  * @param n        Principal quantum number.
@@ -94,22 +96,16 @@ void initOrbitalSampler(OrbitalSampler* sampler, int n, int ell, int m);
 
 /**
  * Draw one point from the (r, theta, phi) probability density
- * |psi_{n,l,m}|^2 * r^2 * sin(theta) by sampling r, theta and phi as three
- * independent 1D rejection samplers (see the file header for why this is
- * exact, not an approximation). Draw order per point is: resolve r (a
- * rejection loop against [r*R(r)]^2), then resolve theta (a rejection loop
- * against P_l^m(theta)^2*sin(theta)), then resolve phi (uniform directly if
- * m==0, since the azimuthal factor is then constant; otherwise a rejection
- * loop against cos^2(m*phi) or sin^2(m*phi)) -- mirrored exactly in
- * micropython/pointcloud.py and tools/orbitals_host/js_reference.js so the
- * same seed produces the same accepted point.
+ * |psi_{n,l,m}|^2 * r^2 * sin(theta) via inverse-CDF (quantile) sampling:
+ * one uniform draw per axis, mapped through that axis's precomputed inverse
+ * table via linear interpolation (getValueFromLookupTable()). Always
+ * exactly 3 RNG draws per point, in the fixed order (r, theta, phi) --
+ * mirrored exactly in micropython/pointcloud.py and
+ * tools/orbitals_host/js_reference.js so the same seed produces the same
+ * point.
  *
- * @param sampler      Sampler state produced by initOrbitalSampler().
- * @param rng          PRNG state, advanced by this call.
- * @param maxAttempts  Safety cap on each axis's rejection-loop iterations;
- *                     if exceeded for a given axis (which should not happen
- *                     for correctly computed bounds), that axis falls back
- *                     to its last-drawn candidate value.
- * @return              An accepted point in Cartesian coordinates.
+ * @param sampler  Sampler state produced by initOrbitalSampler().
+ * @param rng      PRNG state, advanced by this call.
+ * @return          A point in Cartesian coordinates.
  */
-OrbitalPoint sampleOrbitalPoint(const OrbitalSampler* sampler, XorShift32* rng, int maxAttempts = 100000);
+OrbitalPoint sampleOrbitalPoint(const OrbitalSampler* sampler, XorShift32* rng);
