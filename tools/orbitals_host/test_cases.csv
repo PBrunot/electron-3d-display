@@ -1,0 +1,17 @@
+# n,l,m -- quantum numbers for the JS-vs-C++ cross-check.
+# Single source of truth read by both gen_js_reference.js and gen_c_reference.cpp.
+# Coverage: m=0, m=+l (max), m negative, l=0 (s-orbital edge case), the JS
+# file's own default (7,4,2), and a higher n/l case (9,7,3, from the JS
+# "rotating orbital" autosave preset) to stress-test the Laguerre/Legendre
+# recursions before float32 has to do it on the ESP32's FPU.
+1,0,0
+2,0,0
+2,1,0
+2,1,1
+2,1,-1
+3,2,1
+3,2,-2
+4,3,3
+5,0,0
+7,4,2
+9,7,3
