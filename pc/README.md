@@ -51,6 +51,40 @@ keep meaning the same L/R/U/D without needing a separate edit.
 
 Close the window to quit.
 
+## Multi-electron atoms (approximate)
+
+```sh
+python3 pc/atom_main.py [Z]
+```
+
+A separate viewer (`atom_view_pc.py`/`atom_main.py`) for elements beyond
+hydrogen, approximating any atomic number `Z` (default 6, carbon) as a sum
+of hydrogenic subshells: electrons are filled into shells with the simple
+n+l (Madelung) rule, and each occupied subshell gets its own effective
+nuclear charge via Slater's rules (`micropython/slater.py`). A FULL subshell
+is sampled as spherically symmetric (exact per Unsoeld's theorem); a
+partially-filled subshell (e.g. carbon's 2p2) is instead expanded into its
+individually-occupied real orbitals per Hund's rule
+(`slater.hund_fill_m()`) and sampled with the same per-orbital sampler the
+hydrogen presets use — this is what gives partially-filled outer shells
+their real, non-spherical shape (see `micropython/atom_cloud.py`'s module
+docstring for the full reasoning). Points are colored by shell
+(K/L/M/N/...) rather than by wavefunction phase either way.
+
+**Up/Down arrow keys** change the element (Z) live, with the same fly-over
+transition as switching a hydrogen preset. No point-turnover shimmer in this
+mode yet (the cloud is a static mixture of several subshells — see
+`atom_view_pc.py`'s module docstring). Not wired into the ESP32 firmware
+path yet, PC-only for now.
+
+This reuses `micropython/orbitals.py`/`pointcloud.py`'s hydrogenic radial
+math completely unmodified (the Z-dependence is just the variable
+substitution `r -> Z_eff*r` at sampling time, added as new functions
+`pointcloud.init_radial_sampler()`/`sample_isotropic_point()`) — only the
+angular part (no longer a single `(n, ell, m)` orbital's real spherical
+harmonic, but a spherically-averaged subshell) and the multi-subshell
+mixing (`atom_cloud.build_atom_point_cloud()`) are new.
+
 ## Keeping this in sync with the device
 
 The orchestration layer (orbital math, ranking, scale-from-radii,

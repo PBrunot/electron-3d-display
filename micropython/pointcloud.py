@@ -71,6 +71,7 @@ _MASK32 = 0xFFFFFFFF
 
 _sin = math.sin
 _cos = math.cos
+_sqrt = math.sqrt
 _pi = math.pi
 
 # Stable function references, cached at module scope to avoid an
@@ -171,7 +172,7 @@ def _build_inverse_cdf(weight, domain_max):
 
 
 @micropython.native
-def init_orbital_sampler(n, ell, m):
+def init_orbital_sampler(n, ell, m, z_eff=1.0):
     """Precompute an OrbitalSampler for (n, ell, m): builds the three
     inverse-CDF tables above from orbitals.hydrogen_radial_function()'s
     r*R(r), orbitals.compute_plm()'s P_l^m(theta), and the azimuthal factor
@@ -182,6 +183,13 @@ def init_orbital_sampler(n, ell, m):
         n: Principal quantum number.
         ell: Angular momentum quantum number, 0 <= ell <= n-1.
         m: Magnetic quantum number, -ell <= m <= ell.
+        z_eff: Effective nuclear charge (see slater.py), default 1.0 (plain
+            hydrogen, unchanged behavior). Only the RADIAL table is
+            affected -- same r -> z_eff*r substitution and max_r=6n^2/z_eff
+            shrink as init_radial_sampler() below; the angular tables never
+            depend on Z at all (a hydrogenic wavefunction's angular part
+            doesn't change with nuclear charge, only its radial extent
+            does), so theta/phi are untouched.
 
     Returns:
         An OrbitalSampler ready for sample_orbital_point().
@@ -193,14 +201,14 @@ def init_orbital_sampler(n, ell, m):
     sin = _sin
     cos = _cos
 
-    max_r = 6 * n * n
+    max_r = 6 * n * n / z_eff
     table_size = orbitals.TABLE_SIZE
 
     delta_r = max_r / (table_size - 1)
     r_weight = array.array('d', bytes(8 * table_size))
     for i in range(table_size):
         r = i * delta_r
-        radial = radial_fn(r, n, ell, radial_coeff)
+        radial = radial_fn(z_eff * r, n, ell, radial_coeff)
         r_weight[i] = (r * radial) * (r * radial)
     inv_r_table = _build_inverse_cdf(r_weight, max_r)
 
@@ -254,4 +262,66 @@ def sample_orbital_point(sampler, rng):
     x = r * sin_theta * _cos(phi)
     y = r * sin_theta * _sin(phi)
     z = r * _cos(theta)
+    return x, y, z
+
+
+@micropython.native
+def init_radial_sampler(n, ell, z_eff=1.0):
+    """Build just the radial inverse-CDF table used by
+    sample_isotropic_point() below, for a hydrogenic subshell (n, ell)
+    scaled by effective nuclear charge z_eff (see slater.py) instead of the
+    real bound electron this module otherwise assumes. The Z-dependence of a
+    hydrogenic radial function is exactly the variable substitution
+    r -> z_eff*r (see slater.py's module docstring) -- orbitals.py itself
+    needs no change for this, only the r fed into it here and the covered
+    range (denser/closer-in wavefunctions need a smaller max_r to keep the
+    same table resolution).
+
+    No angular table here -- unlike init_orbital_sampler(), this never
+    touches legendre_coeffs()/m at all: atom_cloud.py samples direction
+    uniformly over the sphere instead (see sample_isotropic_point()).
+
+    Returns (inv_r_table, max_r): max_r is kept only as caller-facing
+    metadata (e.g. for a UI/debug readout) -- sample_isotropic_point() only
+    needs inv_r_table, same as sample_orbital_point() never reads
+    sampler.max_r either.
+    """
+    coeff = orbitals.laguerre_coeffs(n, ell)
+    radial_fn = _hydrogen_radial_function
+
+    max_r = 6 * n * n / z_eff
+    table_size = orbitals.TABLE_SIZE
+    delta_r = max_r / (table_size - 1)
+    r_weight = array.array('d', bytes(8 * table_size))
+    for i in range(table_size):
+        r = i * delta_r
+        radial = radial_fn(z_eff * r, n, ell, coeff)
+        r_weight[i] = (r * radial) * (r * radial)
+    inv_r_table = _build_inverse_cdf(r_weight, max_r)
+    return inv_r_table, max_r
+
+
+@micropython.native
+def sample_isotropic_point(inv_r_table, rng):
+    """Draw one point from a spherically-symmetric density whose radial part
+    is inv_r_table (from init_radial_sampler()) and whose angular part is
+    uniform over the sphere -- the spherically-averaged-subshell
+    approximation atom_cloud.py uses for multi-electron atoms. Exact for a
+    FULL subshell (Unsoeld's theorem: summing |Y_l^m|^2 over every m in a
+    full subshell gives a constant); used here as an approximation for
+    partially-filled subshells too -- see atom_cloud.py's module docstring.
+
+    Same 3-draws-per-point discipline as sample_orbital_point() (radius,
+    then two direction draws via the standard uniform-sphere-point
+    construction: cos(theta) uniform in [-1,1], phi uniform in [0, 2*pi)).
+    """
+    lookup = _get_value_from_lookup_table
+    r = lookup(rng.uniform01(), inv_r_table)
+    cos_theta = 2.0 * rng.uniform01() - 1.0
+    phi = 2.0 * _pi * rng.uniform01()
+    sin_theta = _sqrt(1.0 - cos_theta * cos_theta) if cos_theta * cos_theta < 1.0 else 0.0
+
+    x = r * sin_theta * _cos(phi)
+    y = r * sin_theta * _sin(phi)
+    z = r * cos_theta
     return x, y, z
