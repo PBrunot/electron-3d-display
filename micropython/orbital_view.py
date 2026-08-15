@@ -3,10 +3,24 @@ math/sampling/ranking/point-turnover logic lives in cloud_common.py, shared
 with pc/orbital_view_pc.py -- this module adds everything hardware-specific:
 Q8 fixed-point + viper rendering, framebuf/ST7789 display, nudge/IMU input.
 
-Rendering: orthographic projection, rotation about the vertical (Y) axis
-recomputed from a running angle each frame, no depth-sort/z-buffer (fine for
-a sparse cloud, see CLAUDE.md section 5). Double-buffered via
-framebuf.FrameBuffer + ST7789.blit_buffer().
+Rendering: orthographic projection, three-axis tumble (yaw about Y, tilt
+about X, roll about Z -- each its own running angle, all at different
+non-resonant rates, see ANGLE_STEP/TILT_ANGLE_STEP/ROLL_ANGLE_STEP) applied
+in sequence each frame, no depth-sort/z-buffer (fine for a sparse cloud, see
+CLAUDE.md section 5). Double-buffered via framebuf.FrameBuffer +
+ST7789.blit_buffer().
+
+Why three axes, not two: yaw+tilt alone (an earlier version of this code)
+still left a real artifact -- a point's SCREEN-X coordinate, after yaw then
+tilt, works out to `x*cos(yaw) + z*sin(yaw)` alone (tilt is a rotation about
+X, which by definition never changes a point's X coordinate). So any point
+near the world Y axis (small x, z -- e.g. the core of a 2p_y or 3d_x2-y2
+lobe) stays pinned to the vertical screen centerline for *every* combination
+of yaw and tilt, no matter how long you wait -- a persistent streak, not a
+transient one. Two single-axis rotations only ever span a 2-parameter
+subfamily of SO(3); a third independent axis (roll) is what actually
+guarantees no point is invariant in any screen coordinate (verified: adding
+roll makes that same near-Y-axis point's screen-X vary freely).
 
 Byte-order gotcha: framebuf's RGB565 storage is little-endian, but the panel
 expects big-endian pixels (st7789py's _ENCODE_PIXEL = ">H", needs_swap=False
@@ -64,6 +78,20 @@ FX_SCALE = 1 << FX_BITS  # Q8 fixed-point scale factor, see module docstring
 ANGLE_STEP = 0.030
 FRAME_DELAY_MS = 5
 ZOOM_ANGLE_STEP = 0.016  # breathing zoom's angular speed; independent phase from ANGLE_STEP
+TILT_ANGLE_STEP = 0.023   # second (X-axis) rotation's angular speed. Kept close to ANGLE_STEP
+                           # (not much slower) on purpose: with tilt=roll=0, a point's screen-Y
+                           # depends only on tilt+roll, NOT on yaw at all -- so if tilt/roll lag
+                           # far behind yaw, axis-aligned lobes (e.g. 3d_x2-y2's) sit still for
+                           # the first second or two while yaw visibly spins everything else,
+                           # reading as "a fixed axis that doesn't rotate" even though it does
+                           # eventually. Non-resonant vs. ANGLE_STEP/ROLL_ANGLE_STEP so the
+                           # tumble doesn't fall into a short repeating loop.
+ROLL_ANGLE_STEP = 0.017   # third (Z-axis) rotation's angular speed -- required, not cosmetic,
+                           # see module docstring's "why three axes, not two". Also kept close
+                           # to ANGLE_STEP for the same "don't lag behind yaw" reason.
+_TILT_ANGLE_START = 0.9   # tilt_angle/roll_angle start away from the degenerate all-zero pose
+_ROLL_ANGLE_START = 2.1   # (where yaw alone can't move axis-aligned lobes at all), so even
+                           # the first frame after boot isn't axis-locked
 
 # Fly-over (see _fly_over()): camera starts at base_scale * factor and eases
 # to base_scale over `frames` frames. Boot intro is slower/more dramatic
@@ -102,10 +130,10 @@ def swap16(color565):
     return ((color565 & 0xFF) << 8) | (color565 >> 8)
 
 
-def _encode_color(level):
-    # r, g, b = ... then color565(r, g, b), NOT color565(*level_to_rgb(level)) --
+def _encode_color(level, sign):
+    # r, g, b = ... then color565(r, g, b), NOT color565(*level_to_rgb(level, sign)) --
     # star-unpacking measured ~4x slower here (matters: called once per point).
-    r, g, b = cloud_common.level_to_rgb(level)
+    r, g, b = cloud_common.level_to_rgb(level, sign)
     return swap16(st7789.color565(r, g, b))
 
 
@@ -130,7 +158,7 @@ class PresetState:
         print("orbital: loading preset %d (%s, n=%d l=%d m=%d)..." % (index, label, n, ell, m))
         t0 = time.ticks_ms()
 
-        xs, ys, zs, psi2, sampler, rng, radial_coeff, legendre_coeff = cloud_common.build_point_cloud(n, ell, m)
+        xs, ys, zs, psi2, signs, sampler, rng, radial_coeff, legendre_coeff = cloud_common.build_point_cloud(n, ell, m)
         levels, psi2_sorted = cloud_common.compute_levels(psi2)
 
         self.xs, self.ys, self.zs = xs, ys, zs
@@ -139,7 +167,7 @@ class PresetState:
         self.zs_fx = _to_fixed(zs)
         self.colors = array.array('H', bytes(2 * len(levels)))
         for i in range(len(levels)):
-            self.colors[i] = _encode_color(levels[i])
+            self.colors[i] = _encode_color(levels[i], signs[i])
 
         self.title = cloud_common.title_for_preset(cloud_common.ORBITAL_PRESETS[index])
         self.base_scale, self.zoom_amplitude, _r_ref = cloud_common.scale_from_radii(xs, ys, zs)
@@ -153,24 +181,40 @@ class PresetState:
         """Point turnover (see CULL_FRACTION/CULL_REFRESH_FRAMES): redraw
         `count` points from the same distribution, in place.
         """
-        for idx, level in cloud_common.resample_levels(self.resample_state, self.xs, self.ys, self.zs, count):
+        for idx, level, sign in cloud_common.resample_levels(self.resample_state, self.xs, self.ys, self.zs, count):
             if level > cloud_common.COLOR_MAX_LEVEL:
                 level = cloud_common.COLOR_MAX_LEVEL  # see resample_levels()'s docstring
             self.xs_fx[idx] = int(self.xs[idx] * FX_SCALE)
             self.ys_fx[idx] = int(self.ys[idx] * FX_SCALE)
             self.zs_fx[idx] = int(self.zs[idx] * FX_SCALE)
-            self.colors[idx] = _encode_color(level)
+            self.colors[idx] = _encode_color(level, sign)
 
 
 @micropython.viper
-def _render_points(buf, xs, ys, zs, colors, n: int, cos_fx: int, sin_fx: int, scale_fx: int,
+def _render_points(buf, xs, ys, zs, colors, n: int,
+                    cos_y_fx: int, sin_y_fx: int, cos_x_fx: int, sin_x_fx: int,
+                    cos_z_fx: int, sin_z_fx: int, scale_fx: int,
                     cx: int, cy: int, w: int, h: int, frame_salt: int, buzz_threshold: int):
-    """Rotate, project, and draw every point directly into `buf` -- Q8
-    fixed-point only (see module docstring: viper can't do float->int here).
-    Shift amounts (8, 16) are literal ints, not the FX_BITS constant --
-    referencing a module global from inside viper yields a boxed 'object',
-    which can't mix with viper's native int arithmetic; keep in sync with
-    FX_BITS by hand if it ever changes.
+    """Rotate (yaw about Y, tilt about X, roll about Z -- all three needed,
+    see module docstring), project, and draw every point directly into
+    `buf` -- Q8 fixed-point only (see module docstring: viper can't do
+    float->int here). Shift amounts (8, 16) are literal ints, not the
+    FX_BITS constant -- referencing a module global from inside viper yields
+    a boxed 'object', which can't mix with viper's native int arithmetic;
+    keep in sync with FX_BITS by hand if it ever changes.
+
+    Depth after yaw (rz1) is computed only to feed the tilt step, then
+    dropped -- rendering stays depth-sort-free (see CLAUDE.md section 5), so
+    the post-tilt/post-roll depth is never needed either.
+
+    Every `>> N` here is preceded by `+ (1 << (N-1))` (128 for the >>8 steps,
+    32768 for the final >>16): plain `>>` on a signed int is a floor (rounds
+    toward -inf), not round-to-nearest, so without the offset every stage
+    would be systematically biased low. The float-side equivalent of this
+    (`int()` truncating toward zero in pc/orbital_view_pc.py's render_frame)
+    was measured to bias points about 6-15% toward the screen's horizontal/
+    vertical centerlines vs. the diagonals -- fixed there with round();
+    this is the fixed-point way to remove the same class of bias.
 
     "Buzz" (see BUZZ_FRACTION in cloud_common.py): hv is a cheap
     multiplicative hash (668265261/374761393 -- Bob Jenkins'/xxHash's
@@ -192,18 +236,22 @@ def _render_points(buf, xs, ys, zs, colors, n: int, cos_fx: int, sin_fx: int, sc
             x = pxs[i]
             y = pys[i]
             z = pzs[i]
-            rx = (x * cos_fx + z * sin_fx) >> 8
-            sx = cx + ((rx * scale_fx) >> 16)
-            sy = cy - ((y * scale_fx) >> 16)
+            rx1 = (x * cos_y_fx + z * sin_y_fx + 128) >> 8
+            rz1 = (z * cos_y_fx - x * sin_y_fx + 128) >> 8
+            ry2 = (y * cos_x_fx - rz1 * sin_x_fx + 128) >> 8
+            rx3 = (rx1 * cos_z_fx - ry2 * sin_z_fx + 128) >> 8
+            ry3 = (rx1 * sin_z_fx + ry2 * cos_z_fx + 128) >> 8
+            sx = cx + ((rx3 * scale_fx + 32768) >> 16)
+            sy = cy - ((ry3 * scale_fx + 32768) >> 16)
             if sx >= 0 and sx < w and sy >= 0 and sy < h:
                 pbuf[(h - 1 - sy) * w + (w - 1 - sx)] = pcolors[i]
         i += 1
 
 
-def _render_frame(fb, buf, preset, proton_color, angle, scale, frame_salt=0):
+def _render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, frame_salt=0):
     """Clear, draw the proton marker (via framebuf -- cheap, not
-    once-per-point), then every point in `preset` at `angle`/`scale`.
-    Shared by _fly_over() and run()'s steady-state loop.
+    once-per-point), then every point in `preset` at `angle`/`tilt_angle`/
+    `roll_angle`/`scale`. Shared by _fly_over() and run()'s steady-state loop.
     """
     w1 = WIDTH - 1
     h1 = HEIGHT - 1
@@ -213,32 +261,45 @@ def _render_frame(fb, buf, preset, proton_color, angle, scale, frame_salt=0):
     proton_y = CENTER - PROTON_SIZE // 2
     fb.fill_rect(w1 - proton_x, h1 - proton_y, PROTON_SIZE, PROTON_SIZE, proton_color)
 
-    cos_fx = int(math.cos(angle) * FX_SCALE)
-    sin_fx = int(math.sin(angle) * FX_SCALE)
+    cos_y_fx = int(math.cos(angle) * FX_SCALE)
+    sin_y_fx = int(math.sin(angle) * FX_SCALE)
+    cos_x_fx = int(math.cos(tilt_angle) * FX_SCALE)
+    sin_x_fx = int(math.sin(tilt_angle) * FX_SCALE)
+    cos_z_fx = int(math.cos(roll_angle) * FX_SCALE)
+    sin_z_fx = int(math.sin(roll_angle) * FX_SCALE)
     scale_fx = int(scale * FX_SCALE)
     buzz_threshold = int(cloud_common.BUZZ_FRACTION * 65536)
     _render_points(buf, preset.xs_fx, preset.ys_fx, preset.zs_fx, preset.colors, len(preset.xs_fx),
-                    cos_fx, sin_fx, scale_fx, CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold)
+                    cos_y_fx, sin_y_fx, cos_x_fx, sin_x_fx, cos_z_fx, sin_z_fx, scale_fx,
+                    CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold)
 
 
-def _fly_over(d, fb, buf, preset, proton_color, text_color, angle, start_scale, end_scale, frames):
+def _fly_over(d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+              start_scale, end_scale, frames):
     """Ease the projection scale from start_scale to end_scale over `frames`
     frames, rendering+blitting each one. Shared by the boot intro,
     nudge-triggered switches, and random zoom excursions. Returns the
-    running `angle` so rotation continues smoothly afterward.
+    running (angle, tilt_angle, roll_angle) so rotation continues smoothly
+    afterward.
     """
     two_pi = 2 * math.pi
     for i in range(frames):
         t = i / (frames - 1) if frames > 1 else 1.0
         scale = start_scale + (end_scale - start_scale) * t
-        _render_frame(fb, buf, preset, proton_color, angle, scale, i)
+        _render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, i)
         fb.text(preset.title, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
         angle += ANGLE_STEP
         if angle >= two_pi:
             angle -= two_pi
+        tilt_angle += TILT_ANGLE_STEP
+        if tilt_angle >= two_pi:
+            tilt_angle -= two_pi
+        roll_angle += ROLL_ANGLE_STEP
+        if roll_angle >= two_pi:
+            roll_angle -= two_pi
         time.sleep_ms(FRAME_DELAY_MS)
-    return angle
+    return angle, tilt_angle, roll_angle
 
 
 def _init_nudge_detector():
@@ -287,11 +348,14 @@ def run():
     detector = _init_nudge_detector()
 
     angle = 0.0
+    tilt_angle = _TILT_ANGLE_START
+    roll_angle = _ROLL_ANGLE_START
     zoom_angle = 0.0
     two_pi = 2 * math.pi
 
-    angle = _fly_over(d, fb, buf, preset, proton_color, text_color,
-                       angle, preset.base_scale * INTRO_START_SCALE_FACTOR, preset.base_scale, INTRO_FRAMES)
+    angle, tilt_angle, roll_angle = _fly_over(
+        d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+        preset.base_scale * INTRO_START_SCALE_FACTOR, preset.base_scale, INTRO_FRAMES)
 
     fps_text = "FPS: --"
     frame_count = 0
@@ -325,9 +389,10 @@ def run():
                     preset = PresetState(preset_index)
                     cull_count = max(1, int(len(preset.xs) * cloud_common.CULL_FRACTION))
                     cull_frame_count = 0
-                    angle = _fly_over(d, fb, buf, preset, proton_color, text_color, angle,
-                                       preset.base_scale * SWITCH_START_SCALE_FACTOR, preset.base_scale,
-                                       SWITCH_TRANSITION_FRAMES)
+                    angle, tilt_angle, roll_angle = _fly_over(
+                        d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+                        preset.base_scale * SWITCH_START_SCALE_FACTOR, preset.base_scale,
+                        SWITCH_TRANSITION_FRAMES)
 
         # Random zoom excursion: pause breathing, fly to a random scale and
         # back (see ZOOM_EXCURSION_*). zoom_angle resets to 0 after --
@@ -339,10 +404,12 @@ def run():
             current_scale = preset.base_scale + preset.zoom_amplitude * math.sin(zoom_angle)
             target_scale = preset.base_scale * random.uniform(ZOOM_EXCURSION_SCALE_MIN_FACTOR,
                                                                 ZOOM_EXCURSION_SCALE_MAX_FACTOR)
-            angle = _fly_over(d, fb, buf, preset, proton_color, text_color, angle,
-                               current_scale, target_scale, ZOOM_EXCURSION_EASE_FRAMES)
-            angle = _fly_over(d, fb, buf, preset, proton_color, text_color, angle,
-                               target_scale, preset.base_scale, ZOOM_EXCURSION_EASE_FRAMES)
+            angle, tilt_angle, roll_angle = _fly_over(
+                d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+                current_scale, target_scale, ZOOM_EXCURSION_EASE_FRAMES)
+            angle, tilt_angle, roll_angle = _fly_over(
+                d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+                target_scale, preset.base_scale, ZOOM_EXCURSION_EASE_FRAMES)
             zoom_angle = 0.0
             zoom_excursion_countdown = _next_zoom_excursion_countdown()
             continue
@@ -353,7 +420,7 @@ def run():
             cull_frame_count = 0
 
         scale = preset.base_scale + preset.zoom_amplitude * math.sin(zoom_angle)
-        _render_frame(fb, buf, preset, proton_color, angle, scale, buzz_frame)
+        _render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, buzz_frame)
         buzz_frame = buzz_frame + 1 if buzz_frame < 1_000_000 else 0
         fb.text(preset.title, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
         fb.text(fps_text, FPS_TEXT_POS[0], FPS_TEXT_POS[1], text_color)
@@ -372,6 +439,12 @@ def run():
         angle += ANGLE_STEP
         if angle >= two_pi:
             angle -= two_pi
+        tilt_angle += TILT_ANGLE_STEP
+        if tilt_angle >= two_pi:
+            tilt_angle -= two_pi
+        roll_angle += ROLL_ANGLE_STEP
+        if roll_angle >= two_pi:
+            roll_angle -= two_pi
         zoom_angle += ZOOM_ANGLE_STEP
         if zoom_angle >= two_pi:
             zoom_angle -= two_pi
