@@ -154,11 +154,22 @@ function psiReal(r, theta, phi, n, ell, m) {
 
 // ---- rejection-sampled point cloud (M2) -- not from the original file ----
 //
+// Samples r, theta, phi as three INDEPENDENT rejection samplers rather than
+// one joint 3D rejection sampler. This is exact, not an approximation: the
+// target density factors as
+//   |psi|^2 * r^2 * sin(theta) = [r*R(r)]^2 * [P_l^m(theta)^2*sin(theta)] * azimuthal(phi)^2
+// i.e. a product of three single-variable functions, so sampling each
+// marginal independently and combining the results reproduces the joint
+// density exactly -- and much faster, since a joint sampler's acceptance
+// rate is the *product* of what each axis's rate would be alone. See
+// tools/orbitals_host/README.md for the measured numbers that motivated
+// this (a prior joint-sampling version is preserved in git history).
+//
 // Mirrored bit-for-bit in src/pointcloud.h/.cpp and micropython/pointcloud.py
 // so that, given the same seed, all three ports produce the *same* sequence
 // of accepted points (see tools/orbitals_host/README.md).
 
-// Multiplies the tabulated peak-magnitude bound by a small margin, since the
+// Multiplies each tabulated peak-magnitude bound by a small margin, since the
 // true continuous peak of a smooth function can fall between two of the
 // TABLE_SIZE tabulated points. Not a rigorous guarantee, but ample for a
 // point-cloud visualization. Mirrored exactly (same literal) in
@@ -189,64 +200,103 @@ XorShift32.prototype.uniform01 = function () {
 
 // Precompute an "OrbitalSampler" for (n, ell, m): sets the module-level
 // legendreCoeff/laguerreCoeff (via initLegendreCoeffs/initLaguerreCoeffs, as
-// psiReal() reads them implicitly) plus a valid upper bound on the target
-// density, obtained from the peak magnitudes of initLookupTableRadial()'s
-// r*R(r) and initLookupTable()'s P_l^m(theta) (each padded by
-// DENSITY_BOUND_MARGIN).
+// computePLM()/hydrogenRadialFunction() read them implicitly) plus valid
+// upper bounds for each marginal's rejection envelope, obtained from the
+// peak magnitudes of initLookupTableRadial()'s r*R(r) and initLookupTable()'s
+// P_l^m(theta)^2*sin(theta) (each padded by DENSITY_BOUND_MARGIN).
 function initOrbitalSampler(n, ell, m) {
     initLegendreCoeffs(ell, m);
     initLaguerreCoeffs(n, ell);
 
     var radial = initLookupTableRadial(n, ell, 1001);
     var deltaR = radial.maxR / (radial.table.length - 1);
-    var maxRr = 0;
+    var maxRWeight = 0;
     for (var i = 0; i < radial.table.length; i++) {
-        var rr = Math.abs(radial.table[i] * (i * deltaR));
-        if (rr > maxRr) maxRr = rr;
+        var rr = radial.table[i] * (i * deltaR);
+        var w = rr * rr;
+        if (w > maxRWeight) maxRWeight = w;
     }
+    maxRWeight *= DENSITY_BOUND_MARGIN;
 
     var legendreTable = initLookupTable(ell, m, 1001);
-    var maxP = 0;
+    var deltaTheta = Math.PI / (legendreTable.length - 1);
+    var maxThetaWeight = 0;
     for (var j = 0; j < legendreTable.length; j++) {
-        var p = Math.abs(legendreTable[j]);
-        if (p > maxP) maxP = p;
+        var theta = j * deltaTheta;
+        var w2 = legendreTable[j] * legendreTable[j] * Math.sin(theta);
+        if (w2 > maxThetaWeight) maxThetaWeight = w2;
     }
+    maxThetaWeight *= DENSITY_BOUND_MARGIN;
 
     return {
         n: n,
         ell: ell,
         m: m,
         maxR: radial.maxR,
-        densityBound: maxRr * maxRr * maxP * maxP * DENSITY_BOUND_MARGIN,
+        maxRWeight: maxRWeight,
+        maxThetaWeight: maxThetaWeight,
     };
 }
 
+// Rejection-sample r against the r-marginal density [r*R(r)]^2.
+function sampleR(sampler, rng, maxAttempts) {
+    var r = 0;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+        r = rng.uniform01() * sampler.maxR;
+        var u = rng.uniform01() * sampler.maxRWeight;
+        var R = hydrogenRadialFunction(r, sampler.n, sampler.ell);
+        var weight = (r * R) * (r * R);
+        if (u <= weight) break;
+    }
+    return r;
+}
+
+// Rejection-sample theta against P_l^m(theta)^2*sin(theta).
+function sampleTheta(sampler, rng, maxAttempts) {
+    var theta = 0;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+        theta = rng.uniform01() * Math.PI;
+        var u = rng.uniform01() * sampler.maxThetaWeight;
+        var P = computePLM(theta, sampler.ell, sampler.m);
+        var weight = P * P * Math.sin(theta);
+        if (u <= weight) break;
+    }
+    return theta;
+}
+
+// Sample phi: uniform directly when m==0 (azimuthal factor is constant 1, no
+// rejection needed), otherwise rejection-sample against cos^2(m*phi) /
+// sin^2(m*phi) (envelope 1, so this needs ~2 attempts on average).
+function samplePhi(sampler, rng, maxAttempts) {
+    var phi = rng.uniform01() * (2 * Math.PI);
+    if (sampler.m === 0) return phi;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+        phi = rng.uniform01() * (2 * Math.PI);
+        var u = rng.uniform01();
+        var azimuthal = (sampler.m >= 0) ? Math.cos(sampler.m * phi) : Math.sin(-sampler.m * phi);
+        if (u <= azimuthal * azimuthal) break;
+    }
+    return phi;
+}
+
 // Draw one point from the (r, theta, phi) probability density
-// |psi_{n,l,m}|^2 * r^2 * sin(theta) via rejection sampling. Fixed draw
-// order (r, theta, phi, u) per attempt -- mirrored exactly in the C++ and
-// MicroPython ports so identical seeds produce identical accept/reject
-// sequences and identical accepted points.
+// |psi_{n,l,m}|^2 * r^2 * sin(theta) by sampling r, theta and phi as three
+// independent 1D rejection samplers (see the section header above for why
+// this is exact, not an approximation). Draw order per point is: resolve r,
+// then theta, then phi -- mirrored exactly in the C++ and MicroPython ports
+// so identical seeds produce identical accepted points.
 function sampleOrbitalPoint(sampler, rng, maxAttempts) {
     maxAttempts = maxAttempts || 100000;
-    for (var attempt = 0; attempt < maxAttempts; attempt++) {
-        var r = rng.uniform01() * sampler.maxR;
-        var theta = rng.uniform01() * Math.PI;
-        var phi = rng.uniform01() * (2 * Math.PI);
-        var u = rng.uniform01() * sampler.densityBound;
+    var r = sampleR(sampler, rng, maxAttempts);
+    var theta = sampleTheta(sampler, rng, maxAttempts);
+    var phi = samplePhi(sampler, rng, maxAttempts);
 
-        var psi = psiReal(r, theta, phi, sampler.n, sampler.ell, sampler.m);
-        var density = (psi * r) * (psi * r) * Math.sin(theta);
-
-        if (u <= density) {
-            var sinTheta = Math.sin(theta);
-            return {
-                x: r * sinTheta * Math.cos(phi),
-                y: r * sinTheta * Math.sin(phi),
-                z: r * Math.cos(theta),
-            };
-        }
-    }
-    return { x: 0, y: 0, z: 0 };
+    var sinTheta = Math.sin(theta);
+    return {
+        x: r * sinTheta * Math.cos(phi),
+        y: r * sinTheta * Math.sin(phi),
+        z: r * Math.cos(theta),
+    };
 }
 
 module.exports = {
