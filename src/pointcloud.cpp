@@ -2,17 +2,6 @@
 
 #include <cmath>
 
-namespace {
-// Multiplies each tabulated peak-magnitude bound by a small margin, since the
-// true continuous peak of a smooth function can fall between two of the
-// kOrbitalTableSize tabulated points. Not a rigorous guarantee, but ample
-// for a point-cloud visualization (same pragmatic-approximation spirit as
-// the "no z-buffer, approximate painter's sort" choices in CLAUDE.md §5.3).
-// Mirrored exactly (same literal) in micropython/pointcloud.py and
-// tools/orbitals_host/js_reference.js.
-constexpr orb_real_t kDensityBoundMargin = orb_real_t(1.15);
-} // namespace
-
 uint32_t XorShift32::next() {
     uint32_t x = state;
     x ^= x << 13;
@@ -26,93 +15,97 @@ orb_real_t XorShift32::uniform01() {
     return orb_real_t(next()) / orb_real_t(4294967296.0); // 2^32
 }
 
-void initOrbitalSampler(OrbitalSampler* sampler, int n, int ell, int m) {
-    sampler->n = n;
-    sampler->ell = ell;
-    sampler->m = m;
-    laguerreCoeffs(n, ell, sampler->radialCoeff);
-    legendreCoeffs(ell, m, sampler->legendreCoeff);
-
-    orb_real_t radialTable[kOrbitalTableSize];
-    orb_real_t maxR = orb_real_t(0);
-    buildRadialTable(n, ell, radialTable, kOrbitalTableSize, &maxR);
-    sampler->maxR = maxR;
-    orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
-    orb_real_t maxRWeight = orb_real_t(0);
-    for (int i = 0; i < kOrbitalTableSize; i++) {
-        orb_real_t rr = radialTable[i] * (orb_real_t(i) * deltaR);
-        orb_real_t w = rr * rr;
-        if (w > maxRWeight)
-            maxRWeight = w;
-    }
-    sampler->maxRWeight = maxRWeight * kDensityBoundMargin;
-
-    orb_real_t legendreTable[kOrbitalTableSize];
-    buildLegendreTable(ell, m, legendreTable, kOrbitalTableSize);
-    orb_real_t deltaTheta = kOrbitalPi / orb_real_t(kOrbitalTableSize - 1);
-    orb_real_t maxThetaWeight = orb_real_t(0);
-    for (int i = 0; i < kOrbitalTableSize; i++) {
-        orb_real_t theta = orb_real_t(i) * deltaTheta;
-        orb_real_t w = legendreTable[i] * legendreTable[i] * std::sin(theta);
-        if (w > maxThetaWeight)
-            maxThetaWeight = w;
-    }
-    sampler->maxThetaWeight = maxThetaWeight * kDensityBoundMargin;
-}
-
 namespace {
 
-// Rejection-sample r against the r-marginal density [r*R(r)]^2.
-orb_real_t sampleR(const OrbitalSampler* s, XorShift32* rng, int maxAttempts) {
-    orb_real_t r = orb_real_t(0);
-    for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        r = rng->uniform01() * s->maxR;
-        orb_real_t u = rng->uniform01() * s->maxRWeight;
-        orb_real_t R = hydrogenRadialFunction(r, s->n, s->ell, s->radialCoeff);
-        orb_real_t weight = (r * R) * (r * R);
-        if (u <= weight)
-            break;
-    }
-    return r;
-}
+// Given non-negative sample weights of a density over [0, domainMax] taken
+// at `count` evenly spaced points, build the inverse CDF: invTable[k] is the
+// x-value at quantile k/(count-1). weight[] is overwritten in place (used as
+// scratch space for the running cumulative sum) -- callers don't need it
+// afterwards. Both the forward cumulative sum and the inverse lookup below
+// are single monotonic sweeps (the CDF is non-decreasing in i, and the
+// target quantile u is non-decreasing in k), so this is O(count) total, not
+// O(count log count) -- no per-point search survives into sampling either,
+// since invTable is later read directly via getValueFromLookupTable().
+void buildInverseCdf(orb_real_t* weight, int count, orb_real_t domainMax, orb_real_t* invTable) {
+    orb_real_t delta = domainMax / orb_real_t(count - 1);
 
-// Rejection-sample theta against the theta-marginal density P_l^m(theta)^2*sin(theta).
-orb_real_t sampleTheta(const OrbitalSampler* s, XorShift32* rng, int maxAttempts) {
-    orb_real_t theta = orb_real_t(0);
-    for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        theta = rng->uniform01() * kOrbitalPi;
-        orb_real_t u = rng->uniform01() * s->maxThetaWeight;
-        orb_real_t P = computePLM(theta, s->ell, s->m, s->legendreCoeff);
-        orb_real_t weight = P * P * std::sin(theta);
-        if (u <= weight)
-            break;
+    orb_real_t cumulative = orb_real_t(0);
+    for (int i = 0; i < count; i++) {
+        cumulative += weight[i];
+        weight[i] = cumulative; // weight[] now holds the (unnormalized) CDF
     }
-    return theta;
-}
+    orb_real_t total = weight[count - 1];
+    if (total <= orb_real_t(0))
+        total = orb_real_t(1); // degenerate guard; shouldn't occur for valid quantum numbers
+    for (int i = 0; i < count; i++)
+        weight[i] /= total;
 
-// Sample phi: uniform directly when m==0 (azimuthal factor is constant 1, no
-// rejection needed), otherwise rejection-sample against cos^2(m*phi) /
-// sin^2(m*phi) (envelope 1, so this needs ~2 attempts on average).
-orb_real_t samplePhi(const OrbitalSampler* s, XorShift32* rng, int maxAttempts) {
-    orb_real_t phi = rng->uniform01() * (orb_real_t(2) * kOrbitalPi);
-    if (s->m == 0)
-        return phi;
-    for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        phi = rng->uniform01() * (orb_real_t(2) * kOrbitalPi);
-        orb_real_t u = rng->uniform01();
-        orb_real_t azimuthal = (s->m >= 0) ? std::cos(orb_real_t(s->m) * phi) : std::sin(orb_real_t(-s->m) * phi);
-        if (u <= azimuthal * azimuthal)
-            break;
+    int j = 0;
+    for (int k = 0; k < count; k++) {
+        orb_real_t u = orb_real_t(k) / orb_real_t(count - 1);
+        while (j < count - 1 && weight[j] < u)
+            j++;
+        int j0 = j > 0 ? j - 1 : 0;
+        int j1 = j;
+        orb_real_t c0 = weight[j0];
+        orb_real_t c1 = weight[j1];
+        orb_real_t t = (c1 > c0) ? (u - c0) / (c1 - c0) : orb_real_t(0);
+        invTable[k] = (orb_real_t(j0) + t * orb_real_t(j1 - j0)) * delta;
     }
-    return phi;
 }
 
 } // namespace
 
-OrbitalPoint sampleOrbitalPoint(const OrbitalSampler* sampler, XorShift32* rng, int maxAttempts) {
-    orb_real_t r = sampleR(sampler, rng, maxAttempts);
-    orb_real_t theta = sampleTheta(sampler, rng, maxAttempts);
-    orb_real_t phi = samplePhi(sampler, rng, maxAttempts);
+void initOrbitalSampler(OrbitalSampler* sampler, int n, int ell, int m) {
+    sampler->n = n;
+    sampler->ell = ell;
+    sampler->m = m;
+
+    orb_real_t radialCoeff[kOrbitalNMax];
+    laguerreCoeffs(n, ell, radialCoeff);
+    orb_real_t legendreCoeff[kOrbitalEllMax + 1];
+    legendreCoeffs(ell, m, legendreCoeff);
+
+    orb_real_t maxR = orb_real_t(6 * n * n);
+    sampler->maxR = maxR;
+
+    {
+        orb_real_t weight[kOrbitalTableSize];
+        orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
+        for (int i = 0; i < kOrbitalTableSize; i++) {
+            orb_real_t r = orb_real_t(i) * deltaR;
+            orb_real_t R = hydrogenRadialFunction(r, n, ell, radialCoeff);
+            weight[i] = (r * R) * (r * R);
+        }
+        buildInverseCdf(weight, kOrbitalTableSize, maxR, sampler->invRTable);
+    }
+    {
+        orb_real_t weight[kOrbitalTableSize];
+        orb_real_t deltaTheta = kOrbitalPi / orb_real_t(kOrbitalTableSize - 1);
+        for (int i = 0; i < kOrbitalTableSize; i++) {
+            orb_real_t theta = orb_real_t(i) * deltaTheta;
+            orb_real_t P = computePLM(theta, ell, m, legendreCoeff);
+            weight[i] = P * P * std::sin(theta);
+        }
+        buildInverseCdf(weight, kOrbitalTableSize, kOrbitalPi, sampler->invThetaTable);
+    }
+    {
+        orb_real_t weight[kOrbitalTableSize];
+        orb_real_t twoPi = orb_real_t(2) * kOrbitalPi;
+        orb_real_t deltaPhi = twoPi / orb_real_t(kOrbitalTableSize - 1);
+        for (int i = 0; i < kOrbitalTableSize; i++) {
+            orb_real_t phi = orb_real_t(i) * deltaPhi;
+            orb_real_t azimuthal = (m >= 0) ? std::cos(orb_real_t(m) * phi) : std::sin(orb_real_t(-m) * phi);
+            weight[i] = azimuthal * azimuthal; // m==0 -> constant 1, degenerates to a uniform phi distribution
+        }
+        buildInverseCdf(weight, kOrbitalTableSize, twoPi, sampler->invPhiTable);
+    }
+}
+
+OrbitalPoint sampleOrbitalPoint(const OrbitalSampler* sampler, XorShift32* rng) {
+    orb_real_t r = getValueFromLookupTable(rng->uniform01(), sampler->invRTable, kOrbitalTableSize);
+    orb_real_t theta = getValueFromLookupTable(rng->uniform01(), sampler->invThetaTable, kOrbitalTableSize);
+    orb_real_t phi = getValueFromLookupTable(rng->uniform01(), sampler->invPhiTable, kOrbitalTableSize);
 
     orb_real_t sinTheta = std::sin(theta);
     OrbitalPoint pt;

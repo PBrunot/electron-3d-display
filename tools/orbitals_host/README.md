@@ -6,8 +6,9 @@ contro `js_reference.js` (l'estrazione/estensione di
 `examples/js-calculations/quantum-physics.js`, di Manuel Joffre):
 
 - `src/orbitals.h/.cpp` (funzione d'onda) + `src/pointcloud.h/.cpp`
-  (campionamento per rigetto) — porting C++, pensato per compilare sia qui sul
-  PC sia dentro PlatformIO/ESP-IDF per l'ESP32.
+  (campionamento della nuvola di punti via CDF inversa) — porting C++,
+  pensato per compilare sia qui sul PC sia dentro PlatformIO/ESP-IDF per
+  l'ESP32.
 - `micropython/orbitals.py` + `micropython/pointcloud.py` — porting
   MicroPython, pensato per girare sia qui sotto l'unix port sia come firmware
   MicroPython sull'ESP32.
@@ -46,16 +47,19 @@ implementazioni solo statisticamente (istogrammi, ecc.), tutte e tre usano lo
 **stesso generatore pseudocasuale portabile** (`XorShift32`, il triplo
 (13,17,5) di Marsaglia, mai gli shift/xor di libreria del linguaggio) con lo
 stesso seme e lo stesso ordine di estrazione. Risultato: dato lo stesso seme,
-le tre implementazioni producono la **stessa identica sequenza di punti
-accettati** (a meno dell'arrotondamento macchina in double, o di uno
-scostamento maggiore atteso in float32 — vedi passate 3/4/6 sotto). Questo è
-un confronto molto più severo di un confronto statistico: cattura anche bug
-sottili (es. un fattore mancante nella densità, o un bound scorretto) che uno
-scostamento nella sola forma complessiva della nuvola potrebbe non rivelare.
+le tre implementazioni producono la **stessa identica sequenza di punti**
+(a meno dell'arrotondamento macchina in double, o di uno scostamento maggiore
+atteso in float32 — vedi passate 3/4/6 sotto). Questo è un confronto molto
+più severo di un confronto statistico: cattura anche bug sottili (es. un
+fattore mancante nella densità) che uno scostamento nella sola forma
+complessiva della nuvola potrebbe non rivelare.
 
-**r, θ, φ sono campionati come tre campionatori per rigetto indipendenti**,
-non con un unico rigetto 3D congiunto (una versione precedente, congiunta, è
-conservata nella cronologia git). Questo è esatto, non un'approssimazione: la
+**r, θ, φ sono campionati da tre tabelle di CDF inversa (quantile)
+precalcolate**, non per rigetto. Due versioni precedenti — rigetto 3D
+congiunto, poi rigetto separabile per asse — sono conservate nella cronologia
+git; questa è la terza iterazione, motivata dal bisogno di generare molti più
+punti di quanto il rigetto (anche separabile) permettesse in tempi
+ragionevoli su MicroPython/ESP32. È ancora esatta, non un'approssimazione: la
 densità bersaglio si fattorizza come
 
 ```
@@ -65,26 +69,29 @@ densità bersaglio si fattorizza come
 
 cioè un prodotto di tre funzioni di una sola variabile ciascuna — campionare
 ogni fattore marginale indipendentemente e combinare i risultati riproduce
-esattamente la densità congiunta. È anche molto più veloce: il tasso di
-accettazione di un campionatore congiunto è il *prodotto* di quello che
-sarebbe il tasso di ciascun asse da solo (misurato ~2% per un orbitale
-impegnativo, cioè ~50 tentativi scartati per punto accettato, ognuno con una
-valutazione completa di R(r)*P(θ)); campionare gli assi separatamente
-richiede solo la *somma* dei tentativi di ciascun asse (molto più alti presi
-singolarmente), e ogni tentativo costa anche meno (valuta solo R(r) o solo
-P(θ), mai entrambi insieme). Vedi "Prestazioni" più sotto per i numeri
-misurati che hanno motivato questo cambio.
+esattamente la densità congiunta (stessa fattorizzazione già sfruttata dalla
+versione a rigetto separabile). La differenza rispetto al rigetto: invece di
+tabulare solo il *bound* di ciascun fattore e poi accettare/scartare
+candidati uno per uno, `initOrbitalSampler()`/`init_orbital_sampler()`
+precalcola, per ciascun asse, l'intera **CDF inversa** — la funzione
+"quantile → valore" — con una singola scansione in avanti (la CDF è
+monotona, e così il quantile bersaglio, quindi non serve alcuna ricerca né a
+tempo di costruzione né campione per campione). Campionare un punto costa
+allora esattamente **tre letture di tabella interpolate** (`getValueFromLookupTable`/
+`get_value_from_lookup_table`, già usata altrove nel codebase) più la
+trigonometria per la conversione cartesiana — **zero rigetti, zero varianza
+sul costo per punto, tempo per punto costante indipendentemente da (n,ℓ,m)**.
 
-`initOrbitalSampler()`/`init_orbital_sampler()` precalcola, per ciascun asse,
-un bound valido sul proprio fattore di densità (necessario per il rigetto)
-dal massimo tabulato di `[r·R(r)]²` e di `P_l^m(θ)²·sin(θ)`, con un margine
-di sicurezza (`DENSITY_BOUND_MARGIN = 1.15`, identico nei tre porting) contro
-il rischio che il vero massimo continuo cada tra due punti tabulati — non è
-una garanzia rigorosa, ma sufficiente per una nuvola di punti visuale (stesso
-spirito pragmatico delle approssimazioni già documentate in CLAUDE.md §5.3).
-Per φ: se m=0 il fattore azimutale è costante (1), quindi si campiona φ
-uniforme direttamente, senza rigetto; altrimenti si rigetta contro
-cos²(mφ)/sin²(mφ) (inviluppo 1, ~2 tentativi in media).
+Questa tecnica — precalcolare la funzione inversa stessa anziché solo la CDF
+— è la stessa usata dal sampler GPU di
+[stef1949/Electron-Orbital-Simulator](https://github.com/stef1949/Electron-Orbital-Simulator/tree/main/src/sampling)
+(`sampling/lut.js`), generalizzata qui anche a φ (loro costruiscono una
+tabella 2D congiunta θ×φ, che sulla GPU con VRAM abbondante è preferibile per
+generalità; qui, con memoria limitata su ESP32 e la fattorizzazione già
+sfruttata, tre tabelle 1D separate sono più economiche ed equivalenti).
+Per m=0 il fattore azimutale è costante (1): la CDF di φ degenera
+automaticamente in una rampa lineare (φ uniforme), senza bisogno di un caso
+speciale nel codice. Vedi "Prestazioni" più sotto per i numeri misurati.
 
 ## Sei passate di confronto, tolleranze diverse apposta
 
@@ -105,12 +112,13 @@ in tutti i generatori):
 
 3. **vs `out/points_c_f64`, tolleranza stretta (rtol=1e-9)** — ci si aspetta
    punti **bit-identici** (a epsilon macchina), non solo una forma simile:
-   stesso seme + stesso algoritmo + stessa precisione double ⇒ stessa
-   sequenza di accept/reject. Fa parte del codice di uscita.
-4. **vs `out/points_c_f32`, tolleranza larga (rtol=2e-3)** — informativa: in
-   float32 un tentativo vicino al confine accetta/rigetta può capovolgersi
-   rispetto al riferimento double, disallineando (potenzialmente) la
-   sequenza di punti accettati da quel punto in poi per quel caso di test.
+   stesso seme + stesse tabelle di CDF inversa (costruite in double) ⇒
+   stessi tre valori interpolati per ogni punto. Fa parte del codice di uscita.
+4. **vs `out/points_c_f32`, tolleranza larga (rtol=2e-3)** — informativa: le
+   tabelle di CDF inversa sono costruite sommando ~1001 termini in float32
+   (somma cumulativa), che accumula più errore di arrotondamento di una
+   singola valutazione puntuale — da qui uno scostamento maggiore (ma ancora
+   ampiamente entro tolleranza) rispetto alle versioni precedenti a rigetto.
    Non blocca lo script; nella pratica osservata qui i 100 punti/caso
    concordano comunque entro tolleranza per tutti gli 11 casi.
 6. **vs `out/points_mpy`, tolleranza stretta (rtol=1e-9)** — come il punto 3,
@@ -157,25 +165,30 @@ risultanti e li confronta con `out/js`/`out/points_js` — richiede `mpremote`
   di fallimento (`9_7_3_psi_samples.csv`, riga vicina a uno zero della
   funzione d'onda, non un bug). L'hardware reale si comporta esattamente
   come previsto dallo studio di precisione float32 già fatto sul PC.
-- **Prestazioni**: costruire una tabella da 1001 punti richiede ~70-80ms.
-  Il campionamento dei punti è stato riscritto da rigetto 3D congiunto a
-  rigetto separabile per asse (vedi sezione sopra) proprio a causa di questi
-  numeri — misurati **sulla stessa scheda fisica, prima e dopo**:
+- **Prestazioni**: costruire una tabella da 1001 punti richiede ~70-80ms. Il
+  campionamento dei punti è passato per tre iterazioni — rigetto 3D
+  congiunto, poi rigetto separabile per asse, poi (questa) CDF inversa
+  precalcolata (vedi sezione sopra) — misurate **sulla stessa scheda fisica**
+  a ogni passaggio:
 
-  | caso (n,ℓ,m) | congiunto (prima) | separabile (dopo) | rapporto |
-  |---|---|---|---|
-  | 9,7,3 (il più difficile) | 6.28 s / 100 pt (62.8 ms/pt) | 0.40 s / 100 pt (4.0 ms/pt) | **~15.7×** |
-  | 11 casi, solo campionamento punti (100 pt ciascuno) | ~27 s (stimato: sweep totale meno la parte tabelle/psi, invariata) | 3.05 s (misurato) | **~8.9×** |
-  | sweep completo `device_gen.py` (tabelle + 280 campioni psi + 100 punti, 11 casi) | ~55 s (misurato) | ~30 s (misurato) | ~1.8× (limitato dalla parte tabelle/psi, invariata e già veloce) |
+  | caso (n,ℓ,m) | congiunto | separabile | CDF inversa | congiunto→CDF |
+  |---|---|---|---|---|
+  | 9,7,3 (il più difficile) | 6.28 s / 100 pt (62.8 ms/pt) | 0.40 s / 100 pt (4.0 ms/pt) | 0.05-0.07 s / 100 pt (0.5-0.7 ms/pt) | **~90-125×** |
+  | 11 casi, solo campionamento punti (100 pt ciascuno) | ~27 s (stimato) | 3.05 s (misurato) | 0.78 s (misurato) | **~35×** |
 
-  A questo ritmo, generare una nuvola più densa (es. 3000 punti, dell'ordine
-  di grandezza indicato in CLAUDE.md §5 per gli orbitali reali) sul caso più
-  difficile costa ~12 s con il campionamento separabile, contro i ~3 min
-  (proiettati) del congiunto — la differenza tra "generazione una tantum
-  accettabile all'avvio" e "praticamente inutilizzabile". Resta comunque
-  un costo da pagare una volta sola, non per frame — coerente con
-  l'architettura già prevista in CLAUDE.md §5 (i punti si generano una
-  volta, poi si ruotano).
+  La CDF inversa aggiunge un costo di inizializzazione per orbitale che le
+  versioni a rigetto non avevano in questa forma (costruire tre tabelle
+  invertite anziché solo scansionare un massimo): **~300-430ms per
+  orbitale**, misurato sulla scheda — ma è un costo fisso pagato una sola
+  volta per (n,ℓ,m), non per punto, e il campionamento vero e proprio lo
+  ripaga rapidamente. Generare 3000 punti sul caso più difficile costa ora
+  init (~0.4s) + campionamento (~1.9s) ≈ **~2.3s totali**, contro i ~12s
+  (separabile) o ~3 min (congiunto, proiettati) di prima — abbastanza veloce
+  da poter essere rigenerato **a ogni cambio di orbitale scelto
+  dall'utente**, non solo una tantum all'avvio (rilevante per l'interattività
+  di CLAUDE.md M3), pur restando comunque un costo per-orbitale e non per-frame
+  — coerente con l'architettura di CLAUDE.md §5 (i punti si generano una
+  volta per orbitale, poi si ruotano).
 - **Trasferimento file**: `mpremote fs cp -r` (copia ricorsiva) si è
   rivelato inaffidabile su questo setup (solleva `IsADirectoryError` a metà
   copia, sembra un bug/edge-case di mpremote 1.28.0 con questa combinazione
