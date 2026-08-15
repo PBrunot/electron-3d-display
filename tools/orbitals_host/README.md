@@ -1,22 +1,23 @@
 # orbitals_host — cross-check tra i porting C++/MicroPython e il riferimento JS
 
 Confronta due implementazioni candidate della matematica degli orbitali
-dell'idrogeno contro `js_reference.js` (l'estrazione verbatim delle funzioni
-equivalenti da `examples/js-calculations/quantum-physics.js`, di Manuel
-Joffre):
+dell'idrogeno **e** del campionamento a nuvola di punti (M2, CLAUDE.md §5/§7)
+contro `js_reference.js` (l'estrazione/estensione di
+`examples/js-calculations/quantum-physics.js`, di Manuel Joffre):
 
-- `src/orbitals.h/.cpp` — porting C++, pensato per compilare sia qui sul PC
-  sia dentro PlatformIO/ESP-IDF per l'ESP32.
-- `micropython/orbitals.py` — porting MicroPython, pensato per girare sia qui
-  sotto l'unix port sia come firmware MicroPython sull'ESP32.
+- `src/orbitals.h/.cpp` (funzione d'onda) + `src/pointcloud.h/.cpp`
+  (campionamento per rigetto) — porting C++, pensato per compilare sia qui sul
+  PC sia dentro PlatformIO/ESP-IDF per l'ESP32.
+- `micropython/orbitals.py` + `micropython/pointcloud.py` — porting
+  MicroPython, pensato per girare sia qui sotto l'unix port sia come firmware
+  MicroPython sull'ESP32.
 
 Le due implementazioni sono alternative allo stesso problema — questa cartella
 esiste per rispondere "il codice è corretto?" per **entrambe**, così la scelta
 tra ESP-IDF/C++ e MicroPython per il firmware finale si possa fare su altri
 criteri (prestazioni, esperienza di sviluppo, manutenibilità) e non sul
 sospetto che una delle due abbia un bug nel porting. Vedi
-`examples/js-calculations/README.md` per il contesto completo e CLAUDE.md
-§5/§7 (M2) per come questo si inserisce nella pipeline della nuvola di punti.
+`examples/js-calculations/README.md` per il contesto completo.
 
 Nessuna dipendenza esterna oltre a strumenti di sistema: `node`, `g++`
 (C++17), `python3`, e — solo per il porting MicroPython — un eseguibile
@@ -30,41 +31,75 @@ salta quella passata invece di fallire.
 ./run_crosscheck.sh
 ```
 
-Genera gli output di riferimento (`out/js/`), compila ed esegue il porting
-C++ in due precisioni (`out/c_f64/` con `-DORBITAL_USE_DOUBLE`, `out/c_f32/`
-con il default `float`, la stessa precisione che userà l'ESP32 in C++), esegue
-il porting MicroPython (`out/mpy/`) se disponibile, poi confronta tutto con
-`compare.py`.
+Genera gli output di riferimento per la funzione d'onda (`out/js/`,
+`out/c_f64/`, `out/c_f32/`, `out/mpy/`) **e** per la nuvola di punti
+(`out/points_js/`, `out/points_c_f64/`, `out/points_c_f32/`,
+`out/points_mpy/`), poi confronta tutto con `compare.py`.
 
-## Tre passate di confronto, tolleranze diverse apposta
+## Nuvola di punti: stesso seme, stessi punti — non solo stessa statistica
 
-1. **`out/js` vs `out/c_f64`, tolleranza stretta (rtol=1e-9)** — test di
-   correttezza del porting C++: JS gira in double, `-DORBITAL_USE_DOUBLE` fa
-   girare lo stesso identico `orbitals.cpp` in double. Qualunque scostamento
-   oltre l'errore di arrotondamento macchina segnala un bug nel porting, non
-   un limite di precisione.
-2. **`out/js` vs `out/c_f32`, tolleranza larga (rtol=2e-3)** — informativa,
-   non un gate di correttezza: quantifica quanto costa passare a `float` (la
-   precisione reale della FPU dell'ESP32 in C++) **prima** di scoprirlo su
-   hardware. Un fallimento qui non blocca lo script, ma va guardato — tipico
-   vicino a uno zero della funzione d'onda per (n,ℓ) alti, dove la
-   cancellazione numerica in float32 amplifica l'errore assoluto pur restando
-   trascurabile in termini di forma complessiva della nuvola di punti.
-3. **`out/js` vs `out/mpy`, tolleranza stretta (rtol=1e-9)** — test di
-   correttezza del porting MicroPython, stesso principio del punto 1: l'unix
-   port usato qui (vedi nota sulla precisione più sotto) gira in double, quindi
-   ci si aspetta lo stesso accordo a livello di epsilon macchina. Fa parte del
-   codice di uscita dello script tanto quanto la passata 1.
+`sampleOrbitalPoint()`/`sample_orbital_point()` campiona (r,θ,φ) per rigetto
+dalla densità di probabilità fisica |ψ|²·r²·sin(θ) (il fattore r²sin(θ) è
+l'elemento di volume in coordinate sferiche — senza non si campionerebbe la
+probabilità *fisica*, solo dove |ψ| è grande). Invece di confrontare le tre
+implementazioni solo statisticamente (istogrammi, ecc.), tutte e tre usano lo
+**stesso generatore pseudocasuale portabile** (`XorShift32`, il triplo
+(13,17,5) di Marsaglia, mai gli shift/xor di libreria del linguaggio) con lo
+stesso seme e lo stesso ordine di estrazione per tentativo (r, θ, φ, u, in
+quest'ordine, a ogni tentativo, accettato o no). Risultato: dato lo stesso
+seme, le tre implementazioni producono la **stessa identica sequenza di punti
+accettati** (a meno dell'arrotondamento macchina in double, o di uno
+scostamento maggiore atteso in float32 — vedi passate 3/4/6 sotto). Questo è
+un confronto molto più severo di un confronto statistico: cattura anche bug
+sottili (es. un fattore mancante nella densità, o un bound scorretto) che uno
+scostamento nella sola forma complessiva della nuvola potrebbe non rivelare.
 
-Lo script esce con codice non zero se la passata 1 **o** la passata 3
-falliscono (correttezza); la passata 2 è solo informativa e non influenza il
-codice di uscita.
+`initOrbitalSampler()`/`init_orbital_sampler()` precalcola un bound valido
+sulla densità (necessario per il rigetto) dal massimo tabulato di `|r·R(r)|`
+e `|P_l^m(θ)|`, con un margine di sicurezza (`DENSITY_BOUND_MARGIN = 1.15`,
+identico nei tre porting) contro il rischio che il vero massimo continuo
+cada tra due punti tabulati — non è una garanzia rigorosa, ma sufficiente per
+una nuvola di punti visuale (stesso spirito pragmatico delle approssimazioni
+già documentate in CLAUDE.md §5.3).
+
+## Sei passate di confronto, tolleranze diverse apposta
+
+**Funzione d'onda** (`out/js` come riferimento):
+
+1. **vs `out/c_f64`, tolleranza stretta (rtol=1e-9)** — correttezza del
+   porting C++: JS gira in double, `-DORBITAL_USE_DOUBLE` fa girare lo stesso
+   identico `orbitals.cpp` in double. Fa parte del codice di uscita.
+2. **vs `out/c_f32`, tolleranza larga (rtol=2e-3)** — informativa: quantifica
+   il costo di `float` (precisione reale della FPU dell'ESP32 in C++) prima
+   di scoprirlo su hardware. Non blocca lo script.
+5. **vs `out/mpy`, tolleranza stretta (rtol=1e-9)** — correttezza del porting
+   MicroPython, stesso principio del punto 1 (l'unix port gira in double,
+   vedi nota sotto). Fa parte del codice di uscita.
+
+**Nuvola di punti** (`out/points_js` come riferimento, stesso seme fisso
+in tutti i generatori):
+
+3. **vs `out/points_c_f64`, tolleranza stretta (rtol=1e-9)** — ci si aspetta
+   punti **bit-identici** (a epsilon macchina), non solo una forma simile:
+   stesso seme + stesso algoritmo + stessa precisione double ⇒ stessa
+   sequenza di accept/reject. Fa parte del codice di uscita.
+4. **vs `out/points_c_f32`, tolleranza larga (rtol=2e-3)** — informativa: in
+   float32 un tentativo vicino al confine accetta/rigetta può capovolgersi
+   rispetto al riferimento double, disallineando (potenzialmente) la
+   sequenza di punti accettati da quel punto in poi per quel caso di test.
+   Non blocca lo script; nella pratica osservata qui i 100 punti/caso
+   concordano comunque entro tolleranza per tutti gli 11 casi.
+6. **vs `out/points_mpy`, tolleranza stretta (rtol=1e-9)** — come il punto 3,
+   correttezza del porting MicroPython. Fa parte del codice di uscita.
+
+Lo script esce con codice non zero se una qualunque delle passate 1/3/5/6
+(correttezza) fallisce; le passate 2/4 sono solo informative.
 
 ## Nota sulla precisione di MicroPython
 
 L'unix port installato qui (pacchetto Ubuntu `micropython`, v1.17) usa float a
 **doppia precisione** — verificato empiricamente (`1/3` stampa 16 cifre
-significative, non le ~7 di un float32). Questo rende la passata 3 un vero
+significative, non le ~7 di un float32). Questo rende le passate 5/6 un vero
 gate di correttezza (double vs double), **non** una misura della precisione
 che si avrà realmente sul firmware ESP32: build diverse di MicroPython per
 ESP32 possono usare float singola o doppia precisione a seconda della
@@ -80,17 +115,21 @@ ESP-IDF/C++ vs MicroPython.
 
 - `test_cases.csv` — lista `n,ℓ,m` condivisa da tutti i generatori (unica
   fonte di verità, così JS, C++ e MicroPython testano esattamente le stesse
-  combinazioni).
+  combinazioni), sia per la funzione d'onda che per la nuvola di punti.
 - `gen_js_reference.js` / `gen_c_reference.cpp` / `gen_mpy_reference.py` —
-  per ogni caso scrivono 4 CSV con lo stesso schema
+  funzione d'onda: per ogni caso scrivono 4 CSV con lo stesso schema
   (`<n>_<l>_<m>_coeffs.csv`, `..._legendre_table.csv`,
-  `..._radial_table.csv`, `..._psi_samples.csv`), così `compare.py` può fare
-  un diff riga per riga. La griglia di campionamento di `psi_samples.csv`
-  (frazioni di r, valori di θ/φ) è definita come costante identica nei tre
-  file — se la cambi, cambiala in tutti e tre.
+  `..._radial_table.csv`, `..._psi_samples.csv`). La griglia di
+  campionamento di `psi_samples.csv` (frazioni di r, valori di θ/φ) è una
+  costante identica nei tre file — se la cambi, cambiala in tutti e tre.
+- `gen_points_js.js` / `gen_points_c.cpp` / `gen_points_mpy.py` — nuvola di
+  punti: per ogni caso scrivono `<n>_<l>_<m>_points.csv` (colonne
+  `index,x,y,z`), stesso seme (`SEED = 12345`) e stesso numero di punti
+  (`POINTS_PER_CASE = 100`) — costanti identiche nei tre file.
 - `compare.py` — confronto con la stessa convenzione di `numpy.allclose`
   (`abs_err <= atol + rtol*|riferimento|`), stampa una tabella riassuntiva,
-  exit code non zero se qualcosa fallisce.
+  exit code non zero se qualcosa fallisce. Sa confrontare sia i CSV della
+  funzione d'onda che quelli della nuvola di punti (colonne `x,y,z`).
 - `out/` — generato, non committato (vedi `.gitignore`).
 
 ## Nota sui file `_coeffs.csv`

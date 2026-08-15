@@ -28,6 +28,9 @@ constexpr int kOrbitalEllMax = kOrbitalNMax - 1;
 // Default lookup table resolution, matching nTable/nTableRadial in the JS reference.
 constexpr int kOrbitalTableSize = 1001;
 
+// Pi, at the working precision, shared by orbitals.cpp and pointcloud.cpp.
+constexpr orb_real_t kOrbitalPi = orb_real_t(3.14159265358979323846);
+
 /**
  * Compute the coefficients of the associated Legendre polynomial P_l^m(cos
  * theta), expressed as sum_k coeff[k] * u^k * sin(theta)^|m|, with
