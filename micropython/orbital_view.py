@@ -11,10 +11,11 @@ so the slow rotation is visibly doing something (a rotating 2s cloud would
 look static). Trivial to swap: change ORBITAL_N/ELL/M below.
 
 run() opens with a one-time intro fly-over -- camera starts tight on the
-proton (INTRO_START_SCALE) and eases back to the steady-state scale over
-INTRO_FRAMES frames -- before settling into the indefinite rotate+zoom loop,
-so the viewer's eye is anchored on the nucleus before the full cloud comes
-into view rather than seeing everything at once from frame 1.
+proton (INTRO_START_SCALE_FACTOR times base_scale) and eases back to the
+steady-state scale over INTRO_FRAMES frames -- before settling into the
+indefinite rotate+zoom loop, so the viewer's eye is anchored on the nucleus
+before the full cloud comes into view rather than seeing everything at once
+from frame 1.
 
 Rendering pipeline (CLAUDE.md section 5): orthographic projection, rotation
 about the vertical (Y) axis recomputed from a running angle each frame
@@ -90,6 +91,12 @@ those two calls are already cheap (bulk C operations, not once-per-point).
 Both write into the same backing `buf` bytearray that _render_points()
 writes into directly, so ordering (fill, proton, then points) still
 composites correctly on one shared buffer.
+
+Point turnover (see CULL_FRACTION/CULL_REFRESH_FRAMES/_resample_points()):
+every few frames, a small slice of the cloud is discarded and redrawn from
+fresh samples of the same orbital distribution, rather than the initial
+N_POINTS sitting static for the life of the preset -- a continuous, subtle
+churn rather than the whole cloud looking like one frozen snapshot.
 """
 
 import array
@@ -197,26 +204,33 @@ FRAME_DELAY_MS = 5
 # roughly one full in-out cycle every ~40s at ~21.7 fps.
 ZOOM_ANGLE_STEP = 0.016
 
-# One-time intro fly-over (see run()): starts at INTRO_START_SCALE (tight on
-# the proton) and eases to the loaded preset's base_scale over INTRO_FRAMES
-# frames (base_scale now comes from _scale_from_radii(), see above). At
-# ~1500 points render+blit measures well under 100ms/frame on-device, so
-# 200 frames reads as a deliberate pull-back, not a wait before "the real
-# thing" starts.
-INTRO_START_SCALE = 100.0
-INTRO_FRAMES = 200
+# One-time intro fly-over (see run()): starts at base_scale *
+# INTRO_START_SCALE_FACTOR (tight on the proton) and eases to the loaded
+# preset's base_scale over INTRO_FRAMES frames (base_scale now comes from
+# _scale_from_radii(), see above). Relative to base_scale, not a fixed
+# absolute value, for the same reason as SWITCH_START_SCALE_FACTOR below:
+# the "start tight" effect should scale with whichever preset loaded at
+# boot, not assume the n=2 default's geometry.
+#
+# Re-tuned 2026-08-15 (user feedback on real hardware: the zoom "should be
+# both faster and get more close to the proton"), after the fixed-point
+# render rewrite (see module docstring) made per-frame cost ~32ms
+# (render+blit) instead of the ~98-148ms it was when these were first
+# tuned -- so both a higher start factor (closer) and fewer frames
+# (faster) were overdue even before accounting for the explicit ask.
+INTRO_START_SCALE_FACTOR = 12.0
+INTRO_FRAMES = 70
 
 # Same fly-over effect (see _fly_over() below), reused on every nudge-
 # triggered orbital switch so the camera visibly zooms in on the new cloud
 # instead of cutting straight to the steady-state view. Relative to the new
-# preset's own base_scale (SWITCH_START_SCALE_FACTOR times it) rather than a
-# fixed value like INTRO_START_SCALE, so the "start tight" effect scales
-# with whichever orbital was just switched to. Shorter than the one-time
-# intro (SWITCH_TRANSITION_FRAMES << INTRO_FRAMES) -- this happens every
-# switch, not once at boot, so it needs to read as a snappy zoom-in, not a
-# repeat of the slow reveal.
-SWITCH_START_SCALE_FACTOR = 6.0
-SWITCH_TRANSITION_FRAMES = 40
+# preset's own base_scale (SWITCH_START_SCALE_FACTOR times it), so the
+# "start tight" effect scales with whichever orbital was just switched to.
+# Shorter than the one-time intro (SWITCH_TRANSITION_FRAMES << INTRO_FRAMES)
+# -- this happens every switch, not once at boot, so it needs to read as a
+# snappy zoom-in, not a repeat of the slower boot reveal.
+SWITCH_START_SCALE_FACTOR = 10.0
+SWITCH_TRANSITION_FRAMES = 18
 
 # Sampling RNG seed: fixed for a reproducible-looking demo across boots
 # (this is a visual demo, not one of the cross-validated test cases in
@@ -264,8 +278,14 @@ def build_point_cloud(n=ORBITAL_N, ell=ORBITAL_ELL, m=ORBITAL_M, count=N_POINTS,
     density, plus the (unsigned, unnormalized) psi^2 amplitude at each
     sampled point -- the latter used by point_colors() for brightness.
 
+    Also returns the sampler/rng/radial_coeff/legendre_coeff used to draw
+    those points, so _resample_points() can later draw *more* points from
+    the exact same distribution (same orbital, continuing rng state) for
+    the point-turnover effect -- see that function and _ResampleState.
+
     Returns:
-        (xs, ys, zs, psi2): four array.array('f') of length `count`.
+        (xs, ys, zs, psi2, sampler, rng, radial_coeff, legendre_coeff):
+        the first four are array.array('f') of length `count`.
     """
     sampler = pointcloud.init_orbital_sampler(n, ell, m)
     rng = pointcloud.XorShift32(seed)
@@ -290,10 +310,24 @@ def build_point_cloud(n=ORBITAL_N, ell=ORBITAL_ELL, m=ORBITAL_M, count=N_POINTS,
         psi = orbitals.psi_real(r, theta, phi, n, ell, m, radial_coeff, legendre_coeff)
         psi2[i] = psi * psi
 
-    return xs, ys, zs, psi2
+    return xs, ys, zs, psi2, sampler, rng, radial_coeff, legendre_coeff
 
 
-def point_colors(psi2, min_level=60, max_level=255):
+COLOR_MIN_LEVEL = 60   # keeps the dimmest points visible instead of fading to invisible-on-black
+COLOR_MAX_LEVEL = 255
+
+
+def _level_to_color(level):
+    """Q8-independent: map a brightness level in [COLOR_MIN_LEVEL,
+    COLOR_MAX_LEVEL] to a pre-byte-swapped RGB565 color, same tint as
+    point_colors() below (slightly blue-shifted: level//3 red, level//2
+    green, level blue). Factored out so point_colors() and
+    _resample_points() can't drift apart on the color formula.
+    """
+    return swap16(st7789.color565(level // 3, level // 2, level))
+
+
+def point_colors(psi2, min_level=COLOR_MIN_LEVEL, max_level=COLOR_MAX_LEVEL):
     """Map each point's psi^2 amplitude to a pre-byte-swapped grayscale-ish
     RGB565 color (brightness only, per CLAUDE.md section 8's default
     pending a decision on phase-to-color mapping). min_level keeps the
@@ -315,6 +349,13 @@ def point_colors(psi2, min_level=60, max_level=255):
 
     O(count log count) once per preset load (see _load_preset()), not
     per-frame -- fine at N_POINTS=1500, no need for anything cleverer.
+
+    Returns:
+        (colors, psi2_sorted): colors is array.array('H') of length
+        `count`; psi2_sorted is the sorted psi^2 values alone (array.array
+        ('f')), kept as a frozen reference distribution so
+        _resample_points() can bisect a *new* point's psi^2 into an
+        approximate rank without re-sorting the whole cloud every refresh.
     """
     count = len(psi2)
     ranked = [(psi2[i], i) for i in range(count)]
@@ -324,11 +365,135 @@ def point_colors(psi2, min_level=60, max_level=255):
     denom = count - 1 if count > 1 else 1
 
     colors = array.array('H', bytes(2 * count))
+    psi2_sorted = array.array('f', bytes(4 * count))
     for rank in range(count):
-        i = ranked[rank][1]
+        value, i = ranked[rank]
+        psi2_sorted[rank] = value
         level = min_level + (rank * span) // denom
-        colors[i] = swap16(st7789.color565(level // 3, level // 2, level))
-    return colors
+        colors[i] = _level_to_color(level)
+    return colors, psi2_sorted
+
+
+# Point turnover ("culling"): every CULL_REFRESH_FRAMES frames, discard
+# CULL_FRACTION of the points and redraw fresh samples from the same
+# orbital distribution in their place, rather than leaving the initial
+# N_POINTS static for the life of the preset. This is NOT visibility
+# toggling (points blinking on/off) -- each replaced point gets a brand
+# new (x, y, z) from pointcloud.sample_orbital_point(), so the cloud
+# continuously "re-rolls" a small slice of itself, reading as a lively
+# shimmer and, thematically, as a nod to the actual physics: |psi|^2 is a
+# probability density, and the electron doesn't sit still at any one of
+# these sampled positions.
+CULL_FRACTION = 0.01
+CULL_REFRESH_FRAMES = 3
+
+# "Buzz": a DIFFERENT effect from point turnover above -- every single
+# frame (not every CULL_REFRESH_FRAMES), a pseudo-random ~BUZZ_FRACTION
+# slice of points is skipped for that frame only (the points themselves
+# are untouched; they're just not drawn this frame, then are back next
+# frame along with a different skipped slice). Point turnover changes what
+# the cloud IS, slowly; buzz changes what's drawn, every frame -- a fast,
+# cheap flicker on top, meant to read as an energetic "buzz" rather than a
+# structural change to the cloud. See _render_points()'s docstring for the
+# hashing mechanics (no RNG call, no extra memory).
+BUZZ_FRACTION = 0.04
+
+
+class _ResampleState:
+    """Everything _resample_points() needs to keep drawing new points from
+    the same distribution as the initial cloud, bundled once per preset
+    load (_load_preset()) instead of threading five extra parameters
+    through run()'s loop. `cursor` round-robins through point indices
+    (rather than picking randomly) so every point gets refreshed in turn
+    over time instead of a few unlucky indices never turning over (or the
+    same index turning over twice in a row) under pure random choice.
+    """
+
+    def __init__(self, sampler, rng, radial_coeff, legendre_coeff, n, ell, m, psi2_sorted):
+        self.sampler = sampler
+        self.rng = rng
+        self.radial_coeff = radial_coeff
+        self.legendre_coeff = legendre_coeff
+        self.n = n
+        self.ell = ell
+        self.m = m
+        self.psi2_sorted = psi2_sorted
+        self.cursor = 0
+
+
+def _bisect_rank(sorted_values, value):
+    """Index where `value` would insert into ascending `sorted_values` --
+    a plain manual binary search rather than importing the `bisect` module,
+    since MicroPython builds don't uniformly include it and this is a
+    three-line algorithm. Used to give a freshly resampled point an
+    approximate rank (see point_colors()'s histogram-equalization
+    rationale) against the ORIGINAL full-cloud distribution, without
+    re-sorting all N_POINTS every refresh.
+    """
+    lo = 0
+    hi = len(sorted_values)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if sorted_values[mid] < value:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+def _resample_points(state, xs_fx, ys_fx, zs_fx, colors, count):
+    """Replace `count` points (round-robin via state.cursor) with fresh
+    samples from state's orbital distribution, updating xs_fx/ys_fx/zs_fx
+    (Q8 fixed-point, in place) and colors (in place) to match -- see
+    CULL_FRACTION/CULL_REFRESH_FRAMES above for the calling cadence.
+    Mutates its array arguments; callers don't need the return value, but
+    render calls made after this will pick up the change automatically
+    since _render_points() reads straight from these same arrays.
+    """
+    n = len(xs_fx)
+    sampler = state.sampler
+    rng = state.rng
+    radial_coeff = state.radial_coeff
+    legendre_coeff = state.legendre_coeff
+    quantum_n = state.n
+    quantum_ell = state.ell
+    quantum_m = state.m
+    psi2_sorted = state.psi2_sorted
+    sorted_span = len(psi2_sorted) - 1 if len(psi2_sorted) > 1 else 1
+    level_span = COLOR_MAX_LEVEL - COLOR_MIN_LEVEL
+
+    for _ in range(count):
+        idx = state.cursor
+        state.cursor = idx + 1 if idx + 1 < n else 0
+
+        x, y, z = pointcloud.sample_orbital_point(sampler, rng)
+        xs_fx[idx] = int(x * FX_SCALE)
+        ys_fx[idx] = int(y * FX_SCALE)
+        zs_fx[idx] = int(z * FX_SCALE)
+
+        r = math.sqrt(x * x + y * y + z * z)
+        theta = math.acos(z / r) if r > 1e-9 else 0.0
+        phi = math.atan2(y, x)
+        psi = orbitals.psi_real(r, theta, phi, quantum_n, quantum_ell, quantum_m,
+                                 radial_coeff, legendre_coeff)
+        psi2 = psi * psi
+
+        # rank can land one past the end (len(psi2_sorted)) when this fresh
+        # sample's psi2 exceeds every value seen in the frozen reference --
+        # unlike point_colors()'s one-time sort, where rank never exceeds
+        # count-1 by construction, resampling can keep drawing points for
+        # far longer than the initial load, and psi2's distribution is
+        # heavily right-skewed (see point_colors()'s docstring), so
+        # eventually beating the original max by chance is expected, not a
+        # bug. Clamp rather than let it fall through to
+        # st7789.color565(), which masks/shifts bits rather than clamping
+        # and would silently wrap a level > COLOR_MAX_LEVEL into a bogus
+        # color.
+        rank = _bisect_rank(psi2_sorted, psi2)
+        level = COLOR_MIN_LEVEL + (rank * level_span) // sorted_span
+        if level > COLOR_MAX_LEVEL:
+            level = COLOR_MAX_LEVEL
+        colors[idx] = _level_to_color(level)
 
 
 FX_BITS = 8
@@ -349,7 +514,7 @@ def _to_fixed(values):
 
 @micropython.viper
 def _render_points(buf, xs, ys, zs, colors, n: int, cos_fx: int, sin_fx: int, scale_fx: int,
-                    cx: int, cy: int, w: int, h: int):
+                    cx: int, cy: int, w: int, h: int, frame_salt: int, buzz_threshold: int):
     """Rotate, project, and draw every point directly into `buf` (the
     framebuffer's backing bytearray) -- Q8 fixed-point integer math only,
     see the module docstring's "Fixed-point per-point loop" for why (this
@@ -370,6 +535,24 @@ def _render_points(buf, xs, ys, zs, colors, n: int, cos_fx: int, sin_fx: int, sc
     compile ("can't do binary op between 'int' and 'object'", confirmed
     live on device). Must be kept in sync with FX_BITS = 8 by hand if that
     constant ever changes.
+
+    "Buzz" (see BUZZ_FRACTION): a different pseudo-random ~BUZZ_FRACTION
+    slice of points is skipped every frame, on top of _resample_points()'s
+    much slower point-turnover -- this is a per-frame flicker, not a
+    change to the points themselves. hv below is a cheap multiplicative
+    hash (668265261/374761393, two well-known 32-bit hash-multiplier
+    constants -- Bob Jenkins' and xxHash's respectively -- picked over the
+    more common 0x9E3779B1/2654435761 Knuth golden-ratio constant
+    specifically because that one is >= 2^31 and doesn't fit viper's
+    native signed-int literal representation: using it raised
+    "can't do binary op between 'int' and 'object'" at compile time,
+    confirmed live on device, the same failure mode as the module
+    docstring's FX_BITS-inside-viper gotcha) of the point index and the
+    caller-supplied frame_salt, taking the *high* 16 bits of the product
+    -- the conventional Fibonacci-hashing extraction, since the low bits
+    of a multiplicative hash distribute poorly. No RNG call and no extra
+    memory: buzz_threshold=0 (see _render_frame()'s default) disables it
+    outright, since hv is always >= 0.
     """
     pxs = ptr32(xs)
     pys = ptr32(ys)
@@ -378,23 +561,28 @@ def _render_points(buf, xs, ys, zs, colors, n: int, cos_fx: int, sin_fx: int, sc
     pbuf = ptr16(buf)
     i = 0
     while i < n:
-        x = pxs[i]
-        y = pys[i]
-        z = pzs[i]
+        # Named `hv`, not `h` -- `h` is already the height parameter above,
+        # and both the bounds check and pixel offset below use `h`, so
+        # shadowing it with the hash would silently break them.
+        hv = ((i * 668265261 + frame_salt * 374761393) >> 16) & 0xFFFF
+        if hv >= buzz_threshold:
+            x = pxs[i]
+            y = pys[i]
+            z = pzs[i]
 
-        # Rotate about the vertical (Y) axis; y is unaffected.
-        rx = (x * cos_fx + z * sin_fx) >> 8
+            # Rotate about the vertical (Y) axis; y is unaffected.
+            rx = (x * cos_fx + z * sin_fx) >> 8
 
-        # Orthographic projection; screen y grows downward, so flip.
-        sx = cx + ((rx * scale_fx) >> 16)
-        sy = cy - ((y * scale_fx) >> 16)
+            # Orthographic projection; screen y grows downward, so flip.
+            sx = cx + ((rx * scale_fx) >> 16)
+            sy = cy - ((y * scale_fx) >> 16)
 
-        if sx >= 0 and sx < w and sy >= 0 and sy < h:
-            pbuf[(h - 1 - sy) * w + (w - 1 - sx)] = pcolors[i]
+            if sx >= 0 and sx < w and sy >= 0 and sy < h:
+                pbuf[(h - 1 - sy) * w + (w - 1 - sx)] = pcolors[i]
         i += 1
 
 
-def _render_frame(fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, angle, scale):
+def _render_frame(fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, angle, scale, frame_salt=0):
     """Clear `fb`/`buf` and draw one frame: the proton marker (still via
     framebuf -- cheap, not once-per-point) plus every point in
     (xs_fx, ys_fx, zs_fx) (Q8 fixed-point, see _to_fixed()), rotated by
@@ -406,6 +594,11 @@ def _render_frame(fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, angle, sca
     (plain Python int(float * FX_SCALE) -- this works fine outside viper;
     see module docstring for why it does NOT work inside _render_points()
     itself), then handed to the viper point loop.
+
+    frame_salt varies the "buzz" pattern (see BUZZ_FRACTION and
+    _render_points()'s docstring) frame to frame; callers that don't care
+    (there are none currently, but the default keeps this function usable
+    standalone) get buzz_threshold=0, i.e. no points skipped.
     """
     width = WIDTH
     height = HEIGHT
@@ -425,8 +618,9 @@ def _render_frame(fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, angle, sca
     cos_fx = int(math.cos(angle) * FX_SCALE)
     sin_fx = int(math.sin(angle) * FX_SCALE)
     scale_fx = int(scale * FX_SCALE)
+    buzz_threshold = int(BUZZ_FRACTION * 65536)
     _render_points(buf, xs_fx, ys_fx, zs_fx, colors, len(xs_fx), cos_fx, sin_fx, scale_fx,
-                    center, center, width, height)
+                    center, center, width, height, frame_salt, buzz_threshold)
 
 
 def _fly_over(d, fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, text_color, title_text,
@@ -447,7 +641,7 @@ def _fly_over(d, fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, text_color,
     for i in range(frames):
         t = i / (frames - 1) if frames > 1 else 1.0
         scale = start_scale + (end_scale - start_scale) * t
-        _render_frame(fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, angle, scale)
+        _render_frame(fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, angle, scale, i)
         fb.text(title_text, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
         angle += ANGLE_STEP
@@ -458,15 +652,20 @@ def _fly_over(d, fb, buf, xs_fx, ys_fx, zs_fx, colors, proton_color, text_color,
 
 
 def _load_preset(index):
-    """Build the point cloud, colors, title text, and projection
-    scale/amplitude for ORBITAL_PRESETS[index]. Shared by run()'s initial
-    load and every nudge-triggered switch so the two can't drift apart.
+    """Build the point cloud, colors, title text, projection
+    scale/amplitude, and point-turnover state for ORBITAL_PRESETS[index].
+    Shared by run()'s initial load and every nudge-triggered switch so the
+    two can't drift apart.
 
     Returns Q8 fixed-point coordinate arrays (xs_fx, ys_fx, zs_fx), not
     float -- see the module docstring's "Fixed-point per-point loop".
     _scale_from_radii() still runs on the original float xs/ys/zs (radius
     math there is a one-time per-load cost, not the per-frame hot loop that
     motivated fixed point, so there's no reason to fixed-point it too).
+
+    resample_state (see _ResampleState) carries the sampler/rng forward so
+    run()'s periodic _resample_points() calls keep drawing from the exact
+    same distribution this preset's initial cloud came from.
 
     Timed and printed to serial (sampling vs. color-mapping split out)
     since this is the one place in the loop slow enough (~1.5-2.5s measured
@@ -477,20 +676,21 @@ def _load_preset(index):
     n, ell, m, label = ORBITAL_PRESETS[index]
     print("orbital: loading preset %d (%s, n=%d l=%d m=%d)..." % (index, label, n, ell, m))
     t0 = time.ticks_ms()
-    xs, ys, zs, psi2 = build_point_cloud(n, ell, m)
+    xs, ys, zs, psi2, sampler, rng, radial_coeff, legendre_coeff = build_point_cloud(n, ell, m)
     t1 = time.ticks_ms()
-    colors = point_colors(psi2)
+    colors, psi2_sorted = point_colors(psi2)
     t2 = time.ticks_ms()
     title = _title_for_preset(ORBITAL_PRESETS[index])
     base_scale, zoom_amplitude = _scale_from_radii(xs, ys, zs)
     xs_fx = _to_fixed(xs)
     ys_fx = _to_fixed(ys)
     zs_fx = _to_fixed(zs)
+    resample_state = _ResampleState(sampler, rng, radial_coeff, legendre_coeff, n, ell, m, psi2_sorted)
     t3 = time.ticks_ms()
     print("orbital: %s loaded in %dms (sample=%dms color=%dms fixed=%dms) scale=%.1f" % (
         label, time.ticks_diff(t3, t0), time.ticks_diff(t1, t0), time.ticks_diff(t2, t1),
         time.ticks_diff(t3, t2), base_scale))
-    return xs_fx, ys_fx, zs_fx, colors, title, base_scale, zoom_amplitude
+    return xs_fx, ys_fx, zs_fx, colors, title, base_scale, zoom_amplitude, resample_state
 
 
 def _init_nudge_detector():
@@ -527,7 +727,7 @@ def run():
     print("orbital: display ready, %d presets available" % len(ORBITAL_PRESETS))
 
     preset_index = DEFAULT_PRESET_INDEX
-    xs, ys, zs, colors, title_text, base_scale, zoom_amplitude = _load_preset(preset_index)
+    xs, ys, zs, colors, title_text, base_scale, zoom_amplitude, resample_state = _load_preset(preset_index)
 
     buf = bytearray(WIDTH * HEIGHT * 2)
     fb = framebuf.FrameBuffer(buf, WIDTH, HEIGHT, framebuf.RGB565)
@@ -541,21 +741,36 @@ def run():
     zoom_angle = 0.0
     two_pi = 2 * math.pi
 
-    # Intro fly-over: start zoomed in tight on the proton (INTRO_START_SCALE
-    # is far past base_scale, so only the proton marker and the handful of
-    # points nearest the origin are inside the frame -- most of the cloud is
-    # scaled off-screen and simply skipped by the bounds check in
-    # _render_frame), then pull back over INTRO_FRAMES frames to the
-    # steady-state scale. Anchors the viewer on the nucleus before the full
-    # cloud is revealed, rather than showing everything at once from frame 1.
+    # Intro fly-over: start zoomed in tight on the proton (base_scale *
+    # INTRO_START_SCALE_FACTOR is far past base_scale, so only the proton
+    # marker and the handful of points nearest the origin are inside the
+    # frame -- most of the cloud is scaled off-screen and simply skipped by
+    # the bounds check in _render_frame), then pull back over INTRO_FRAMES
+    # frames to the steady-state scale. Anchors the viewer on the nucleus
+    # before the full cloud is revealed, rather than showing everything at
+    # once from frame 1.
     angle = _fly_over(d, fb, buf, xs, ys, zs, colors, proton_color, text_color, title_text,
-                       angle, INTRO_START_SCALE, base_scale, INTRO_FRAMES)
+                       angle, base_scale * INTRO_START_SCALE_FACTOR, base_scale, INTRO_FRAMES)
 
     # FPS counter: a rolling average over FPS_UPDATE_INTERVAL frames (see
     # that constant's comment for why it's not recomputed every frame).
     fps_text = "FPS: --"
     frame_count = 0
     fps_window_start = time.ticks_ms()
+
+    # Point-turnover cadence (see CULL_FRACTION/CULL_REFRESH_FRAMES and
+    # _resample_points()); a separate counter from frame_count/FPS_UPDATE_
+    # INTERVAL above since the two run on independent schedules.
+    cull_count = max(1, int(len(xs) * CULL_FRACTION))
+    cull_frame_count = 0
+
+    # "Buzz" salt (see BUZZ_FRACTION and _render_points()'s docstring):
+    # just needs to change every frame, doesn't need to be unpredictable
+    # or avoid repeating eventually -- wrapped well below viper's 32-bit
+    # int range so `frame_salt * 374761393` inside _render_points() can't
+    # be mistaken for an intentional overflow-dependent trick beyond the
+    # hash itself.
+    buzz_frame = 0
 
     while True:
         # Nudge check: once per frame, cheap (a handful of I2C bytes, see
@@ -582,13 +797,25 @@ def run():
                     fb.fill(0)
                     fb.text(LOADING_TEXT, LOADING_TEXT_POS[0], LOADING_TEXT_POS[1], text_color)
                     d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
-                    xs, ys, zs, colors, title_text, base_scale, zoom_amplitude = _load_preset(preset_index)
+                    xs, ys, zs, colors, title_text, base_scale, zoom_amplitude, resample_state = \
+                        _load_preset(preset_index)
+                    cull_count = max(1, int(len(xs) * CULL_FRACTION))
+                    cull_frame_count = 0
                     angle = _fly_over(d, fb, buf, xs, ys, zs, colors, proton_color, text_color, title_text,
                                        angle, base_scale * SWITCH_START_SCALE_FACTOR, base_scale,
                                        SWITCH_TRANSITION_FRAMES)
 
+        # Point turnover: mutates xs/ys/zs/colors in place, so the
+        # _render_frame() call right below picks up the fresh points
+        # automatically -- no signature change needed there.
+        cull_frame_count += 1
+        if cull_frame_count >= CULL_REFRESH_FRAMES:
+            _resample_points(resample_state, xs, ys, zs, colors, cull_count)
+            cull_frame_count = 0
+
         scale = base_scale + zoom_amplitude * math.sin(zoom_angle)
-        _render_frame(fb, buf, xs, ys, zs, colors, proton_color, angle, scale)
+        _render_frame(fb, buf, xs, ys, zs, colors, proton_color, angle, scale, buzz_frame)
+        buzz_frame = buzz_frame + 1 if buzz_frame < 1_000_000 else 0
         fb.text(title_text, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
         fb.text(fps_text, FPS_TEXT_POS[0], FPS_TEXT_POS[1], text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
