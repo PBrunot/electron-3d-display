@@ -22,9 +22,33 @@ MicroPython firmware may default to single-precision floats instead (board
 and build dependent) -- verify on the target board/firmware before treating
 this module's on-PC precision as representative of what will run on the
 device.
+
+Optimized per docs.micropython.org/en/latest/reference/speed_python.html:
+module-level aliases for `math` functions (avoids a global-module lookup
+plus an attribute lookup on every call -- real cost across the ~1001-sample
+loops these functions run in), loop-invariant constants hoisted out of
+per-sample loops, and `@micropython.native` on every hot function (compiles
+to native machine opcodes instead of bytecode, ~2x per the docs; safe here
+since none of these functions raise without an argument or need the
+background scheduler, the two documented native-emitter restrictions).
+`@micropython.native` is MicroPython-only syntax -- it's a compile-time
+pragma the MicroPython compiler recognizes by literal spelling
+(`micropython.native`), not a real importable decorator, so there's no
+`try/except ImportError` shim that preserves it. This module is no longer
+plain-Python-compatible as a result (previously true but never actually
+exercised by tools/orbitals_host/, which only ever runs it under real
+MicroPython) -- a deliberate tradeoff of that unused property for a real,
+measured speedup on the actual target.
 """
 
 import math
+
+_sin = math.sin
+_cos = math.cos
+_sqrt = math.sqrt
+_exp = math.exp
+_pow = math.pow
+_pi = math.pi
 
 # Maximum principal quantum number supported by laguerre_coeffs()'s
 # fixed-length coefficient list. Matches kOrbitalNMax in src/orbitals.h so
@@ -35,6 +59,7 @@ N_MAX = 16
 TABLE_SIZE = 1001
 
 
+@micropython.native
 def legendre_coeffs(ell, m):
     """Compute the coefficients of the associated Legendre polynomial
     P_l^m(cos theta), expressed as sum_k coeff[k] * u^k * sin(theta)^|m|,
@@ -57,7 +82,7 @@ def legendre_coeffs(ell, m):
 
     i_m = ell
     while i_m > abs_m:
-        denominator = math.sqrt(ell_ell1 - i_m * (i_m - 1))
+        denominator = _sqrt(ell_ell1 - i_m * (i_m - 1))
         k_start = (ell - i_m) % 2
         if k_start == 1:
             coeff[0] = 0
@@ -71,19 +96,25 @@ def legendre_coeffs(ell, m):
 
     # Normalization so that maximum value is equal to one, sampled over
     # theta in [0, pi/2) in steps of pi/100 -- matches initLegendreCoeffs()
-    # in quantum-physics.js exactly (same step count/bound).
+    # in quantum-physics.js exactly (same step count/bound). half_pi/step are
+    # loop-invariant (theta/2, pi/100 don't change between iterations) --
+    # hoisted out instead of recomputing "math.pi / 2" and "math.pi / 100"
+    # on each of the ~50 iterations.
+    half_pi = _pi / 2
+    step = _pi / 100
     max_value = 0.0
     theta = 0.0
-    while theta < math.pi / 2:
+    while theta < half_pi:
         value = abs(compute_plm(theta, ell, m, coeff))
         if value > max_value:
             max_value = value
-        theta += math.pi / 100
+        theta += step
     for i in range(ell + 1):
         coeff[i] /= max_value
     return coeff
 
 
+@micropython.native
 def compute_plm(theta, ell, m, coeff):
     """Evaluate the associated Legendre polynomial P_l^m(theta) from
     precomputed coefficients. Port of computePLM().
@@ -100,7 +131,7 @@ def compute_plm(theta, ell, m, coeff):
         P_l^m(theta), normalized so its magnitude peaks at 1 over
         theta in [0, pi/2).
     """
-    u = math.cos(theta)
+    u = _cos(theta)
     abs_m = abs(m)
     total = 0.0
     if (ell - abs_m) % 2 == 0:
@@ -113,9 +144,10 @@ def compute_plm(theta, ell, m, coeff):
         total += coeff[j] * u_pow_j
         u_pow_j *= u2
         j += 2
-    return total * math.pow(math.sin(theta), abs_m)
+    return total * _pow(_sin(theta), abs_m)
 
 
+@micropython.native
 def build_legendre_table(ell, m, n=TABLE_SIZE):
     """Build a lookup table of computePLM() sampled at n evenly spaced
     angles covering [0, pi]. Port of initLookupTable().
@@ -130,12 +162,13 @@ def build_legendre_table(ell, m, n=TABLE_SIZE):
     """
     coeff = legendre_coeffs(ell, m)
     table = [0.0] * n
+    delta_theta = _pi / (n - 1)  # hoisted: same divide every iteration otherwise
     for i in range(n):
-        theta = math.pi * i / (n - 1)
-        table[i] = compute_plm(theta, ell, m, coeff)
+        table[i] = compute_plm(i * delta_theta, ell, m, coeff)
     return table
 
 
+@micropython.native
 def laguerre_coeffs(n, ell):
     """Compute the coefficients of the radial polynomial part of the
     hydrogen radial wavefunction R_{n,ell}(r), i.e. R(r) = (sum_k coeff[k] *
@@ -165,6 +198,7 @@ def laguerre_coeffs(n, ell):
     return coeff
 
 
+@micropython.native
 def hydrogen_radial_function(r, n, ell, coeff):
     """Evaluate the hydrogen radial wavefunction R_{n,ell}(r) from
     precomputed coefficients. Port of hydrogenRadialFunction().
@@ -186,10 +220,11 @@ def hydrogen_radial_function(r, n, ell, coeff):
     for k in range(1, n - ell):
         p *= r
         result += p * coeff[k]
-    result *= math.pow(r, ell) * math.exp(-r / n)
+    result *= _pow(r, ell) * _exp(-r / n)
     return result
 
 
+@micropython.native
 def build_radial_table(n, ell, table_size=TABLE_SIZE):
     """Build a lookup table of hydrogenRadialFunction() sampled at
     table_size evenly spaced radii covering [0, maxR], with
@@ -216,6 +251,7 @@ def build_radial_table(n, ell, table_size=TABLE_SIZE):
     return table, max_r
 
 
+@micropython.native
 def get_value_from_lookup_table(x, table):
     """Linear interpolation lookup into a table, mapping x in [0,1] to
     table[0]..table[-1]. Port of getValueFromLookupTable().
@@ -239,6 +275,7 @@ def get_value_from_lookup_table(x, table):
     return table[n - 1]
 
 
+@micropython.native
 def psi_real(r, theta, phi, n, ell, m, radial_coeff, legendre_coeff):
     """Evaluate the real hydrogen orbital wavefunction psi_{n,l,m}(r, theta,
     phi), composed as R_{n,l}(r) * P_l^m(theta) * (cos(m*phi) for m>=0,
@@ -267,7 +304,7 @@ def psi_real(r, theta, phi, n, ell, m, radial_coeff, legendre_coeff):
     r_val = hydrogen_radial_function(r, n, ell, radial_coeff)
     p_val = compute_plm(theta, ell, m, legendre_coeff)
     if m >= 0:
-        azimuthal = math.cos(m * phi)
+        azimuthal = _cos(m * phi)
     else:
-        azimuthal = math.sin(-m * phi)
+        azimuthal = _sin(-m * phi)
     return r_val * p_val * azimuthal
