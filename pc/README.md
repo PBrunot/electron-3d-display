@@ -72,8 +72,11 @@ docstring for the full reasoning). Points are colored by shell
 (K/L/M/N/...) rather than by wavefunction phase either way.
 
 **Up/Down arrow keys** change the element (Z) live, with the same fly-over
-transition as switching a hydrogen preset. No point-turnover shimmer in this
-mode yet (the cloud is a static mixture of several subshells — see
+transition as switching a hydrogen preset. **Mouse wheel** (or **+/- keys**)
+zooms in/out — a persistent manual zoom multiplier layered on top of the
+automatic zoom-breathing/excursion animation, so it stays applied across
+element switches and random zoom excursions alike. No point-turnover shimmer
+in this mode yet (the cloud is a static mixture of several subshells — see
 `atom_view_pc.py`'s module docstring). Not wired into the ESP32 firmware
 path yet, PC-only for now.
 

@@ -18,17 +18,42 @@ gives a partially-filled outer shell (e.g. carbon's 2p2) its real lobed
 shape instead of a featureless sphere; treating it as isotropic too, like an
 earlier version of this module did, is only exact for full subshells. The
 atom's total point cloud is the union of every group's own point cloud,
-point count split proportional to how many electrons that group represents.
+point count split proportional to how many electrons that group represents
+-- EXCEPT that anisotropic (partially-filled, m is not None) groups get
+their share multiplied by PARTIAL_SUBSHELL_BOOST first. Without the boost,
+the lobed shape is real but visually weak for most elements: filled s/p/d
+subshells are exactly isotropic (not an approximation -- l=0 has no angular
+dependence at all, and Unsoeld's theorem makes any FULL subshell isotropic
+too) and usually outnumber the partially-filled one, and for elements like
+carbon the filled inner subshell (2s) even reaches slightly FARTHER out on
+average than the lobed one (2p) -- <r> ~ n^2*(3 - l(l+1)/n^2), 6 vs 5 in
+units of a0/Z_eff for n=2 -- so the isotropic background dominates exactly
+where the eye is looking, at the cloud's outer edge. The boost trades exact
+per-electron point density for a shape that actually reads as lobed on a
+240x240 display; it does not change WHICH points are anisotropic, only how
+many of the total budget go to that group.
 
-Coloring: every point is colored by shell (principal quantum number n, see
-SHELL_RGB) regardless of which path produced it, so the classic K/L/M/N
-shell structure reads visually across the whole atom. No phase/sign coloring
-(unlike cloud_common.level_to_rgb()) -- would be a reasonable follow-up for
-the per-orbital (Hund's-rule) groups, which do have a real signed
-wavefunction, but isotropic groups have none (angle-averaging erases it),
-and mixing signed/unsigned coloring across one atom's cloud would be more
-confusing than informative without also making full-subshell points
-somehow report "no sign" -- left as future work.
+Coloring: every point's default color (SHELL_RGB) is still by shell
+(principal quantum number n) regardless of which path produced it, so the
+classic K/L/M/N shell structure reads visually across the whole atom. Every
+point ALSO carries a signed-wavefunction sign (see `signs`, below) wherever
+one is meaningful: isotropic (full-subshell) groups have none -- angle-
+averaging erases it, same reasoning Unsoeld's theorem relies on above -- and
+are marked sign=0; anisotropic (Hund's-rule per-orbital) groups DO have a
+real signed wavefunction, recovered here by evaluating orbitals.psi_real()
+at each sampled point (same z_eff*r substitution the radial table itself
+was built with, see init_orbital_sampler()'s docstring) after the fact --
+the inverse-CDF sampling that placed the point only ever used |psi|^2,
+which loses the sign, so it has to be recomputed, not reused. Not applied
+to `colors` itself (still SHELL_RGB everywhere, unconditionally) since
+mixing signed/unsigned coloring across one atom's cloud by default would be
+more confusing than informative; instead left for a caller that wants it
+for a specific purpose to use `signs` selectively -- see
+pc/atom_view_pc.py's shell-dissection view, which swaps to phase coloring
+(cloud_common.PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB) only for the ONE shell
+currently exploded, where "isotropic groups have none" doesn't collide with
+anything else on screen -- and only for its anisotropic points; sign=0
+points there keep reading as their normal shell color.
 
 No point-turnover/resample here either (unlike cloud_common.ResampleState)
 -- the cloud is built once and stays static; see pc/atom_view_pc.py's
@@ -39,11 +64,24 @@ import array
 import math
 
 import cloud_common
+import orbitals
 import pointcloud
 import slater
 
 N_POINTS = 10000  # PC default; matches pc/orbital_view_pc.py's hydrogen-preset count
 SEED = 12345
+
+# Multiplier applied to a partially-filled (anisotropic) group's weight
+# before splitting the point budget across groups -- see module docstring's
+# "EXCEPT" paragraph for why the un-boosted (exactly-per-electron) split
+# reads as nearly spherical even for a genuinely lobed configuration like
+# carbon's 2p2. Chosen empirically (3x roughly doubles carbon's on-axis vs
+# off-axis point-density ratio measured via a 20deg cone test -- see the
+# conversation history / commit message this constant was introduced in --
+# without starving the isotropic groups down to visible sparseness). Applied
+# uniformly to every anisotropic group regardless of element; a full
+# subshell's groups (m is None) are never boosted.
+PARTIAL_SUBSHELL_BOOST = 3.0
 
 # 1 Bohr radius in Angstrom (CODATA a0 = 0.52917721090(80)e-10 m, rounded to
 # float precision) -- lets pc/atom_view_pc.py's scale bar report physical
@@ -104,15 +142,19 @@ def scale_for_atom(xs, ys, zs, pixels_per_bohr, amplitude_fraction=cloud_common.
 
 
 def _calibrate_pixels_per_bohr(target_px=_CALIBRATION_TARGET_PX, reference_z=_CALIBRATION_Z):
-    xs, ys, zs, _colors, _config = build_atom_point_cloud(reference_z, count=2000, seed=SEED)
+    xs, ys, zs, _colors, _shells, _signs, _config = build_atom_point_cloud(reference_z, count=2000, seed=SEED)
     return target_px / _p90_radius(xs, ys, zs)
 
-# One color per shell (principal quantum number n) -- historical K/L/M/N/O/P/Q
-# shell letters, so shells read as visually distinct "layers" the way
-# cloud_common.py's phase coloring reads as lobes. Index 0 unused (n starts
-# at 1); the last entry is a fallback for n>7, unreachable for any z<=
-# slater.MAX_Z ground-state configuration but kept so an out-of-range n
-# degrades to a color instead of an IndexError.
+# One color/letter per shell (principal quantum number n) -- historical
+# K/L/M/N/O/P/Q shell letters, so shells read as visually distinct "layers"
+# the way cloud_common.py's phase coloring reads as lobes. Index 0 unused
+# (n starts at 1); the last entry is a fallback for n>7, unreachable for any
+# z<= slater.MAX_Z ground-state configuration but kept so an out-of-range n
+# degrades to a color/letter instead of an IndexError. Kept as two parallel
+# tuples (not one tuple of pairs) since SHELL_RGB alone predates
+# SHELL_LETTERS (added for pc/atom_view_pc.py's shell-dissection labels) and
+# every existing SHELL_RGB[n] call site would otherwise need a [0]/[1] index
+# added.
 SHELL_RGB = (
     (255, 255, 255),  # unused (n=0)
     (255, 80, 80),     # n=1 K
@@ -124,6 +166,7 @@ SHELL_RGB = (
     (200, 100, 240),   # n=7 Q
     (160, 160, 160),   # fallback, n>7
 )
+SHELL_LETTERS = ('?', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', '?')
 
 
 def title_for_atom(z, config=None):
@@ -179,19 +222,33 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
     """Sample `count` points approximating atomic number z's total electron
     density (see module docstring for the model).
 
-    Returns (xs, ys, zs, colors, config): config is
+    Returns (xs, ys, zs, colors, shells, signs, config): config is
     slater.electron_configuration(z), handed back for title/debug use;
     colors is a plain list of (r,g,b) tuples, one per point, by shell (see
-    SHELL_RGB).
+    SHELL_RGB); shells is a plain list of the same length giving each
+    point's principal quantum number n -- lets a caller (e.g.
+    pc/atom_view_pc.py's shell-dissection view) pick out one shell's points
+    without reverse-engineering it from colors (lossy above n=7, see
+    SHELL_RGB's fallback entry). signs is an array('b') of the same length:
+    +1/-1 for a point sampled from an anisotropic (Hund's-rule per-orbital)
+    group, the sign of psi_real() AT THAT POINT (see module docstring's
+    Coloring paragraph); 0 for a point from an isotropic (full-subshell)
+    group, which has no meaningful sign.
     """
     config = slater.electron_configuration(z)
     groups = _drawing_groups(config)
-    counts = _split_counts([weight for _, _, _, weight in groups], count)
+    display_weights = [
+        weight * PARTIAL_SUBSHELL_BOOST if m is not None else weight
+        for _, _, m, weight in groups
+    ]
+    counts = _split_counts(display_weights, count)
 
     xs = array.array('f', bytes(4 * count))
     ys = array.array('f', bytes(4 * count))
     zs = array.array('f', bytes(4 * count))
     colors = [None] * count
+    shells = [0] * count
+    signs = array.array('b', bytes(count))
 
     rng = pointcloud.XorShift32(seed)
     idx = 0
@@ -207,8 +264,11 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
                 ys[idx] = y
                 zs[idx] = pz
                 colors[idx] = rgb
+                shells[idx] = n
                 idx += 1
         else:
+            radial_coeff = orbitals.laguerre_coeffs(n, ell)
+            legendre_coeff = orbitals.legendre_coeffs(ell, m)
             sampler = pointcloud.init_orbital_sampler(n, ell, m, z_eff)
             for _ in range(group_count):
                 x, y, pz = pointcloud.sample_orbital_point(sampler, rng)
@@ -216,9 +276,62 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
                 ys[idx] = y
                 zs[idx] = pz
                 colors[idx] = rgb
+                shells[idx] = n
+
+                # Sign of the real wavefunction at this point -- NOT
+                # available from the sample itself (sample_orbital_point()
+                # draws from |psi|^2, which loses it), so recomputed here.
+                # z_eff*r matches the substitution init_orbital_sampler()
+                # used to build the radial table this point came from;
+                # theta/phi are never Z-scaled (see that function's
+                # docstring), so the raw sampled angle is correct as-is.
+                r = math.sqrt(x * x + y * y + pz * pz)
+                theta = math.acos(pz / r) if r > 1e-9 else 0.0
+                phi = math.atan2(y, x)
+                psi = orbitals.psi_real(z_eff * r, theta, phi, n, ell, m, radial_coeff, legendre_coeff)
+                signs[idx] = 1 if psi >= 0.0 else -1
+
                 idx += 1
 
-    return xs, ys, zs, colors, config
+    return xs, ys, zs, colors, shells, signs, config
+
+
+def shell_dissection_plan(xs, ys, zs, shells, config):
+    """Outer-to-inner breakdown of `config` for pc/atom_view_pc.py's
+    shell-dissection view: one entry per distinct principal quantum number
+    n present, sorted DESCENDING (outermost/highest n first, since the
+    dissection zooms from the outside in).
+
+    Returns a list of (n, letter, subshell_str, electron_count, r_ref):
+      - letter: SHELL_LETTERS[n] (K/L/M/...).
+      - subshell_str: e.g. "2s2 2p2" -- just this shell's slice of
+        slater.configuration_str(config).
+      - electron_count: total electrons in shell n (sum of every subshell's
+        occupancy at that n).
+      - r_ref: p90 radius (see _p90_radius()) of THIS shell's own points
+        only, i.e. how far this shell's sampled points actually reach in
+        THIS specific point cloud (not a hydrogenic formula) -- what the
+        dissection view zooms each shell's disc to fill the frame with.
+    """
+    by_n = {}
+    for n, ell, occ in config:
+        by_n.setdefault(n, []).append((ell, occ))
+
+    plan = []
+    for n in sorted(by_n.keys(), reverse=True):
+        subshells = sorted(by_n[n])
+        electron_count = sum(occ for _ell, occ in subshells)
+        subshell_str = " ".join(
+            "%s%d" % (slater.subshell_label(n, ell), occ) for ell, occ in subshells)
+        letter = SHELL_LETTERS[n] if n < len(SHELL_LETTERS) else SHELL_LETTERS[-1]
+
+        shell_xs = [xs[i] for i in range(len(shells)) if shells[i] == n]
+        shell_ys = [ys[i] for i in range(len(shells)) if shells[i] == n]
+        shell_zs = [zs[i] for i in range(len(shells)) if shells[i] == n]
+        r_ref = _p90_radius(shell_xs, shell_ys, shell_zs) if shell_xs else 1.0
+
+        plan.append((n, letter, subshell_str, electron_count, r_ref))
+    return plan
 
 
 # Computed once at import time (see _calibrate_pixels_per_bohr()'s call
