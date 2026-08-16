@@ -51,6 +51,7 @@ from viewer_common import (
     draw_nucleus, rotate_yaw_tilt_roll, advance_rotation,
     fly_over, maybe_zoom_excursion, blit_to_canvas,
     _next_zoom_excursion_countdown,
+    outer_bound_scale, inner_bound_scale, shell_count_frames,
 )
 
 import tkinter as tk
@@ -58,6 +59,13 @@ import tkinter as tk
 # --- Cloud / defaults -------------------------------------------------------
 N_POINTS = 10000
 DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
+
+# Calibrated once for THIS canvas's own CENTER (see
+# atom_cloud.pixels_per_bohr_for_canvas()'s docstring for why it's a
+# fraction of CENTER rather than a fixed pixel count -- the same call in
+# micropython/atom_view.py uses the device's much smaller CENTER and lands
+# on a different, device-appropriate PIXELS_PER_BOHR).
+PIXELS_PER_BOHR = atom_cloud.pixels_per_bohr_for_canvas(CENTER)
 
 # --- Manual zoom (mouse wheel / +- keys) ------------------------------------
 # A persistent multiplier on top of preset.base_scale, independent of the
@@ -74,10 +82,13 @@ DISSECT_SHADE_GRAY = (70, 70, 70)  # flat gray for every non-active shell's poin
 ACTIVE_SUBSHELL_ALPHA = 1.0  # opaque -- the exploded subshell ignores ELECTRON_ALPHA
 DISSECT_CLIP_OPEN = 0.0     # clip threshold that hides rotated-z > 0 (the "cut" is open)
 DISSECT_CLIP_CLOSED = 1.0e6  # clip threshold no real point can exceed (nothing hidden)
-DISSECT_ORIENT_FRAMES = 40   # ease the clip open while the cloud keeps tumbling
-DISSECT_ZOOM_FRAMES = 40     # ease camera scale from one shell to the next
+DISSECT_ORIENT_FRAMES = 55   # base frames to ease the clip open/closed (see shell_count_frames())
+DISSECT_ZOOM_FRAMES = 55     # base frames to ease camera scale from one stop to the next
 DISSECT_HOLD_SECONDS = 2     # real-time pause on each shell with its label shown
-DISSECT_CLOSE_FRAMES = 80    # ease the cut shut on the way back to the resting scale
+DISSECT_CLOSE_FRAMES = 100   # base frames to ease the cut shut on the way back to the resting scale
+DISSECT_FRAMES_PER_SHELL = 8  # extra frames added to every eased leg per subshell beyond the first
+                               # (see shell_count_frames()) -- a heavier element's dissection runs
+                               # longer, matching its bigger outer-to-innermost-shell zoom range
 # Paces every leg of the dissection to the same rotation speed normal viewing
 # uses -- unlike fly_over()'s transitions (no delay, run as fast as the CPU
 # renders), this sequence needs a real-time HOLD to be legible, so all legs
@@ -221,7 +232,14 @@ class AtomPreset:
         outer_plan = atom_cloud.subshell_dissection_plan(xs, ys, zs, shells, ells, config)
         r_ref = outer_plan[0][5] if outer_plan else 1.0
         self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(
-            r_ref, atom_cloud.PIXELS_PER_BOHR)
+            r_ref, PIXELS_PER_BOHR)
+        # Innermost/first shell's own radius and the subshell count -- used
+        # by the shared zoom envelope (see viewer_common.maybe_zoom_excursion()
+        # and this module's _run_dissection()) to guarantee dives/dissections
+        # always reach the first shell's own depth and to pace their duration
+        # by how many subshells this element actually has.
+        self.inner_r_ref = outer_plan[-1][5] if outer_plan else r_ref
+        self.shell_count = len(outer_plan) if outer_plan else 1
 
         print("atom: %s loaded in %.2fs, scale=%.1f" % (
             slater.element_symbol(z), time.time() - t0, self.base_scale))
@@ -410,45 +428,83 @@ class AtomViewApp:
         user-visible description. Yaw/tilt/roll are advanced in place
         throughout (never reset), so _tick()'s regular per-frame update picks
         up the tumble exactly where this method leaves it.
+
+        The whole sequence is bracketed by the same shared zoom envelope
+        maybe_zoom_excursion() dives through (see viewer_common.py):
+        eased out to outer_scale (self.preset.r_ref x ZOOM_OUTER_RADIUS_FACTOR,
+        an unambiguous "outside" overview) before the cut opens, and eased in
+        to inner_scale (self.preset.inner_r_ref -- the first/innermost
+        shell's own radius -- x ZOOM_INNER_RADIUS_FACTOR, deeper than that
+        shell's own extent) on the last subshell, then back out through the
+        same two stops before returning control to normal viewing. The
+        subshells IN BETWEEN keep the original per-shell framing (each one's
+        own r_ref filling DISSECT_TARGET_PX), so only the two ends of the
+        journey are pinned to the guaranteed bounds. Every eased leg is
+        stretched by shell_count_frames() so heavier elements (more
+        subshells, a bigger outer-to-inner range) get a proportionally
+        longer sequence instead of feeling rushed.
         """
         plan = atom_cloud.subshell_dissection_plan(
             self.preset.xs, self.preset.ys, self.preset.zs, self.preset.shells, self.preset.ells,
             self.preset.config)
 
-        start_scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
+        shell_count = self.preset.shell_count
+        orient_frames = shell_count_frames(DISSECT_ORIENT_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+        zoom_frames = shell_count_frames(DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+        close_frames = shell_count_frames(DISSECT_CLOSE_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
 
-        # Phase 1: open the cut (nothing hidden -> z>0 hidden) at the resting
-        # scale, no subshell singled out yet.
-        self._dissect_ease(start_scale, start_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
+        resting_scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
+        outer_scale = outer_bound_scale(self.preset.r_ref)
+        inner_scale = inner_bound_scale(self.preset.inner_r_ref)
+
+        # Phase 0: ease out from wherever the camera currently is to the
+        # guaranteed "outside" overview, cut still closed, nothing singled
+        # out yet.
+        self._dissect_ease(resting_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=DISSECT_ORIENT_FRAMES)
+                            frames=zoom_frames)
+
+        # Phase 1: open the cut (nothing hidden -> z>0 hidden) at that
+        # overview scale, no subshell singled out yet.
+        self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
+                            active_subshell=None, r_ref=self.preset.r_ref,
+                            frames=orient_frames)
 
         # Phase 2: outermost subshell to innermost -- zoom to each subshell's
         # own extent (target_scale), highlight it, hold with its label shown.
-        prev_scale = start_scale
-        for n, ell, letter, subshell_str, electron_count, r_ref in plan:
-            target_scale = DISSECT_TARGET_PX / max(r_ref, 1e-6)
+        # The LAST (innermost/first) subshell is pinned to inner_scale
+        # instead of its own r_ref-filling target, guaranteeing the dive
+        # reaches ZOOM_INNER_RADIUS_FACTOR x its radius, not just its radius.
+        prev_scale = outer_scale
+        for i, (n, ell, letter, subshell_str, electron_count, r_ref) in enumerate(plan):
+            target_scale = inner_scale if i == len(plan) - 1 else DISSECT_TARGET_PX / max(r_ref, 1e-6)
             label = "%s: n=%d, l=%d (%s shell) -- %d electron%s" % (
                 subshell_str, n, ell, letter, electron_count, "" if electron_count == 1 else "s")
 
             self._dissect_ease(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
                                 active_subshell=(n, ell), r_ref=r_ref,
-                                frames=DISSECT_ZOOM_FRAMES, label=label)
+                                frames=zoom_frames, label=label)
             self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, (n, ell), r_ref,
                                DISSECT_HOLD_SECONDS, label)
             prev_scale = target_scale
 
-        # Phase 3: zoom back out to the resting scale, still cut open but
-        # with no subshell singled out.
-        end_scale = self._effective_base_scale()
-        self._dissect_ease(prev_scale, end_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
+        # Phase 3: zoom back out to the guaranteed overview scale, still cut
+        # open but with no subshell singled out -- the "back" half of the
+        # outside/deep envelope.
+        self._dissect_ease(prev_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
                             active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=DISSECT_ZOOM_FRAMES)
+                            frames=zoom_frames)
 
-        # Phase 4: close the cut back up.
-        self._dissect_ease(end_scale, end_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
+        # Phase 4: close the cut back up, still at the overview scale.
+        self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=DISSECT_CLOSE_FRAMES)
+                            frames=close_frames)
+
+        # Phase 5: ease back in to the resting scale, handing off cleanly to
+        # normal viewing (cut already closed throughout).
+        self._dissect_ease(outer_scale, self._effective_base_scale(), DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
+                            active_subshell=None, r_ref=self.preset.r_ref,
+                            frames=zoom_frames)
 
     def _tick(self):
         if self._pending_dissect:
@@ -469,9 +525,14 @@ class AtomViewApp:
                      SWITCH_TRANSITION_FRAMES)
 
         # Random zoom excursion -- same helper as OrbitalViewApp._tick(); uses
-        # the zoom-adjusted base/amplitude so dives are relative to wherever
-        # the user has manually zoomed to.
-        if maybe_zoom_excursion(self, self._effective_base_scale(), self._effective_zoom_amplitude()):
+        # the zoom-adjusted base/amplitude and scale_factor so dives are
+        # relative to wherever the user has manually zoomed to, and the
+        # preset's own outer/inner shell radii and subshell count so every
+        # dive reaches the first shell's own depth with duration paced to
+        # how many subshells this element has.
+        if maybe_zoom_excursion(self, self._effective_base_scale(), self._effective_zoom_amplitude(),
+                                 self.preset.r_ref, self.preset.inner_r_ref,
+                                 shell_count=self.preset.shell_count, scale_factor=self.zoom_factor):
             return
 
         scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
