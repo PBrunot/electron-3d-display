@@ -1,30 +1,26 @@
-"""R1 validation harness for the multi-electron atom model
-(pc/atom_view_pc.py / micropython/atom_cloud.py / slater.py).
+"""Validation harness for the multi-electron atom model (pc/atom_view_pc.py /
+micropython/atom_cloud.py / slater.py): compares model radii against the
+Clementi-Raimondi literature values and runs automated physics checks, so
+accuracy regressions are caught instead of re-derived by hand (see ATOMS.md
+sections 4-5).
 
-Compares the model's radii against the Clementi-Raimondi literature values
-and runs automated physics checks, so accuracy regressions are caught
-instead of being re-derived by hand each session (see ATOMS.md section 4).
-
-Definitions used here (the methodological fix of ATOMS.md section 4.2):
+Definitions (the methodological fix of ATOMS.md section 4.2):
   - "valence subshell" = highest-l subshell among the highest-n occupied
-    ones.  This is what Clementi's 'radius of maximum charge density of the
-    outermost shell' tables refer to (e.g. carbon's 2p, iron's 4s, krypton's
-    4p).  Comparing the model's most-EXTENDED subshell instead (e.g.
-    carbon's 2s, which reaches farther than 2p at the same n) reproduces the
-    old, bogus 'systematic 22-28% overestimate' of ATOMS.md 4.2 -- that
-    artifact is exactly what this harness exists to prevent.
+    ones (e.g. carbon's 2p, iron's 4s, krypton's 4p). Comparing the model's
+    most-EXTENDED subshell instead reproduces the old, bogus 'systematic
+    22-28% overestimate' artifact.
   - "model radius" = mode of r^2*R(z_eff_radial*r)^2 (pointcloud.
     radial_mode_radius()), with the SAME z_eff_radial() the point cloud is
-    built with (Clementi-Raimondi Z_eff where the table covers the
-    subshell, else Slater's rules rescaled by n/n*).
+    built with (Clementi-Raimondi Z_eff where the table covers the subshell,
+    else Slater's rules rescaled by n/n*).
 
 Usage:
-    python3 pc/validate_atoms.py [--zmin 1] [--zmax 36] [--all] [--strict]
+    python3 pc/validate_atoms.py [--zmin 1] [--zmax 36] [--all] [--strict] [--ratio MIN MAX]
 
---strict turns the summary into a hard gate: every element with a
-literature value must have a model/lit radius ratio within [0.5, 2.0]
-(default) or [RATIO_MIN, RATIO_MAX] given as extra args; exit code 1 on
-violation.  Without --strict the same table prints but always exits 0.
+--strict turns the summary into a hard gate: every element with a literature
+value must have a model/lit radius ratio within [0.5, 2.0] (default) or the
+[--ratio] bounds; exit code 1 on violation. Without --strict the same table
+prints but always exits 0.
 """
 
 import math
@@ -46,6 +42,11 @@ A0_PM = atom_cloud.PM_PER_BOHR  # 52.9177... pm per Bohr radius
 ISOTROPY_SAMPLES = 20000
 ISOTROPY_TOL = 0.05     # max |<x^2>/<r^2> - 1/3| allowed for an isotropic check
 H_AND_HE_TOL = 0.03     # model/lit radius ratio tolerance for H and He
+# The mode is stable to well under 1% at this scan density (the errors this
+# harness measures are 5-400%), and it keeps --all (Z=1..118) fast.
+RADIAL_MODE_RESOLUTION = 20001
+DEFAULT_RATIO_MIN = 0.5
+DEFAULT_RATIO_MAX = 2.0
 
 
 def valence_subshell(config):
@@ -58,12 +59,8 @@ def valence_subshell(config):
 
 
 def model_radius_pm(n, ell, z_eff):
-    """Mode of r^2 R(r)^2 for the model's radial substitution, in pm.
-    Resolution 20001: the mode is stable to well under 1% at this scan
-    density (the physics errors this harness measures are 5-400%), and it
-    keeps --all (Z=1..118) usable in a couple of seconds.
-    """
-    return pointcloud.radial_mode_radius(n, ell, z_eff, resolution=20001) * A0_PM
+    """Mode of r^2 R(r)^2 for the model's radial substitution, in pm."""
+    return pointcloud.radial_mode_radius(n, ell, z_eff, resolution=RADIAL_MODE_RESOLUTION) * A0_PM
 
 
 def _mean_sq_axes(points):
@@ -90,8 +87,7 @@ def sample_groups(groups, z, config, count, seed):
     """Sample `count` points from the union of the given (n, ell, m) groups
     using the model's own samplers (isotropic path for m=None, per-orbital
     path otherwise) -- the same code atom_cloud.build_atom_point_cloud()
-    uses, so the isotropy checks below test the real sampling path.
-    Returns a list of (x, y, z) tuples.
+    uses, so the isotropy checks test the real sampling path.
     """
     rng = pointcloud.XorShift32(seed)
     out = []
@@ -119,9 +115,9 @@ def sample_groups(groups, z, config, count, seed):
 
 
 def check_unsold_full_subshell():
-    """A FULL subshell's density is exactly isotropic (Unsoeld's theorem).
-    Ne 2p6 is sampled through atom_cloud's isotropic path; the check is that
-    the sampled cloud is (numerically) isotropic.
+    """A FULL subshell's density is exactly isotropic (Unsoeld's theorem) --
+    Ne 2p6 is sampled through atom_cloud's isotropic path, and the check is
+    that the resulting cloud is (numerically) isotropic.
     """
     z, config = 10, slater.electron_configuration(10)
     pts = sample_groups([(2, 1, None, 6)], z, config, ISOTROPY_SAMPLES, seed=4242)
@@ -131,9 +127,9 @@ def check_unsold_full_subshell():
 
 def check_half_filled_isotropic():
     """Exactly half-filled subshell with one electron per m is also exactly
-    isotropic (sum of |Y_l^m|^2 over ALL m is constant -- same theorem).
-    N 2p3 is sampled through the Hund per-orbital path, so this exercises
-    the real per-orbital samplers, not just the isotropic one.
+    isotropic (sum of |Y_l^m|^2 over ALL m is constant). N 2p3 is sampled
+    through the Hund per-orbital path, so this exercises the real per-orbital
+    samplers, not just the isotropic one.
     """
     z, config = 7, slater.electron_configuration(7)
     groups = [(2, 1, m, 1) for m in (-1, 0, 1)]
@@ -145,8 +141,8 @@ def check_half_filled_isotropic():
 def check_hund_anisotropic():
     """C 2p2 (Hund: m=-1 and m=0 singly occupied) must be ANISOTROPIC, with
     the occupied directions (y and z lobes) statistically larger than the
-    empty one (x). This is the check that caught the pre-Hund-fix bug where
-    every partial shell rendered spherical (see atom_cloud.py docstring).
+    empty one (x) -- the check that caught the pre-Hund-fix bug where every
+    partial shell rendered spherical (see atom_cloud.py docstring).
     """
     z, config = 6, slater.electron_configuration(6)
     groups = [(2, 1, m, 1) for m in (-1, 0)]
@@ -194,8 +190,8 @@ PHYSICS_CHECKS = (
 def build_table(zmin, zmax):
     """One row per Z: valence subshell, Z_eff source, model mode radius,
     literature radius, ratio. Also reports, for Z where the model's most-
-    extended subshell differs from the valence one, the definition artifact
-    ratio (the OLD, incorrect comparison) so the difference is visible.
+    extended subshell differs from the valence one, the definition-artifact
+    ratio (the old, incorrect comparison) so the difference is visible.
     """
     rows = []
     for z in range(zmin, zmax + 1):
@@ -207,8 +203,8 @@ def build_table(zmin, zmax):
         mode = model_radius_pm(n, ell, z_eff)
         lit = clementi_radii.CLEMENTI_RADIUS_PM.get(z)
 
-        # definition-artifact row: the most-extended subshell's mode (what
-        # ATOMS.md 4.2's OLD table compared), only where it differs.
+        # Definition-artifact row: the most-extended subshell's mode (what
+        # ATOMS.md 4.2's old table compared), only where it differs.
         best = None
         best_r = -1.0
         for nn, eell, _o in config:
@@ -235,7 +231,7 @@ def format_row(r):
 def main(argv):
     zmin, zmax = 1, 36
     strict = False
-    ratio_min, ratio_max = 0.5, 2.0
+    ratio_min, ratio_max = DEFAULT_RATIO_MIN, DEFAULT_RATIO_MAX
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -262,7 +258,7 @@ def main(argv):
         print(format_row(r))
     print()
 
-    # summary statistics
+    # Summary statistics
     with_lit = [r for r in rows if r[6] is not None]
     if with_lit:
         ratios = [r[5] / r[6] for r in with_lit]
@@ -281,7 +277,7 @@ def main(argv):
             sorted(ratios)[len(ratios) // 2], max(logs), worst))
     print()
 
-    # definition-artifact report
+    # Definition-artifact report
     art_rows = [r for r in rows if r[7] is not None]
     if art_rows:
         print("definition check: elements whose most-extended subshell differs from the")
@@ -295,7 +291,7 @@ def main(argv):
                 slater.element_symbol(r[0]), r[0], r[1], 'spdf'[r[2]], r[5], old_mode, r[7], corrected))
         print()
 
-    # physics checks
+    # Physics checks
     all_ok = True
     for name, fn in PHYSICS_CHECKS:
         ok, _dev, msg = fn()
@@ -303,7 +299,7 @@ def main(argv):
         print("[%s] %s -- %s" % ("PASS" if ok else "FAIL", name, msg))
     print()
 
-    # strict gate
+    # Strict gate
     if strict and with_lit:
         bad = [r for r in with_lit if not (ratio_min <= r[5] / r[6] <= ratio_max)]
         if bad:

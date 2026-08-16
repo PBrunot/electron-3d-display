@@ -1,9 +1,8 @@
-# 'Atomic radius (calculated)' after Clementi & Raimondi -- radius of maximum charge
+# Clementi & Raimondi calculated atomic radius -- radius of maximum charge
 # density of the outermost (valence) subshell, in pm.
-# Source: SchoolMyKids periodic table page 'Atomic radius of all the elements'
-# (https://www.schoolmykids.com/learn/periodic-table/atomic-radius-of-all-the-elements,
-# archived), reproducing the Clementi-Raimondi (1963) / Clementi-Raimondi-Reinhardt (1967)
-# calculated radii also used in ATOMS.md section 4.2. Keys: Z -> pm.
+# Source: SchoolMyKids periodic table page (archived), reproducing the
+# Clementi-Raimondi (1963) / Clementi-Raimondi-Reinhardt (1967) values used
+# in ATOMS.md section 4.2. Keys: Z -> pm.
 
 CLEMENTI_RADIUS_PM = {
     1: 53,
