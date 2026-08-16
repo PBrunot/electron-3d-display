@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atom Orbital Viewer</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0a0a0c;
+    color: #e8e8e8;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  #wrap {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 12px 12px 20px;
+    box-sizing: border-box;
+  }
+  h1 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: #ccc;
+  }
+  #stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #000;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  canvas#view {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  #status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    font-size: 13px;
+    color: #9a9a9a;
+    background: rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+  }
+  #status.hidden { display: none; }
+  #status.error { color: #ff8080; }
+  #controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  button {
+    flex: 1 1 auto;
+    min-width: 64px;
+    background: #1c1c22;
+    color: #eee;
+    border: 1px solid #33333c;
+    border-radius: 5px;
+    padding: 8px 10px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { background: #26262e; }
+  button:active { background: #303038; }
+  #help {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #777;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>Atom Orbital Viewer</h1>
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div id="status">Loading physics engine&hellip; (first load can take 10&ndash;20s)</div>
+  </div>
+  <div id="controls">
+    <button id="btn-prev" title="Previous element">&#9664; Element</button>
+    <button id="btn-next" title="Next element">Element &#9654;</button>
+    <button id="btn-zoom-out" title="Zoom out">&minus; Zoom</button>
+    <button id="btn-zoom-in" title="Zoom in">+ Zoom</button>
+    <button id="btn-dissect" title="Dissect electron shells">Dissect</button>
+  </div>
+  <div id="help">
+    Keyboard: &uarr;/&darr; change element, +/&minus; zoom, D dissect shells.
+    Mouse wheel also zooms.
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v314.0.4/full/pyodide.js"></script>
+<script>
+// Mirrors web/py/web_atom.py's FRAME_DELAY_MS / ZOOM_FACTOR_STEP -- kept as
+// plain JS constants here so the animation loop and input handlers don't
+// need a Python round-trip just to read two numbers every frame/keypress.
+const FRAME_DELAY_MS = 20;
+const ZOOM_FACTOR_STEP = 1.1;
+
+const PY_FILES = [
+  'micropython_shim.py', 'slater_cr_zeff.py', 'slater.py', 'orbitals.py',
+  'pointcloud.py', 'cloud_common.py', 'atom_cloud.py',
+  'web_common.py', 'web_atom.py',
+];
+
+const statusEl = document.getElementById('status');
+
+function setStatus(text, isError) {
+  if (!text) {
+    statusEl.classList.add('hidden');
+    return;
+  }
+  statusEl.classList.remove('hidden');
+  statusEl.classList.toggle('error', !!isError);
+  statusEl.textContent = text;
+}
+
+async function main() {
+  let webAtom;
+  try {
+    setStatus('Loading Python runtime…');
+    const pyodide = await loadPyodide();
+
+    setStatus('Loading numpy…');
+    await pyodide.loadPackage('numpy');
+
+    setStatus('Loading atom model…');
+    pyodide.FS.mkdirTree('/home/pyodide/lib');
+    for (const name of PY_FILES) {
+      const resp = await fetch('py/' + name);
+      if (!resp.ok) {
+        throw new Error('failed to fetch py/' + name + ' (HTTP ' + resp.status + ')');
+      }
+      const text = await resp.text();
+      pyodide.FS.writeFile('/home/pyodide/lib/' + name, text);
+    }
+
+    pyodide.runPython([
+      'import sys',
+      "sys.path.insert(0, '/home/pyodide/lib')",
+      'import micropython_shim  # noqa: F401 -- must precede the modules below',
+      'import web_atom',
+      "web_atom.init('view')",
+    ].join('\n'));
+
+    webAtom = pyodide.globals.get('web_atom');
+    setStatus(null);
+  } catch (err) {
+    console.error(err);
+    setStatus('Failed to start: ' + err.message, true);
+    return;
+  }
+
+  let lastTick = 0;
+  let broken = false;
+
+  function frame(ts) {
+    if (broken) return;
+    if (ts - lastTick >= FRAME_DELAY_MS) {
+      lastTick = ts;
+      try {
+        webAtom.tick();
+      } catch (err) {
+        console.error(err);
+        setStatus('Runtime error: ' + err.message, true);
+        broken = true;
+        return;
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  const canvas = document.getElementById('view');
+
+  window.addEventListener('keydown', (e) => {
+    if (broken) return;
+    switch (e.key) {
+      case 'ArrowUp':
+        webAtom.request_z(1); e.preventDefault(); break;
+      case 'ArrowDown':
+        webAtom.request_z(-1); e.preventDefault(); break;
+      case 'd': case 'D':
+        webAtom.request_dissect(); break;
+      case '+': case '=':
+        webAtom.zoom_by(ZOOM_FACTOR_STEP); break;
+      case '-':
+        webAtom.zoom_by(1 / ZOOM_FACTOR_STEP); break;
+    }
+  });
+
+  canvas.addEventListener('wheel', (e) => {
+    if (broken) return;
+    e.preventDefault();
+    webAtom.zoom_by(e.deltaY < 0 ? ZOOM_FACTOR_STEP : 1 / ZOOM_FACTOR_STEP);
+  }, { passive: false });
+
+  document.getElementById('btn-prev').onclick = () => !broken && webAtom.request_z(-1);
+  document.getElementById('btn-next').onclick = () => !broken && webAtom.request_z(1);
+  document.getElementById('btn-zoom-out').onclick = () => !broken && webAtom.zoom_by(1 / ZOOM_FACTOR_STEP);
+  document.getElementById('btn-zoom-in').onclick = () => !broken && webAtom.zoom_by(ZOOM_FACTOR_STEP);
+  document.getElementById('btn-dissect').onclick = () => !broken && webAtom.request_dissect();
+}
+
+main();
+</script>
+</body>
+</html>
