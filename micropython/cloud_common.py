@@ -70,6 +70,53 @@ CULL_FRACTION = 0.01        # point-turnover: fraction of the cloud resampled...
 CULL_REFRESH_FRAMES = 3     # ...every this many frames
 BUZZ_FRACTION = 0.40        # per-frame flicker fraction (device-only effect; see orbital_view.py)
 
+# 1 Bohr radius in picometers (CODATA a0 = 0.52917721090(80)e-10 m) -- lets
+# orbital_view.py (device), pc/orbital_view_pc.py (PC), and atom_cloud.py
+# (which re-exports this same value under its own name, both modules
+# already importing cloud_common regardless) report a scale bar's physical
+# size in a unit chemists actually use. Every length these two orbital
+# modules work with is implicitly in Bohr radii already (ORBITAL_PRESETS
+# are plain hydrogen, Z=1 -- no Z_eff substitution needed, unlike
+# atom_cloud.py's multi-electron atoms). pm, not Angstrom: PIL's default
+# bitmap font (PC) and framebuf's built-in font (device) both lack a glyph
+# for "Å".
+PM_PER_BOHR = 52.9177210903
+
+# Bottom-left physical-size reference bar -- shared "nice round length"
+# ladder (1/2/5 x a power of ten, the same one a ruler or map scale bar
+# uses) plus its PRECOMPUTED display string, so drawing one never needs
+# runtime float-to-string formatting ('%g'-style formatting isn't reliably
+# available across every MicroPython build/port, unlike CPython -- avoiding
+# it here means the exact same table works on both renderers without a
+# device-only formatting fallback). Actual drawing (PIL vs framebuf) is
+# renderer-specific and stays in orbital_view.py / pc/orbital_view_pc.py;
+# only the "which length to show" decision is shared.
+SCALE_BAR_CANDIDATES = (
+    (0.001, "0.001"), (0.002, "0.002"), (0.005, "0.005"),
+    (0.01, "0.01"), (0.02, "0.02"), (0.05, "0.05"),
+    (0.1, "0.1"), (0.2, "0.2"), (0.5, "0.5"),
+    (1, "1"), (2, "2"), (5, "5"),
+    (10, "10"), (20, "20"), (50, "50"),
+    (100, "100"), (200, "200"), (500, "500"), (1000, "1000"),
+)
+
+
+def pick_scale_bar_length(pixels_per_unit, max_bar_px):
+    """Largest (value, label) candidate from SCALE_BAR_CANDIDATES whose
+    on-screen length (value * pixels_per_unit) still fits under max_bar_px
+    -- i.e. the most precise round number the bar can show without
+    overflowing. Falls back to the smallest candidate if even that one
+    would be too long (only possible at extreme zoom-in, where the bar is
+    allowed to overflow max_bar_px rather than disappear to zero length).
+    """
+    best = SCALE_BAR_CANDIDATES[0]
+    for candidate in SCALE_BAR_CANDIDATES:
+        if candidate[0] * pixels_per_unit <= max_bar_px:
+            best = candidate
+        else:
+            break
+    return best
+
 
 def title_for_preset(preset):
     n, ell, m, label = preset

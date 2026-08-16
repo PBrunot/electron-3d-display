@@ -42,14 +42,14 @@ from keyboard_imu import KeyboardIMU
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 import tkinter as tk
 
-WIDTH = 240
-HEIGHT = 240
+WIDTH = 480
+HEIGHT = 480
 CENTER = WIDTH // 2
 
-DISPLAY_SCALE = 3  # tkinter window is WIDTH*DISPLAY_SCALE square; math stays at WIDTH/HEIGHT
+DISPLAY_SCALE = 2  # tkinter window is WIDTH*DISPLAY_SCALE square; math stays at WIDTH/HEIGHT
 DISPLAY_SIZE = (WIDTH * DISPLAY_SCALE, HEIGHT * DISPLAY_SCALE)
 
-N_POINTS = 10000  # higher than the device's 3000 -- a desktop CPU has the headroom for it
+N_POINTS = 20000  # higher than the device's 3000 -- a desktop CPU has the headroom for it
 
 # Bounding sphere + rotation marker (PC-only, see module docstring). The
 # circle sits at radius r_ref (same p90 radius base_scale is calibrated
@@ -121,6 +121,21 @@ ZOOM_EXCURSION_EASE_FRAMES = 30
 PROTON_SIZE = 3
 PROTON_COLOR = (255, 0, 0)
 
+# Per-point alpha blend for every sampled electron point (the nucleus marker
+# above is NOT affected -- it represents one literal particle, not a
+# probability cloud, so it stays fully opaque). Each point blends toward its
+# own color by this fraction instead of overwriting the pixel outright:
+# new = old + (color - old) * ELECTRON_ALPHA. A single isolated point then
+# renders dimmer than its "true" color (blended toward the black
+# background), while a pixel several points project onto in the same frame
+# (common at these projection densities -- 240x240 screen space is coarse
+# next to N_POINTS=3000-20000 samples) converges toward full brightness as
+# each subsequent point blends further in -- i.e. apparent brightness starts
+# tracking local sample DENSITY at a pixel, not just whether it's occupied,
+# the way a translucent point cloud reads. 1.0 = opaque (old behavior,
+# equivalent to the direct overwrite this replaces).
+ELECTRON_ALPHA = 0.5
+
 # Phosphor-style persistence (PC-only cosmetic; the device stays a hard
 # clear+redraw -- see orbital_view.py, no budget on-device for this).
 # Each frame fades the previous buffer toward black instead of clearing it,
@@ -176,8 +191,10 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
     bytearray), draw the proton marker, then rotate (yaw about Y by `angle`,
     tilt about X by `tilt_angle`, roll about Z by `roll_angle` -- all three
     needed, see orbital_view.py's module docstring) /project/draw every
-    point in `preset`. Plain float math, direct buffer writes -- see module
-    docstring for why no fixed-point is needed here.
+    point in `preset`. Each point is alpha-blended into the buffer, not
+    overwritten -- see ELECTRON_ALPHA's module comment. Plain float math,
+    direct buffer writes -- see module docstring for why no fixed-point is
+    needed here.
     """
     if ENABLE_PERSISTENCE:
         buf[:] = buf.translate(_PERSISTENCE_TABLE)  # fade previous frame instead of clearing
@@ -219,7 +236,10 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
 
         if 0 <= px < WIDTH and 0 <= py < HEIGHT:
             idx = (py * WIDTH + px) * 3
-            buf[idx], buf[idx + 1], buf[idx + 2] = colors[i]
+            cr, cg, cb = colors[i]
+            buf[idx] = buf[idx] + int((cr - buf[idx]) * ELECTRON_ALPHA)
+            buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * ELECTRON_ALPHA)
+            buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * ELECTRON_ALPHA)
 
 
 def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_text=MARKER_TEXT):
