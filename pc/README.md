@@ -99,9 +99,15 @@ transition as switching a hydrogen preset. **Mouse wheel** (or **+/- keys**)
 zooms in/out — a persistent manual zoom multiplier layered on top of the
 automatic zoom-breathing/excursion animation, so it stays applied across
 element switches and random zoom excursions alike. No point-turnover shimmer
-in this mode yet (the cloud is a static mixture of several subshells — see
-`atom_view_pc.py`'s module docstring). Not wired into the ESP32 firmware
-path yet, PC-only for now.
+in this mode (the cloud is a static mixture of several subshells — see
+`atom_view_pc.py`'s module docstring).
+
+The device counterpart, `micropython/atom_view.py`, has the same model and
+render loop (nudge steps Z instead of Up/Down, clamped to `[1, MAX_Z]`
+instead of wrapping) but no manual zoom or shell-dissection view — those are
+PC debug extras with no framebuf equivalent worth the effort. It's not the
+default boot animation (CLAUDE.md's roadmap is single-electron hydrogen
+orbitals); see that module's docstring for how to run it standalone.
 
 This reuses `micropython/orbitals.py`/`pointcloud.py`'s hydrogenic radial
 math completely unmodified (the Z-dependence is just the variable
@@ -116,11 +122,19 @@ multi-subshell mixing (`atom_cloud.build_atom_point_cloud()`) are new.
 The orchestration layer (orbital math, ranking, scale-from-radii,
 point-turnover, `ORBITAL_PRESETS`) lives in `micropython/cloud_common.py`
 and is imported by both `orbital_view_pc.py` and the ESP32 firmware
-(`micropython/orbital_view.py`) — change it once, both stay in sync. Only
-genuinely platform-specific code is duplicated by necessity: the ESP32's
-Q8 fixed-point/viper render loop and RGB565 panel encoding have no PC
+(`micropython/orbital_view.py`) — change it once, both stay in sync. The
+multi-electron atom model (`micropython/atom_cloud.py`) is imported the same
+way by `atom_view_pc.py` and `micropython/atom_view.py`. Only genuinely
+platform-specific code is duplicated by necessity: the ESP32's Q8
+fixed-point/viper render loop and RGB565 panel encoding have no PC
 equivalent, and PC-only extras (bounding sphere/marker, tkinter/PIL
 rendering, keyboard nudges) have no device equivalent.
+
+On the device side, `orbital_view.py` and `atom_view.py` share their own
+render/camera layer the same way the two PC viewers share
+`viewer_common.py`: `micropython/device_render_common.py` holds the Q8
+fixed-point/viper point renderer, framebuf blitting, fly-over/zoom-excursion
+camera, and nudge/IMU setup common to both.
 
 On the PC side, `orbital_view_pc.py` and `atom_view_pc.py` share their own
 render/camera layer via `viewer_common.py` (display geometry, yaw/tilt/roll
