@@ -12,7 +12,11 @@ sampling, ranking, point-turnover) and `micropython/nudge.py` (gesture
 detector) — versus what's genuinely PC-only (the ESP32's Q8 fixed-point/
 viper render loop has no PC equivalent — plain floats are fast enough on a
 desktop CPU; there's no real accelerometer, so arrow keys stand in for
-nudges; the bounding-sphere/marker overlay).
+nudges; the bounding-sphere/marker overlay). `viewer_common.py` holds a
+second, PC-internal layer shared between `orbital_view_pc.py` and
+`atom_view_pc.py` — the render/camera plumbing common to both viewers
+(display geometry, tumble, transitions, nucleus/marker/scale-bar/persistence)
+— so that layer only needs changing in one place too.
 
 ## Requirements
 
@@ -117,26 +121,35 @@ genuinely platform-specific code is duplicated by necessity: the ESP32's
 Q8 fixed-point/viper render loop and RGB565 panel encoding have no PC
 equivalent, and PC-only extras (bounding sphere/marker, tkinter/PIL
 rendering, keyboard nudges) have no device equivalent.
+
+On the PC side, `orbital_view_pc.py` and `atom_view_pc.py` share their own
+render/camera layer via `viewer_common.py` (display geometry, yaw/tilt/roll
+tumble, intro/switch fly-overs, random zoom excursions, nucleus/marker/
+scale-bar drawing, phosphor persistence) — change it once there too, instead
+of in whichever viewer happened to define it. Genuinely per-viewer state
+(the `Preset`/`AtomPreset` classes, `N_POINTS`, the tkinter `App` class and
+its input handling) stays in each viewer's own file.
+
 ## Constants and tuning reference
 
-All viewer behavior is driven by module-level constants at the top of
-`orbital_view_pc.py` (hydrogen viewer; `atom_view_pc.py` imports the shared
-ones) and `atom_view_pc.py` (multi-electron viewer). The code keeps only a
-one-line comment on each constant; the full rationale behind the non-obvious
-values lives here, so the tuning decisions stay documented without turning
-the source into prose.
+All viewer behavior is driven by module-level constants, most of them in
+`viewer_common.py` (shared by both viewers), with the rest split between
+`orbital_view_pc.py` (hydrogen viewer) and `atom_view_pc.py` (multi-electron
+viewer). The code keeps only a one-line comment on each constant; the full
+rationale behind the non-obvious values lives here, so the tuning decisions
+stay documented without turning the source into prose.
 
-### Display geometry (`orbital_view_pc.py`)
+### Display geometry (`viewer_common.py`, except `N_POINTS`)
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `WIDTH` / `HEIGHT` | 480 / 480 | Logical render resolution (2× the device's 240×240 panel) |
 | `CENTER` | `WIDTH // 2` | Screen center |
 | `DISPLAY_SCALE` | 2 | The tkinter window is `WIDTH*DISPLAY_SCALE` square; all math stays at `WIDTH`/`HEIGHT` |
-| `N_POINTS` | 20000 | Sampled points per preset — 3000 on the device; a desktop CPU has the headroom |
+| `N_POINTS` (`orbital_view_pc.py`) | 20000 | Sampled points per preset — 3000 on the device; a desktop CPU has the headroom |
 | `FRAME_DELAY_MS` | 20 | tkinter `.after()` delay — on a PC this, not rendering, is the real throttle |
 
-### Camera motion (`orbital_view_pc.py`)
+### Camera motion (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -162,7 +175,7 @@ tumble never falls into a short repeating loop. `_TILT_ANGLE_START` /
 alone can't move axis-aligned lobes at all), so even frame 0 right after
 boot isn't axis-locked.
 
-### Intro / orbital-switch transitions (`orbital_view_pc.py`)
+### Intro / orbital-switch transitions (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -171,7 +184,7 @@ boot isn't axis-locked.
 | `SWITCH_START_SCALE_FACTOR` | 10.0 | Orbital/Z-switch fly-over starts at 10× base scale |
 | `SWITCH_TRANSITION_FRAMES` | 18 | Orbital/Z-switch fly-over duration |
 
-### Random zoom excursions (`orbital_view_pc.py`)
+### Random zoom excursions (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -188,7 +201,7 @@ deliberately deeper than the device's 5.0: the PC has no render-loop budget
 to protect, so a dive can go deep enough to feel like passing through
 individual points into the electron cloud, not just a bigger breath.
 
-### Bounding sphere + rotation marker (`orbital_view_pc.py`)
+### Bounding sphere + rotation marker (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -211,14 +224,14 @@ what visibly moves each frame, giving an unambiguous read on rotation
 direction/speed. The front/back cue is a color shift (vivid warm yellow vs.
 flat gray), which reads much stronger than just dimming the same gray-blue.
 
-### Nucleus (`orbital_view_pc.py`)
+### Nucleus (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `PROTON_SIZE` | 3 | Nucleus marker size (px) |
 | `PROTON_COLOR` | `(255, 0, 0)` | Nucleus marker color |
 
-### Electron point rendering (`orbital_view_pc.py`)
+### Electron point rendering (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -246,7 +259,7 @@ fades out instead of vanishing). The fade is applied via
 effectively free at 480×480×3 bytes/frame; a per-byte Python loop would not
 be. Lower `PERSISTENCE_DECAY` = shorter trails; 256 = never fades.
 
-### Scale bar (`orbital_view_pc.py`)
+### Scale bar (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -265,7 +278,7 @@ frame's live pixels-per-unit every frame, so it tracks the camera's
 zoom-breathing/excursion dives rather than only being accurate at rest
 scale.
 
-### HUD and debug switches (`orbital_view_pc.py`)
+### HUD positions (`viewer_common.py`) and debug switches (`orbital_view_pc.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
