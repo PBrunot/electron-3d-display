@@ -98,6 +98,13 @@ DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0
 # --- Dissection HUD ---------------------------------------------------------
 DISSECT_LABEL_COLOR = (255, 255, 0)
 Z_NOTE_COLOR = (255, 140, 140)
+# Shown for the WHOLE sequence (unlike the per-subshell `label`, which is
+# None during the open/close/overview legs) -- the one constant cue that
+# something out of the ordinary is happening, distinct in color from both
+# the white title and the yellow subshell label so it reads as "mode", not
+# "shell name".
+DISSECT_BANNER_TEXT = "DISSECTING..."
+DISSECT_BANNER_COLOR = (255, 110, 40)
 
 def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
                              dim_color=DISSECT_SHADE_GRAY):
@@ -425,6 +432,8 @@ class AtomViewApp:
             draw_bounding_circle(draw, r_ref, scale)
             draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
             draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
+            banner_x = WIDTH - draw.textlength(DISSECT_BANNER_TEXT) - TITLE_POS[0]
+            draw.text((banner_x, TITLE_POS[1]), DISSECT_BANNER_TEXT, fill=DISSECT_BANNER_COLOR)
             if label:
                 draw.text(SUBTITLE_POS, label, fill=DISSECT_LABEL_COLOR)
             draw.text((CENTER + PROTON_SIZE, CENTER - PROTON_SIZE), "Z=%d" % self.z, fill=Z_NOTE_COLOR)
@@ -446,13 +455,24 @@ class AtomViewApp:
         self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
     def _dissect_ease(self, scale0, scale1, clip0, clip1, active_subshell, r_ref,
-                       frames, label=None):
+                       frames, label=None, full_tumble=False):
         """One eased leg of the dissection sequence: scale and clip move
         linearly from their *0 to *1 values over `frames` frames (pass the
         same value twice to hold one constant) while the cloud keeps tumbling.
         Paced to DISSECT_FRAME_DELAY_S (unlike fly_over(), which has no
         delay and runs as fast as the CPU renders) so the rotation speed here
         matches normal viewing instead of racing ahead.
+
+        full_tumble=True keeps yaw/tilt advancing too (advance_rotation(),
+        the same normal-viewing tumble as outside the dissection sequence)
+        instead of _dissect_tumble()'s roll-only freeze -- only safe while
+        the clip is CLOSED throughout the leg (clip0==clip1==
+        DISSECT_CLIP_CLOSED, nothing actually being cut), i.e. the opening
+        leg before the cut starts opening and the closing leg after it's
+        shut again. _run_dissection() uses it there so the camera keeps
+        rotating exactly as it was the instant D was pressed / exactly as
+        normal viewing resumes after, instead of visibly locking to
+        roll-only right at the start/end of the sequence.
         """
         for i in range(frames):
             if self.aborted:  # see _request_exit()'s docstring
@@ -465,7 +485,10 @@ class AtomViewApp:
             self._blit_dissection(scale, r_ref, label)
             self.root.update()
             time.sleep(DISSECT_FRAME_DELAY_S)
-            self._dissect_tumble()
+            if full_tumble:
+                advance_rotation(self)
+            else:
+                self._dissect_tumble()
 
     def _dissect_hold(self, scale, clip, active_subshell, r_ref, seconds, label):
         """Real-time (not frame-count) pause on one subshell, still tumbling
@@ -530,7 +553,7 @@ class AtomViewApp:
         # out yet.
         self._dissect_ease(resting_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=zoom_frames)
+                            frames=zoom_frames, full_tumble=True)
         if self.aborted:
             return
 
@@ -580,11 +603,18 @@ class AtomViewApp:
         if self.aborted:
             return
 
-        # Phase 5: ease back in to the resting scale, handing off cleanly to
-        # normal viewing (cut already closed throughout).
-        self._dissect_ease(outer_scale, self._effective_base_scale(), DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
+        # Phase 5: ease back in to the SAME resting_scale Phase 0 started
+        # from (not just self._effective_base_scale(), which omits the
+        # breathing sin() term Phase 0's start point included) so normal
+        # viewing's next frame -- which resumes breathing from the same
+        # frozen self.zoom_angle -- picks up exactly where this leaves off
+        # instead of popping by the breathing amplitude. full_tumble=True
+        # for the same reason as Phase 0: the cut is closed throughout, so
+        # yaw/tilt can safely resume their normal advance here instead of
+        # staying roll-only until the very next tick.
+        self._dissect_ease(outer_scale, resting_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=zoom_frames)
+                            frames=zoom_frames, full_tumble=True)
 
     def _tick(self):
         if self.aborted:

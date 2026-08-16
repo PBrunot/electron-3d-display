@@ -187,10 +187,23 @@ def fly_over_gen(app, start_scale, end_scale, frames):
     is one rendered frame, driven by index.html's requestAnimationFrame loop
     instead of a blocking for-loop + root.update(). Takes absolute scales so
     it can ease to/from anywhere, not just back to base_scale.
+
+    start_scale/end_scale are also re-scaled live against app.zoom_factor
+    every frame (getattr()'s 1.0 default makes this a no-op on the hydrogen
+    orbital viewer, which has no manual zoom) -- index.html's wheel/+-/zoom-
+    button handlers call zoom_by() straight from JS between frames even
+    while this generator is mid-sequence, updating app.zoom_factor
+    immediately, but start_scale/end_scale themselves were captured once by
+    the caller; without this rescale a zoom press mid-flight would have no
+    visible effect until the animation finished, i.e. the buttons would feel
+    unresponsive. See zoom_excursion_gen()'s docstring for how this composes
+    across that function's own leg boundaries too.
     """
+    z0 = getattr(app, 'zoom_factor', 1.0)
     for i in range(frames):
         t = i / (frames - 1) if frames > 1 else 1.0
-        scale = start_scale + (end_scale - start_scale) * t
+        base = start_scale + (end_scale - start_scale) * t
+        scale = base * (getattr(app, 'zoom_factor', 1.0) / z0)
         render_frame(app.buf, app.preset, app.angle, app.tilt_angle, app.roll_angle, scale)
         app.blit(scale)
         advance_rotation(app)
@@ -206,15 +219,21 @@ def zoom_excursion_gen(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_ref
     currently is out to the shared "outside" bound, in through the cloud to
     the shared "deep" bound, and back to the resting breathing scale. See
     pc/viewer_common.py's maybe_zoom_excursion() docstring for the full
-    rationale; the bounds/pacing math is identical.
+    rationale; the bounds/pacing math is identical, including `scale_factor`
+    being only a snapshot re-derived fresh (via _live()) before each leg so
+    a zoom press mid-excursion lands smoothly at the next leg boundary
+    instead of popping back to the stale snapshot.
     """
+    def _live(value):
+        return value * (getattr(app, 'zoom_factor', scale_factor) / scale_factor) if scale_factor else value
+
     current_scale = base_scale + zoom_amplitude * math.sin(app.zoom_angle)
     outer_scale = outer_bound_scale(outer_r_ref, scale_factor)
     inner_scale = inner_bound_scale(inner_r_ref, scale_factor)
     frames = shell_count_frames(ZOOM_EXCURSION_EASE_FRAMES_BASE, ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL, shell_count)
-    yield from fly_over_gen(app, current_scale, outer_scale, frames)
-    yield from fly_over_gen(app, outer_scale, inner_scale, frames)
-    yield from fly_over_gen(app, inner_scale, base_scale, frames)
+    yield from fly_over_gen(app, current_scale, _live(outer_scale), frames)
+    yield from fly_over_gen(app, _live(outer_scale), _live(inner_scale), frames)
+    yield from fly_over_gen(app, _live(inner_scale), _live(base_scale), frames)
     app.zoom_angle = 0.0
     app.zoom_excursion_countdown = next_zoom_excursion_countdown()
 
