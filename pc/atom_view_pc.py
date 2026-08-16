@@ -16,24 +16,26 @@ static after each element loads.
 
 Up/Down arrow keys change the atomic number Z live (same fly-over
 transition as switching a hydrogen preset in orbital_view_pc.py). D triggers
-a one-shot shell-dissection sequence (see AtomViewApp._run_dissection()):
-the cloud keeps tumbling throughout (same yaw/tilt/roll rotation as normal
+a one-shot dissection sequence (see AtomViewApp._run_dissection()): the
+cloud keeps tumbling throughout (same yaw/tilt/roll rotation as normal
 viewing, never paused) while the near half (rotated z > 0, i.e. the half
 currently facing the camera) is hidden each frame, revealing a rotating
 cutaway -- since the clip is applied in camera space every frame, which
 PHYSICAL points fall inside it changes continuously as the atom turns, the
-way a peeled sphere would look mid-spin. The view then zooms shell by shell
-from outermost to innermost, dimming every other shell to a flat gray and
-showing the current one's electron count/subshell makeup as on-screen text;
-the nucleus (small red square) plus a "Z=n" note stay visible the whole
-sequence, in every shell. The currently-exploded shell's points switch to
-phase coloring (cloud_common.PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB, by sign
-of the real wavefunction -- see atom_cloud.build_atom_point_cloud()'s
-`signs`) wherever that's meaningful -- a shell isolated on its own would
-otherwise render as one flat SHELL_RGB blob, telling you nothing about its
-actual (often lobed) shape; a full/isotropic subshell within that same
-shell has no sign to show and keeps reading as its normal shell color.
-Finally the view zooms back out and un-cuts. Close the window to quit.
+way a peeled sphere would look mid-spin. The view then zooms SUBSHELL by
+subshell (e.g. carbon's 2s and 2p separately, not lumped as one "shell 2"
+scene -- see atom_cloud.subshell_dissection_plan()) from outermost to
+innermost, dimming every other subshell to a flat gray and showing the
+current one's own electron count as on-screen text; the nucleus (small red
+square) plus a "Z=n" note stay visible the whole sequence, in every
+subshell. The currently-exploded subshell's points switch to phase coloring
+(cloud_common.PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB, by sign of the real
+wavefunction -- see atom_cloud.build_atom_point_cloud()'s `signs`) wherever
+that's meaningful -- a subshell isolated on its own would otherwise render
+as one flat SHELL_RGB blob, telling you nothing about its actual (often
+lobed) shape; an isotropic subshell (s orbitals) has no sign to show and
+keeps reading as its normal shell color. Finally the view zooms back out
+and un-cuts. Close the window to quit.
 """
 
 import math
@@ -58,7 +60,7 @@ from orbital_view_pc import (
     ZOOM_ANGLE_STEP, ZOOM_EXCURSION_SCALE_MIN_FACTOR, ZOOM_EXCURSION_SCALE_MAX_FACTOR,
     ZOOM_EXCURSION_EASE_FRAMES,
     _TILT_ANGLE_START, _ROLL_ANGLE_START,
-    PROTON_SIZE, PROTON_COLOR,
+    PROTON_SIZE, PROTON_COLOR, ELECTRON_ALPHA,
     render_frame, draw_orbit_marker, draw_scale_bar, _next_zoom_excursion_countdown,
 )
 
@@ -80,6 +82,8 @@ ZOOM_FACTOR_STEP = 1.1
 # Shell-dissection sequence (see module docstring / AtomViewApp._run_dissection()).
 DISSECT_TARGET_PX = 100.0  # on-screen p90 radius each shell's disc is zoomed to fill
 DISSECT_SHADE_GRAY = (70, 70, 70)  # flat gray every non-active shell's points are drawn in
+ACTIVE_SUBSHELL_ALPHA = 1.0  # opaque -- the exploded subshell ignores ELECTRON_ALPHA, see
+                              # render_dissection_frame()'s second _draw() call
 DISSECT_CLIP_OPEN = 0.0     # clip threshold that hides rotated-z > 0 (the "cut" is open)
 DISSECT_CLIP_CLOSED = 1.0e6  # clip threshold no real point can exceed (nothing hidden -- "cut" is shut)
 DISSECT_ORIENT_FRAMES = 40   # ease the clip open while the cloud keeps tumbling
@@ -96,29 +100,31 @@ DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0  # paces the dissection's blocki
                                                    # rotation speed throughout, not just the hold.
 
 
-def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_n,
+def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
                              dim_color=DISSECT_SHADE_GRAY):
-    """Like orbital_view_pc.render_frame(), but for the shell-dissection
-    view: (a) drops any point whose rotated depth exceeds clip_z -- the
-    "cut" -- and (b) draws active_n's points (preset.shells[i] == active_n)
-    at full color -- PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB by preset.signs[i]
-    where that's nonzero (an anisotropic, Hund's-rule point -- see
-    atom_cloud.build_atom_point_cloud()'s docstring), its normal shell color
-    otherwise (signs[i]==0: an isotropic point, no sign to show) -- every
-    OTHER visible point in a single flat dim_color (not a dimmed copy of its
-    own color -- the request this was built for was explicitly "other
-    shells... in gray"), so one shell reads clearly while the rest stay
-    visible as context. active_n=None draws everything at full shell color,
-    never phase color (used for the open/close transitions and the two zoom
-    legs between shells, where no single shell should be singled out yet).
+    """Like orbital_view_pc.render_frame(), but for the dissection view:
+    (a) drops any point whose rotated depth exceeds clip_z -- the "cut" --
+    and (b) draws active_subshell's points (where
+    (preset.shells[i], preset.ells[i]) == active_subshell, an (n, ell) pair)
+    at full color -- PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB by
+    preset.signs[i] where that's nonzero (an anisotropic, Hund's-rule point
+    -- see atom_cloud.build_atom_point_cloud()'s docstring), its normal
+    shell color otherwise (signs[i]==0: an isotropic point, no sign to show)
+    -- every OTHER visible point in a single flat dim_color (not a dimmed
+    copy of its own color -- the request this was built for was explicitly
+    "other shells... in gray"), so one subshell reads clearly while the
+    rest stay visible as context. active_subshell=None draws everything at
+    full shell color, never phase color (used for the open/close
+    transitions and the two zoom legs between subshells, where none should
+    be singled out yet).
     The nucleus (small square, same PROTON_SIZE/PROTON_COLOR as
-    render_frame()'s) is drawn every frame regardless of active_n/clip_z --
-    it's always at the origin, at depth 0, so it's never itself clipped by
-    the z > clip_z cut, and stays visible through every shell of the
-    sequence by design (see AtomViewApp._blit_dissection() for the "Z=n"
-    text next to it).
+    render_frame()'s) is drawn every frame regardless of active_subshell/
+    clip_z -- it's always at the origin, at depth 0, so it's never itself
+    clipped by the z > clip_z cut, and stays visible through every subshell
+    of the sequence by design (see AtomViewApp._blit_dissection() for the
+    "Z=n" text next to it).
 
-    Two full passes over the points (not one) so the highlighted shell is
+    Two full passes over the points (not one) so the highlighted subshell is
     never occluded by a coincidentally-later-drawn dim point sharing the
     same screen pixel -- there is no depth buffer here, same as
     render_frame(). No trailing persistence (render_frame()'s
@@ -139,16 +145,17 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
     sin_tilt = math.sin(tilt_angle)
     cos_roll = math.cos(roll_angle)
     sin_roll = math.sin(roll_angle)
-    xs, ys, zs, colors, shells, signs = (
-        preset.xs, preset.ys, preset.zs, preset.colors, preset.shells, preset.signs)
+    xs, ys, zs, colors, shells, ells, signs = (
+        preset.xs, preset.ys, preset.zs, preset.colors, preset.shells, preset.ells, preset.signs)
     dr, dg, db = dim_color
 
-    def _draw(only_n, dim):
+    def _draw(only_subshell, dim, alpha):
         for i in range(len(xs)):
-            if only_n is not None and shells[i] != only_n:
+            if only_subshell is not None and (shells[i], ells[i]) != only_subshell:
                 continue
-            if only_n is None and dim and active_n is not None and shells[i] == active_n:
-                continue  # active shell's points are drawn full-color in the second pass instead
+            if (only_subshell is None and dim and active_subshell is not None
+                    and (shells[i], ells[i]) == active_subshell):
+                continue  # active subshell's points are drawn full-color in the second pass instead
 
             rx1 = xs[i] * cos_yaw + zs[i] * sin_yaw
             rz1 = zs[i] * cos_yaw - xs[i] * sin_yaw
@@ -163,17 +170,33 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
             if 0 <= px < WIDTH and 0 <= py < HEIGHT:
                 idx = (py * WIDTH + px) * 3
                 if dim:
-                    buf[idx], buf[idx + 1], buf[idx + 2] = dr, dg, db
+                    cr, cg, cb = dr, dg, db
                 elif signs[i] > 0:
-                    buf[idx], buf[idx + 1], buf[idx + 2] = cloud_common.PHASE_POSITIVE_RGB
+                    cr, cg, cb = cloud_common.PHASE_POSITIVE_RGB
                 elif signs[i] < 0:
-                    buf[idx], buf[idx + 1], buf[idx + 2] = cloud_common.PHASE_NEGATIVE_RGB
+                    cr, cg, cb = cloud_common.PHASE_NEGATIVE_RGB
                 else:
-                    buf[idx], buf[idx + 1], buf[idx + 2] = colors[i]
+                    cr, cg, cb = colors[i]
+                # Alpha-blended (context/dim pass) or opaque (active-subshell
+                # pass, alpha=1.0 -- see the two _draw() call sites below and
+                # ACTIVE_SUBSHELL_ALPHA's comment) -- see orbital_view_pc.
+                # ELECTRON_ALPHA's module comment for the blend itself. The
+                # nucleus (drawn separately below, after both passes) is
+                # always fully opaque regardless.
+                buf[idx] = buf[idx] + int((cr - buf[idx]) * alpha)
+                buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * alpha)
+                buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * alpha)
 
-    _draw(only_n=None, dim=(active_n is not None))
-    if active_n is not None:
-        _draw(only_n=active_n, dim=False)
+    _draw(only_subshell=None, dim=(active_subshell is not None), alpha=ELECTRON_ALPHA)
+    if active_subshell is not None:
+        # Opaque, not alpha-blended: the request this was built for wants
+        # the shell currently being explained to render solid/crisp, not
+        # subject to the same translucency the rest of the cloud uses --
+        # ELECTRON_ALPHA's "brightness tracks local density" effect is a
+        # nice ambient cue for the whole-atom views, but during its own
+        # featured moment the active subshell should just look like itself,
+        # not partially see-through.
+        _draw(only_subshell=active_subshell, dim=False, alpha=ACTIVE_SUBSHELL_ALPHA)
 
     # Nucleus drawn LAST, on top of every electron point -- it sits at
     # depth 0 (never itself clipped by clip_z) but a densely-sampled inner
@@ -193,12 +216,38 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
                     buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
 
 
+def draw_atom_title(draw, x, y, z, config):
+    """Draw the atom title ('Ca (Z=20) ') in plain white, followed by each
+    subshell of its electron configuration ('1s2 ', '2s2 ', '2p6 ', ...)
+    color-coded by shell -- atom_cloud.SHELL_RGB[n], the SAME colors used
+    for that shell's own points in the point cloud (and, where a subshell
+    is the active one, the same colors render_dissection_frame() falls back
+    to for its sign=0/isotropic points) -- so the on-screen legend and the
+    rendered cloud read as one consistent color language instead of the
+    legend being plain white text unrelated to what's on screen.
+
+    PIL's ImageDraw has no multi-color single-call text primitive, so this
+    draws segment by segment, advancing x by each segment's measured width
+    (draw.textlength()) -- same default font both here and in the plain
+    draw.text() calls this replaces, so widths line up with no font param
+    mismatch.
+    """
+    prefix = "%s (Z=%d) " % (slater.element_symbol(z), z)
+    draw.text((x, y), prefix, fill=(255, 255, 255))
+    cursor_x = x + draw.textlength(prefix)
+    for n, ell, occ in config:
+        segment = "%s%d " % (slater.subshell_label(n, ell), occ)
+        color = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
+        draw.text((cursor_x, y), segment, fill=color)
+        cursor_x += draw.textlength(segment)
+
+
 class AtomPreset:
     """PC equivalent of orbital_view_pc.Preset, for one atomic number Z
     instead of one (n, ell, m) orbital. Same public shape (xs/ys/zs/colors/
     title/base_scale/zoom_amplitude/r_ref/resample()) so render_frame() and
     the fly-over/zoom-breathing loop below need no changes to accept it.
-    Also carries shells/signs/config (atom_cloud.build_atom_point_cloud()'s
+    Also carries shells/ells/signs/config (atom_cloud.build_atom_point_cloud()'s
     extra return values) purely for the dissection view below -- normal
     rendering never reads them.
     """
@@ -207,13 +256,14 @@ class AtomPreset:
         print("atom: loading Z=%d (%s)..." % (z, slater.element_symbol(z)))
         t0 = time.time()
 
-        xs, ys, zs, colors, shells, signs, config = atom_cloud.build_atom_point_cloud(z, count=N_POINTS)
+        xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(z, count=N_POINTS)
 
-        self.xs, self.ys, self.zs, self.colors, self.shells, self.signs, self.config = (
-            xs, ys, zs, colors, shells, signs, config)
+        self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
+            xs, ys, zs, colors, shells, ells, signs, config)
         self.title = atom_cloud.title_for_atom(z, config)
+        r_ref = atom_cloud.outer_subshell_r_ref(xs, ys, zs, shells, ells, config)
         self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(
-            xs, ys, zs, atom_cloud.PIXELS_PER_BOHR)
+            r_ref, atom_cloud.PIXELS_PER_BOHR)
 
         print("atom: %s loaded in %.2fs, scale=%.1f" % (
             slater.element_symbol(z), time.time() - t0, self.base_scale))
@@ -236,7 +286,7 @@ class AtomViewApp:
     def __init__(self, z=DEFAULT_Z):
         self.root = tk.Tk()
         self.root.title("Atom viewer -- PC debug (Up/Down = change element, wheel/+- = zoom, "
-                        "D = dissect shells, close window to quit)")
+                        "D = dissect orbitals, close window to quit)")
 
         self.canvas = tk.Canvas(self.root, width=DISPLAY_SIZE[0], height=DISPLAY_SIZE[1],
                                  bg='black', highlightthickness=0)
@@ -244,7 +294,7 @@ class AtomViewApp:
         self.canvas.focus_set()
 
         tk.Label(self.root, text="Up/Down = change element (Z). Mouse wheel or +/- = zoom. "
-                                  "D = dissect shells. Close window to quit.",
+                                  "D = dissect orbitals. Close window to quit.",
                  fg='white', bg='black').pack(fill='x')
 
         self.buf = bytearray(WIDTH * HEIGHT * 3)
@@ -328,8 +378,8 @@ class AtomViewApp:
         # scale (px per Bohr radius, THIS frame -- varies with zoom
         # breathing/excursions) -> px per Angstrom, so the bar always
         # reflects the camera's current zoom, not just the resting one.
-        draw_scale_bar(draw, scale / atom_cloud.ANGSTROM_PER_BOHR, "Å")
-        draw.text((2, 2), self.preset.title, fill=(255, 255, 255))
+        draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
+        draw_atom_title(draw, 2, 2, self.z, self.preset.config)
         image = image.resize(DISPLAY_SIZE, Image.NEAREST)
         self.photo = ImageTk.PhotoImage(image)
         self.canvas.itemconfig(self.image_id, image=self.photo)
@@ -362,8 +412,8 @@ class AtomViewApp:
         """
         image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
         draw = ImageDraw.Draw(image)
-        draw_scale_bar(draw, scale / atom_cloud.ANGSTROM_PER_BOHR, "Å")
-        draw.text((2, 2), self.preset.title, fill=(255, 255, 255))
+        draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
+        draw_atom_title(draw, 2, 2, self.z, self.preset.config)
         if label:
             draw.text((2, 12), label, fill=(255, 255, 0))
         draw.text((CENTER + PROTON_SIZE, CENTER - PROTON_SIZE), "Z=%d" % self.z, fill=(255, 140, 140))
@@ -385,7 +435,7 @@ class AtomViewApp:
         self.tilt_angle = (self.tilt_angle + TILT_ANGLE_STEP) % self.two_pi
         self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
-    def _dissect_ease(self, scale0, scale1, clip0, clip1, active_n, frames, label=None):
+    def _dissect_ease(self, scale0, scale1, clip0, clip1, active_subshell, frames, label=None):
         """One eased leg of the dissection sequence: scale and clip move
         linearly from their *0 to *1 values over `frames` frames (pass the
         same value twice to hold one of them constant) while the cloud
@@ -399,23 +449,23 @@ class AtomViewApp:
             scale = scale0 + (scale1 - scale0) * t
             clip = clip0 + (clip1 - clip0) * t
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
-                                     scale, clip, active_n)
+                                     scale, clip, active_subshell)
             self._blit_dissection(scale, label)
             self.root.update()
             time.sleep(DISSECT_FRAME_DELAY_S)
             self._dissect_tumble()
 
-    def _dissect_hold(self, scale, clip, active_n, seconds, label):
-        """Real-time (not frame-count) pause on one shell, still tumbling
-        every rendered frame (_dissect_tumble()) -- scale/clip/active_n stay
-        fixed, only the rotation moves, so the shell's label stays legible
-        for a fixed wall-clock duration regardless of how fast the host
-        renders each frame.
+    def _dissect_hold(self, scale, clip, active_subshell, seconds, label):
+        """Real-time (not frame-count) pause on one subshell, still tumbling
+        every rendered frame (_dissect_tumble()) -- scale/clip/active_subshell
+        stay fixed, only the rotation moves, so the subshell's label stays
+        legible for a fixed wall-clock duration regardless of how fast the
+        host renders each frame.
         """
         deadline = time.time() + seconds
         while time.time() < deadline:
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
-                                     scale, clip, active_n)
+                                     scale, clip, active_subshell)
             self._blit_dissection(scale, label)
             self.root.update()
             time.sleep(DISSECT_FRAME_DELAY_S)
@@ -428,38 +478,39 @@ class AtomViewApp:
         so _tick()'s regular per-frame update picks up the tumble exactly
         where this method leaves it once it returns.
         """
-        plan = atom_cloud.shell_dissection_plan(
-            self.preset.xs, self.preset.ys, self.preset.zs, self.preset.shells, self.preset.config)
+        plan = atom_cloud.subshell_dissection_plan(
+            self.preset.xs, self.preset.ys, self.preset.zs, self.preset.shells, self.preset.ells,
+            self.preset.config)
 
         start_scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
 
         # Phase 1: open the cut (nothing hidden -> z>0 hidden) at the
-        # resting scale, no shell singled out yet.
+        # resting scale, no subshell singled out yet.
         self._dissect_ease(start_scale, start_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
-                            active_n=None, frames=DISSECT_ORIENT_FRAMES)
+                            active_subshell=None, frames=DISSECT_ORIENT_FRAMES)
 
-        # Phase 2: outermost shell to innermost -- zoom to each shell's own
-        # extent (target_scale), highlight it, hold with its label shown.
+        # Phase 2: outermost subshell to innermost -- zoom to each subshell's
+        # own extent (target_scale), highlight it, hold with its label shown.
         prev_scale = start_scale
-        for n, letter, subshell_str, electron_count, r_ref in plan:
+        for n, ell, letter, subshell_str, electron_count, r_ref in plan:
             target_scale = DISSECT_TARGET_PX / max(r_ref, 1e-6)
-            label = "%s shell (n=%d): %s -- %d electron%s" % (
-                letter, n, subshell_str, electron_count, "" if electron_count == 1 else "s")
+            label = "%s: n=%d, l=%d (%s shell) -- %d electron%s" % (
+                subshell_str, n, ell, letter, electron_count, "" if electron_count == 1 else "s")
 
             self._dissect_ease(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                                active_n=n, frames=DISSECT_ZOOM_FRAMES, label=label)
-            self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, n, DISSECT_HOLD_SECONDS, label)
+                                active_subshell=(n, ell), frames=DISSECT_ZOOM_FRAMES, label=label)
+            self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, (n, ell), DISSECT_HOLD_SECONDS, label)
             prev_scale = target_scale
 
         # Phase 3: zoom back out to the resting scale, still cut open but
-        # with no shell singled out.
+        # with no subshell singled out.
         end_scale = self._effective_base_scale()
         self._dissect_ease(prev_scale, end_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                            active_n=None, frames=DISSECT_ZOOM_FRAMES)
+                            active_subshell=None, frames=DISSECT_ZOOM_FRAMES)
 
         # Phase 4: close the cut back up.
         self._dissect_ease(end_scale, end_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
-                            active_n=None, frames=DISSECT_CLOSE_FRAMES)
+                            active_subshell=None, frames=DISSECT_CLOSE_FRAMES)
 
     def _tick(self):
         if self._pending_dissect:

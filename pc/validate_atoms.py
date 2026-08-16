@@ -41,7 +41,7 @@ import clementi_radii
 import pointcloud
 import slater
 
-A0_PM = atom_cloud.ANGSTROM_PER_BOHR * 100.0  # 52.9177... pm per Bohr radius
+A0_PM = atom_cloud.PM_PER_BOHR  # 52.9177... pm per Bohr radius
 
 ISOTROPY_SAMPLES = 20000
 ISOTROPY_TOL = 0.05     # max |<x^2>/<r^2> - 1/3| allowed for an isotropic check
