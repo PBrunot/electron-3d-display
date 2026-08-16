@@ -4,8 +4,12 @@ nuclear-charge model. PC-only for now (see pc/atom_view_pc.py) -- not yet
 wired into the ESP32 firmware path.
 
 Model, in one paragraph: for atomic number Z, fill subshells by the Madelung
-rule (slater.electron_configuration()), give every electron in a subshell
-the SAME effective nuclear charge Z_eff (slater.slater_z_eff(), one value
+rule with the known real-world exceptions applied
+(slater.electron_configuration() / slater._CONFIG_EXCEPTIONS), give every
+electron in a subshell the SAME effective nuclear charge Z_eff used in the
+radial substitution r -> Z_eff*r (slater.z_eff_radial(): the refined
+Clementi-Raimondi Hartree-Fock Z_eff where the table covers the subshell,
+else Slater's rules rescaled by n/n* -- Slater's n* consistency; one value
 per subshell, not per electron). A FULL subshell's contribution is sampled
 as spherically symmetric (pointcloud.sample_isotropic_point()) -- exact via
 Unsoeld's theorem (summing |Y_l^m|^2 over every m in a filled subshell gives
@@ -98,11 +102,13 @@ ANGSTROM_PER_BOHR = 0.529177210903
 # cloud_common.scale_from_radii()'s per-cloud renormalization).
 #
 # Lithium (Z=3) is the reference because it's the largest atom this model
-# produces across the whole Z=1..118 range it supports (r_ref about 5.5 --
-# checked empirically, not just assumed): its lone 2s1 valence electron is
-# barely shielded (low Z_eff) and sits in an n=2 shell, both of which push
-# its radius up; this matches real chemistry too (alkali metals are the
-# most diffuse/largest atoms in their period). Calibrating off the biggest
+# produces across the whole Z=1..118 range it supports (r_ref about 6.5 a0
+# at count=2000/seed=SEED -- checked empirically, not just assumed; the
+# n* contraction of the Slater-fallback heavy atoms keeps Cs/Au/U below
+# Li, see pc/validate_atoms.py): its lone 2s1 valence electron is barely
+# shielded (low Z_eff) and sits in an n=2 shell, both of which push its
+# radius up; this matches real chemistry too (alkali metals are the most
+# diffuse/largest atoms in their period). Calibrating off the biggest
 # case, at a target smaller than cloud_common.P90_TARGET_PX, keeps every
 # other (smaller) element comfortably inside the 240x240 canvas at rest,
 # with headroom left for the zoom-breathing swing on top.
@@ -253,7 +259,13 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
     rng = pointcloud.XorShift32(seed)
     idx = 0
     for (n, ell, m, _weight), group_count in zip(groups, counts):
-        z_eff = slater.slater_z_eff(z, config, n, ell)
+        # Effective charge for the radial substitution: Clementi-Raimondi Z_eff
+        # where the table covers the subshell (Z <= 54), else Slater's Z_eff
+        # rescaled by n/n* (Slater's n* consistency) -- see slater.z_eff_radial().
+        # The SAME value feeds both the radial sampler and the sign recomputation
+        # below, so the psi_real() substitution always matches the table the point
+        # was drawn from.
+        z_eff = slater.z_eff_radial(z, config, n, ell)
         rgb = SHELL_RGB[n] if n < len(SHELL_RGB) else SHELL_RGB[-1]
 
         if m is None:

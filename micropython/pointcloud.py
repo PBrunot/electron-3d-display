@@ -302,6 +302,34 @@ def init_radial_sampler(n, ell, z_eff=1.0):
 
 
 @micropython.native
+def radial_mode_radius(n, ell, z_eff=1.0, resolution=200001):
+    """Radius of maximum radial probability density of the hydrogenic subshell
+    (n, ell) with effective charge z_eff -- the mode of r^2*R(z_eff*r)^2, in Bohr
+    radii. This is the quantity Clementi & Raimondi's 'atomic radius' tables are
+    defined with ('radius of maximum charge density of the outermost shell'), so
+    it is what pc/validate_atoms.py compares the model against (see ATOMS.md
+    section 4.2's methodology note). Same substitution the samplers use
+    (r -> z_eff*r), so pass the SAME z_eff the cloud was built with
+    (slater.z_eff_radial() for the atom model) for an apples-to-apples radius.
+
+    Returns the mode in a0 units (multiply by ANGSTROM_PER_BOHR*100 to get pm).
+    """
+    coeff = orbitals.laguerre_coeffs(n, ell)
+    radial_fn = _hydrogen_radial_function
+    max_r = 6 * n * n / z_eff
+    best_r = 0.0
+    best_w = -1.0
+    for i in range(resolution):
+        r = max_r * i / (resolution - 1)
+        radial = radial_fn(z_eff * r, n, ell, coeff)
+        w = (r * radial) * (r * radial)
+        if w > best_w:
+            best_w = w
+            best_r = r
+    return best_r
+
+
+@micropython.native
 def sample_isotropic_point(inv_r_table, rng):
     """Draw one point from a spherically-symmetric density whose radial part
     is inv_r_table (from init_radial_sampler()) and whose angular part is
