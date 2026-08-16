@@ -1,22 +1,16 @@
-// ESP-IDF esp_lcd SPI driver + hydrogen-orbital point-cloud test for the
-// Waveshare ESP32-S3-LCD-1.3 (ST7789V2, 240x240).
-// Pinout and color-order/mirror correction per CLAUDE.md sections 2/3.
-// Reference: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/lcd/spi_lcd.html
+#define ATOM_VIEW_TEST
 
-#include "driver/gpio.h"
-#include "driver/spi_master.h"
-#include "esp_heap_caps.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_vendor.h"
+// ESP-IDF esp_lcd SPI driver for the Waveshare ESP32-S3-LCD-1.3 (ST7789V2, 240x240).
+// Pinout and color-order/mirror correction per CLAUDE.md sections 2/3.
+// Display bring-up lives in display.h/.cpp; the tumble camera lives in camera.h; the
+// hydrogen orbital viewer (this build's default) lives in orbital_view.h/.cpp -- see
+// those files' headers for what moved where and why (app-layer parity milestones M1-M3,
+// see the plan this implements in the conversation that added it).
+
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "atom_cloud.h"
-
-#include <cmath>
-#include <cstring>
+#include "orbital_view.h"
 
 // Uncomment to build a validation-data-dump instead of the interactive viewer: prints
 // electron-configuration/Z_eff/point-sample data for a curated element set as tagged CSV
@@ -28,46 +22,29 @@
 // model. Comment back out (and rebuild/reflash) to return to the interactive viewer.
 // #define ATOM_VALIDATION_TEST
 
-static const char *TAG = "orbital_test";
+// Uncomment to boot into the M1/M2 single-hardcoded-atom test build instead of the
+// orbital viewer -- kept around as a standalone alternate entry point (same role as
+// micropython/atom_view.py before chooser.py existed: "run this instead of main.py's
+// default to get the other one"), useful for comparing the two render paths or debugging
+// atom_cloud.h in isolation before atom_view.h/.cpp (M4) replaces this block outright.
+// #define ATOM_VIEW_TEST
 
-#define LCD_HOST     SPI2_HOST
-#define PIN_MOSI     gpio_num_t(41)
-#define PIN_SCLK     gpio_num_t(40)
-#define PIN_CS       gpio_num_t(39)
-#define PIN_DC       gpio_num_t(38)
-#define PIN_RST      gpio_num_t(42)
-#define PIN_BL       gpio_num_t(20)
+#if defined(ATOM_VALIDATION_TEST) || defined(ATOM_VIEW_TEST)
+#include "atom_cloud.h"
+#endif
 
-#define LCD_WIDTH    240
-#define LCD_HEIGHT   240
-#define LCD_PIXEL_CLOCK_HZ (40 * 1000 * 1000)
+#ifdef ATOM_VIEW_TEST
+#include "camera.h"
+#include "display.h"
+#include "esp_timer.h"
+#include "font.h"
+#include "overlay.h"
 
-// This panel's G and B sub-pixel drive lines are physically swapped (verified empirically:
-// sending standard-RGB565 GREEN displays as blue and vice versa, while RED is unaffected -
-// not explainable by MADCTL's BGR bit, which only ever swaps R/B and never touches G).
-// No ST7789 register fixes a G/B swap, so values here are pre-swapped in software: the
-// "green" field (bits 10:5) carries what should appear blue, and the "blue" field (bits 4:0)
-// carries what should appear green. WHITE is unaffected (both fields full either way).
-#define COLOR_BLACK  0x0000
-#define COLOR_WHITE  0xFFFF
+#include <cstdio>
+#include <cstring>
+#endif
 
-// Full multi-electron atom point cloud (atom_cloud.h): angular tables are compile-time
-// embedded (angular_library.h, confirmed working the same way kOrbital1sSampler was --
-// xtensa-esp32s3-elf-nm showed it in .rodata, no runtime initializer call); each
-// subshell's radial table is built at RUNTIME from slater.h's Z_eff model when this atom
-// is picked (there are too many (n,ell,Z_eff) combinations across 118 elements to embed
-// them all -- see pointcloud.h's angular/radial-split comment). Iron (Z=26) matches
-// ATOMS.md's worked example (3d Z_eff=11.180). Switching elements is future UI work.
-constexpr int kAtomicNumber = 26; // Fe
-
-constexpr int kNumPoints = 5000;
-constexpr uint32_t kRngSeed = 12345;
-// Orbital-space-units-to-pixels scale. A full atom's outer/valence subshell reaches much
-// further out (in Bohr radii) than a bare 1s cloud does, so this is a rough starting
-// guess, NOT calibrated the way ATOMS.md's pixels_per_bohr_for_canvas() is on the PC
-// side -- almost certainly needs visual tuning once actually seen on the device.
-constexpr orb_real_t kScale = orb_real_t(10);
-constexpr orb_real_t kAnglePerFrame = orb_real_t(0.05);
+static const char* TAG = "orbital_test";
 
 #ifdef ATOM_VALIDATION_TEST
 // MUST match tools/orbitals_host/gen_atom_reference.py's ATOM_TEST_CASES/SEED/POINTS_PER_CASE
@@ -102,52 +79,30 @@ static void runAtomValidationTest() {
 }
 #endif
 
-extern "C" void app_main(void) {
-#ifdef ATOM_VALIDATION_TEST
-    while (1) {
-        runAtomValidationTest();
-        vTaskDelay(pdMS_TO_TICKS(10000));
-    }
-#endif
+#ifdef ATOM_VIEW_TEST
 
-    gpio_config_t bl_cfg = {};
-    bl_cfg.mode = GPIO_MODE_OUTPUT;
-    bl_cfg.pin_bit_mask = 1ULL << PIN_BL;
-    ESP_ERROR_CHECK(gpio_config(&bl_cfg));
-    gpio_set_level((gpio_num_t)PIN_BL, 1);
+// Full multi-electron atom point cloud (atom_cloud.h): angular tables are compile-time
+// embedded (angular_library.h, confirmed working the same way kOrbital1sSampler was --
+// xtensa-esp32s3-elf-nm showed it in .rodata, no runtime initializer call); each
+// subshell's radial table is built at RUNTIME from slater.h's Z_eff model when this atom
+// is picked (there are too many (n,ell,Z_eff) combinations across 118 elements to embed
+// them all -- see pointcloud.h's angular/radial-split comment). Iron (Z=26) matches
+// ATOMS.md's worked example (3d Z_eff=11.180). Switching elements is future UI work (M4).
+constexpr int kAtomicNumber = 26; // Fe
 
-    spi_bus_config_t buscfg = {};
-    buscfg.sclk_io_num = PIN_SCLK;
-    buscfg.mosi_io_num = PIN_MOSI;
-    buscfg.miso_io_num = -1;
-    buscfg.quadwp_io_num = -1;
-    buscfg.quadhd_io_num = -1;
-    buscfg.max_transfer_sz = LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t);
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
+constexpr int kNumPoints = 5000;
+constexpr uint32_t kRngSeed = 12345;
+// Orbital-space-units-to-pixels scale. A full atom's outer/valence subshell reaches much
+// further out (in Bohr radii) than a bare 1s cloud does, so this is a rough starting
+// guess, NOT calibrated the way ATOMS.md's pixels_per_bohr_for_canvas() is on the PC
+// side -- almost certainly needs visual tuning once actually seen on the device. Real
+// per-element calibration (scaleForAtom()/pixelsPerBohrForCanvas()) lands in M4.
+constexpr orb_real_t kScale = orb_real_t(10);
 
-    esp_lcd_panel_io_handle_t io_handle = NULL;
-    esp_lcd_panel_io_spi_config_t io_config = {};
-    io_config.dc_gpio_num = PIN_DC;
-    io_config.cs_gpio_num = PIN_CS;
-    io_config.pclk_hz = LCD_PIXEL_CLOCK_HZ;
-    io_config.spi_mode = 0;
-    io_config.trans_queue_depth = 10;
-    io_config.lcd_cmd_bits = 8;
-    io_config.lcd_param_bits = 8;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
+constexpr uint16_t kProtonColor = packColor565(255, 0, 0);
 
-    esp_lcd_panel_handle_t panel_handle = NULL;
-    esp_lcd_panel_dev_config_t panel_config = {};
-    panel_config.reset_gpio_num = PIN_RST;
-    panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
-    panel_config.bits_per_pixel = 16;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle));
-
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+static void runAtomViewTest() {
+    Display display = initDisplay();
 
     // Sample the point cloud ONCE (builds every occupied subshell's radial table as it
     // goes); only the rotation/projection below runs every frame (matches CLAUDE.md §5:
@@ -165,11 +120,10 @@ extern "C" void app_main(void) {
                  config.subshells[i].occ);
     }
 
-    uint16_t *frame_buf = (uint16_t *)heap_caps_malloc(LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t), MALLOC_CAP_DMA);
-    if (frame_buf == NULL) {
-        ESP_LOGE(TAG, "failed to allocate frame buffer");
-        return;
-    }
+    char titleText[32];
+    std::snprintf(titleText, sizeof(titleText), "%s (Z=%d)", elementSymbol(kAtomicNumber), kAtomicNumber);
+    constexpr uint16_t kTextColor = kColorWhite;
+    constexpr uint16_t kScaleBarColor = packColor565(210, 210, 210);
 
     // FPS benchmark: no fixed per-frame delay (a fixed vTaskDelay(33) would just measure
     // the delay, not the hardware's real ceiling) -- vTaskDelay(1) below is the minimum
@@ -180,33 +134,29 @@ extern "C" void app_main(void) {
     constexpr int kFpsReportEveryNFrames = 60;
     int64_t reportWindowStartUs = esp_timer_get_time();
     int framesSinceReport = 0;
+    char fpsText[16] = "FPS: --";
 
-    orb_real_t angle = 0;
+    CameraState camera;
     while (1) {
-        orb_real_t cosA = std::cos(angle);
-        orb_real_t sinA = std::sin(angle);
+        std::memset(display.frameBuf, 0, kDisplayWidth * kDisplayHeight * sizeof(uint16_t));
 
-        std::memset(frame_buf, 0, LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t));
-        for (int i = 0; i < kNumPoints; i++) {
-            // Rotate around the polar (z) axis, in the x/y plane; z (screen-vertical below)
-            // is the rotation axis itself so it's untouched by this rotation.
-            orb_real_t x = points[i].x * cosA + points[i].y * sinA;
+        RotationTrig trig = computeRotationTrig(camera);
+        renderPointsUniform(display.frameBuf, points, kNumPoints, kColorWhite, trig, kScale);
+        drawProtonMarker(display.frameBuf, kProtonColor);
 
-            int sx = int(orb_real_t(LCD_WIDTH) / 2 + x * kScale);
-            int sy = int(orb_real_t(LCD_HEIGHT) / 2 + points[i].z * kScale);
-            if (sx < 0 || sx >= LCD_WIDTH || sy < 0 || sy >= LCD_HEIGHT)
-                continue;
-            frame_buf[sy * LCD_WIDTH + sx] = COLOR_WHITE;
-        }
-        ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, LCD_WIDTH, LCD_HEIGHT, frame_buf));
+        drawText(display.frameBuf, kTitleTextX, kTitleTextY, titleText, kTextColor);
+        drawText(display.frameBuf, kFpsTextX, kFpsTextY, fpsText, kTextColor);
+        drawScaleBar(display.frameBuf, kScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
-        angle += kAnglePerFrame;
+        presentFrame(display);
+        stepCamera(&camera);
 
         framesSinceReport++;
         if (framesSinceReport >= kFpsReportEveryNFrames) {
             int64_t nowUs = esp_timer_get_time();
             double elapsedS = double(nowUs - reportWindowStartUs) / 1e6;
             double fps = double(framesSinceReport) / elapsedS;
+            std::snprintf(fpsText, sizeof(fpsText), "FPS: %.1f", fps);
             ESP_LOGI(TAG, "FPS: %.1f (%d frames / %.3fs, %d points/frame)", fps, framesSinceReport, elapsedS,
                      kNumPoints);
             reportWindowStartUs = nowUs;
@@ -215,4 +165,18 @@ extern "C" void app_main(void) {
 
         vTaskDelay(pdMS_TO_TICKS(1));
     }
+}
+#endif
+
+extern "C" void app_main(void) {
+#ifdef ATOM_VALIDATION_TEST
+    while (1) {
+        runAtomValidationTest();
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+#elif defined(ATOM_VIEW_TEST)
+    runAtomViewTest();
+#else
+    runOrbitalView();
+#endif
 }
