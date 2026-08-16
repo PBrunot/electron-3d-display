@@ -93,7 +93,7 @@ PROTON_COLOR = (255, 0, 0)
 # so apparent brightness tracks local sample DENSITY at a pixel -- the way a
 # translucent point cloud reads. The nucleus above is NOT blended (one literal
 # particle, not a probability cloud).
-ELECTRON_ALPHA = 0.5
+ELECTRON_ALPHA = 0.7
 
 # Phosphor-style persistence (PC-only cosmetic; the device hard-clears each
 # frame -- see orbital_view.py). Each frame fades the previous buffer toward
@@ -196,8 +196,8 @@ def draw_bounding_circle(draw, r_ref, scale, outline_color=BOUNDING_SPHERE_COLOR
     """Just the plain r_ref-radius outline circle -- the silhouette-tracking
     part of draw_orbit_marker(), split out so callers that don't want its
     rotating spoke/text marker (e.g. atom_view_pc.py's dissection view,
-    which already has its own reference equator ring giving a rotation cue)
-    can still draw a stable reference-sphere outline in a chosen color.
+    which draws the bounding circle directly) can still draw a stable
+    reference-sphere outline in a chosen color.
     """
     px_r = r_ref * scale
     draw.ellipse((CENTER - px_r, CENTER - px_r, CENTER + px_r, CENTER + px_r),
@@ -210,8 +210,7 @@ def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_
     rotation cue for presets whose silhouette alone doesn't show it (see
     MARKER_TEXT's comment). Free function so both viewers can reuse it
     unmodified, each with its own marker_text (element symbol for atoms) and,
-    if the caller wants the bounding circle to match some other reference
-    color (e.g. atom_view_pc.py's shell-matched equator) instead of the
+    if the caller wants the bounding circle in some color other than the
     default neutral BOUNDING_SPHERE_COLOR, outline_color.
     """
     draw_bounding_circle(draw, r_ref, scale, outline_color)
