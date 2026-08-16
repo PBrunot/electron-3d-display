@@ -84,30 +84,61 @@ class Preset:
             self.colors[idx] = cloud_common.level_to_rgb(level, sign)
 
 
+# Sequences KeyboardIMU binds directly on the canvas (see that module) --
+# tracked here too so OrbitalViewApp.stop() can unbind them when the
+# launcher (pc/launcher.py) hands the shared canvas to a different scene;
+# KeyboardIMU itself has no unbind of its own since it was never written to
+# share a canvas with anything else.
+_IMU_BOUND_SEQUENCES = ['<KeyPress-Left>', '<KeyPress-Right>', '<KeyPress-Up>', '<KeyPress-Down>']
+
+
 class OrbitalViewApp:
     """tkinter app driving render_frame() -- the PC equivalent of
     orbital_view.py's run(), restructured around tkinter's non-blocking
     `.after()` scheduling instead of a blocking `while True` loop.
+
+    Standalone (`root=None`) creates and owns its own window, as before. Run
+    from pc/launcher.py instead, `root`/`canvas`/`image_id` are the shared
+    ones the chooser screen already created, and `on_exit` is the callback
+    that shows the chooser again -- see _request_exit()/stop().
     """
 
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Orbital viewer -- PC debug (arrow keys = nudge, close window to quit)")
+    def __init__(self, root=None, canvas=None, image_id=None, on_exit=None):
+        self.owns_root = root is None
+        self.root = root or tk.Tk()
+        if self.owns_root:
+            self.root.title("Orbital viewer -- PC debug (arrow keys = nudge, Esc/close window to quit)")
 
-        self.canvas = tk.Canvas(self.root, width=DISPLAY_SIZE[0], height=DISPLAY_SIZE[1],
-                                 bg='black', highlightthickness=0)
-        self.canvas.pack()
+        self.canvas = canvas or tk.Canvas(self.root, width=DISPLAY_SIZE[0], height=DISPLAY_SIZE[1],
+                                           bg='black', highlightthickness=0)
+        if canvas is None:
+            self.canvas.pack()
         self.canvas.focus_set()
 
-        tk.Label(self.root, text="Arrow keys = nudge (switch orbital). Close window to quit.",
-                 fg='white', bg='black').pack(fill='x')
+        if self.owns_root:
+            tk.Label(self.root, text="Arrow keys = nudge (switch orbital). Esc/close window to quit.",
+                     fg='white', bg='black').pack(fill='x')
+
+        # aborted/on_exit/_bound_sequences: the shared Escape-to-return
+        # protocol fly_over()/maybe_zoom_excursion() check and stop() uses
+        # -- see this class's module docstring and viewer_common.fly_over().
+        self.aborted = False
+        self.on_exit = on_exit
+        self._bound_sequences = []
 
         self.imu = KeyboardIMU(self.canvas)
+        self._bound_sequences.extend(_IMU_BOUND_SEQUENCES)
         self.detector = nudge.NudgeDetector(self.imu)
+
+        # Bound on the WINDOW, not the canvas: canvas.bind() only fires
+        # while the canvas itself holds keyboard focus, which a "go back"
+        # shortcut shouldn't depend on. root.bind() fires regardless of
+        # which child widget has focus, as long as the window does.
+        self.root.bind('<Escape>', self._request_exit)
 
         self.buf = bytearray(WIDTH * HEIGHT * 3)
         self.photo = None  # kept alive on self; tkinter drops PhotoImages with no live reference
-        self.image_id = self.canvas.create_image(0, 0, anchor='nw')
+        self.image_id = image_id if image_id is not None else self.canvas.create_image(0, 0, anchor='nw')
 
         self.preset_index = cloud_common.DEFAULT_PRESET_INDEX
         self.preset = Preset(self.preset_index)
@@ -122,10 +153,49 @@ class OrbitalViewApp:
         self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
 
         fly_over(self, self.preset.base_scale * INTRO_START_SCALE_FACTOR, self.preset.base_scale, INTRO_FRAMES)
-        self.root.after(0, self._tick)
+        # If Escape fired during THIS fly-over, no _tick() has ever been
+        # scheduled yet -- _tick() is the only other place that calls
+        # stop(), so without this check an abort here would never actually
+        # take effect (the app would just freeze, aborted=True forever).
+        if self.aborted:
+            self.stop()
+        else:
+            self.root.after(0, self._tick)
 
     def run(self):
         self.root.mainloop()
+
+    def _bind(self, sequence, handler):
+        self.canvas.bind(sequence, handler)
+        self._bound_sequences.append(sequence)
+
+    def _request_exit(self, event=None):
+        """Esc handler: just raises the flag fly_over()/maybe_zoom_excursion()
+        already check every iteration (see viewer_common.py) -- the actual
+        cleanup happens from _tick() once any in-progress blocking call has
+        unwound (see stop()'s docstring for why it can't happen here).
+        """
+        print("orbital: Escape pressed, aborted=True")
+        self.aborted = True
+
+    def stop(self):
+        """Unbind everything this app registered on the shared canvas and
+        hand control back via on_exit(). Only ever called from _tick() (see
+        _request_exit()), never directly from an event handler -- Escape can
+        fire while a blocking fly-over/dissection loop several frames deep
+        is still unwinding the call stack above _tick(), and unbinding out
+        from under that (or calling on_exit(), which may destroy this app's
+        state) would be reentrant into code still using it.
+        """
+        print("orbital: stop() -- unbinding %d sequence(s), on_exit=%r, owns_root=%r" % (
+            len(self._bound_sequences), self.on_exit, self.owns_root))
+        for sequence in self._bound_sequences:
+            self.canvas.unbind(sequence)
+        self.root.unbind('<Escape>')  # bound on root, not canvas -- see __init__
+        if self.on_exit is not None:
+            self.on_exit()
+        elif self.owns_root:
+            self.root.destroy()
 
     def _blit(self, scale, extra_text=None):
         def overlays(draw):
@@ -146,6 +216,11 @@ class OrbitalViewApp:
         draw_orbit_marker(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle)
 
     def _tick(self):
+        if self.aborted:
+            print("orbital: _tick() saw aborted -- calling stop()")
+            self.stop()
+            return
+
         if self.detector is not None:
             raw = self.detector.poll_raw()
             if raw is not None:
@@ -161,6 +236,9 @@ class OrbitalViewApp:
                     self.cull_frame_count = 0
                     fly_over(self, self.preset.base_scale * SWITCH_START_SCALE_FACTOR, self.preset.base_scale,
                              SWITCH_TRANSITION_FRAMES)
+                    if self.aborted:
+                        self.stop()
+                        return
 
         # Random zoom excursion: skip the normal render/turnover below since
         # the dive already blitted every frame of itself (see
@@ -169,6 +247,8 @@ class OrbitalViewApp:
         # shell_count stays 1 (the default).
         if maybe_zoom_excursion(self, self.preset.base_scale, self.preset.zoom_amplitude,
                                  self.preset.r_ref, self.preset.r_ref):
+            if self.aborted:
+                self.stop()
             return
 
         if not DEBUG_DISABLE_CULL:

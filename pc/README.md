@@ -41,11 +41,21 @@ Python installs on this machine lack it — check with
 python3 pc/main.py
 ```
 
-A window opens showing the same orbital view as the device at a 480×480
-logical resolution (2× the device's 240×240 panel — see `WIDTH`/`HEIGHT` in
-`orbital_view_pc.py`), scaled up 2× more for the tkinter window
-(`DISPLAY_SCALE`), with the same intro fly-over, rotation/zoom breathing,
-point-turnover shimmer, and per-frame "buzz" as the real firmware.
+A window opens on a chooser screen first (`pc/launcher.py`) -- Hydrogen
+Orbitals vs Element Explorer, with a randomly picked tumbling preset (a
+random orbital or a random element) playing behind the two choices so the
+screen isn't static while you decide. **Up/Down/Left/Right** or click to
+select, **Enter** to confirm. **Escape** inside either viewer returns here
+-- one shared window the whole time, no new windows opened or closed when
+switching. To jump straight into a specific element from the command line
+instead, skipping the chooser: `python3 pc/atom_main.py [Z]`.
+
+Once inside the orbital viewer, it shows the same view as the device at a
+480×480 logical resolution (2× the device's 240×240 panel — see
+`WIDTH`/`HEIGHT` in `orbital_view_pc.py`), scaled up 2× more for the
+tkinter window (`DISPLAY_SCALE`), with the same intro fly-over,
+rotation/zoom breathing, point-turnover shimmer, and per-frame "buzz" as
+the real firmware.
 
 **Arrow keys** (Left/Right/Up/Down) = nudge, same as physically nudging the
 board — cycles through `ORBITAL_PRESETS` exactly like the device. The

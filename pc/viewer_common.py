@@ -322,8 +322,21 @@ def fly_over(app, start_scale, end_scale, frames):
     """Short, one-shot camera move -- blocking (app.root.update() per frame
     keeps the window responsive). Takes absolute scales so it can ease
     to/from anywhere, not just back to base_scale.
+
+    Checked at the top of every iteration: `app.aborted` (set by the
+    launcher's shared Escape-to-return-to-chooser handling, see
+    pc/launcher.py and orbital_view_pc.py/atom_view_pc.py's
+    _request_exit()). Since the only way `aborted` can flip True mid-call is
+    a bound key handler firing during the `app.root.update()` call just
+    below, checking here -- immediately before the NEXT frame would render
+    -- stops a long fly-over within one frame of Escape instead of running
+    it to completion first. Absent on standalone (non-launcher) apps, where
+    getattr()'s default keeps this a no-op.
     """
     for i in range(frames):
+        if getattr(app, 'aborted', False):
+            print("viewer_common: fly_over() aborted at frame %d/%d" % (i, frames))
+            return
         t = i / (frames - 1) if frames > 1 else 1.0
         scale = start_scale + (end_scale - start_scale) * t
         render_frame(app.buf, app.preset, app.angle, app.tilt_angle, app.roll_angle, scale)
@@ -361,7 +374,11 @@ def maybe_zoom_excursion(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_r
     fly_over(app, inner_scale, base_scale, frames)
     app.zoom_angle = 0.0
     app.zoom_excursion_countdown = _next_zoom_excursion_countdown()
-    app.root.after(FRAME_DELAY_MS, app._tick)
+    # If Escape landed mid-dive, one of the fly_over() calls above returned
+    # early -- don't reschedule _tick(); the caller's own abort check (see
+    # fly_over()'s docstring) takes it from here instead.
+    if not getattr(app, 'aborted', False):
+        app.root.after(FRAME_DELAY_MS, app._tick)
     return True
 
 

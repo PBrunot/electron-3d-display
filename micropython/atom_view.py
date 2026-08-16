@@ -135,9 +135,18 @@ class AtomPresetState:
         _draw_atom_title(fb, x, y, self.z, self.config, text_color)
 
 
-def run(z=DEFAULT_Z):
-    print("atom: display init...")
-    d = display_mod.init()
+def run(z=DEFAULT_Z, d=None, detector=None):
+    """`d`/`detector` let chooser.py hand this an already-initialized
+    display/nudge-detector -- see orbital_view.run()'s matching docstring
+    for why. Standalone use (`import atom_view; atom_view.run()`) is
+    unaffected, still creates its own.
+
+    Nudging drc.NUDGE_BACK_DIRECTION ('U') returns instead of stepping Z --
+    see device_render_common.py's comment on that constant.
+    """
+    if d is None:
+        print("atom: display init...")
+        d = display_mod.init()
     print("atom: display ready, Z=1..%d available" % slater.MAX_Z)
 
     preset = AtomPresetState(z)
@@ -149,7 +158,8 @@ def run(z=DEFAULT_Z):
     text_color = drc.encode_color565(255, 255, 255)
     scale_bar_color = drc.encode_color565(210, 210, 210)
 
-    detector = drc.init_nudge_detector("element switching")
+    if detector is None:
+        detector = drc.init_nudge_detector("element switching")
 
     angle = 0.0
     tilt_angle = drc._TILT_ANGLE_START
@@ -169,10 +179,11 @@ def run(z=DEFAULT_Z):
 
     while True:
         # Nudge check: steps the atomic number Z and re-does the fly-over on
-        # a detected L/R/U/D, same as orbital_view.py's preset switch except
+        # a detected L/R, same as orbital_view.py's preset switch except
         # clamped to [1, MAX_Z] instead of wrapping -- Z has real endpoints
         # (hydrogen, and this model's practical fallback ceiling), unlike a
-        # cyclic preset list. Out-of-range nudges are silently ignored.
+        # cyclic preset list. Out-of-range nudges are silently ignored. U
+        # returns to the menu (see this function's docstring); D is unused.
         # LOADING_TEXT covers AtomPresetState()'s rebuild so the display
         # doesn't just freeze on the old cloud.
         if detector is not None:
@@ -182,6 +193,9 @@ def run(z=DEFAULT_Z):
                 direction = detector.axis_sign_to_direction.get((axis, sign))
                 print("nudge: axis=%s sign=%+d mag=%.2fg -> %s" % (
                     axis, sign, mag, direction if direction else "unmapped"))
+                if direction == drc.NUDGE_BACK_DIRECTION:
+                    print("atom: back nudge -- returning to menu")
+                    return
                 step = drc._NUDGE_DIRECTION_STEP.get(direction)
                 if step is not None:
                     new_z = z + step

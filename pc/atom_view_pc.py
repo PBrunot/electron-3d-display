@@ -254,25 +254,42 @@ class AtomViewApp:
     replaced by Up/Down changing Z. Kept as its own class rather than
     subclassing: the two differ exactly in the input-handling bit, and
     inheritance would need overriding most of _tick() anyway.
+
+    Standalone (`root=None`) creates and owns its own window, as before. Run
+    from pc/launcher.py instead, `root`/`canvas`/`image_id` are the shared
+    ones the chooser screen already created, and `on_exit` is the callback
+    that shows the chooser again -- see _request_exit()/stop(), and
+    orbital_view_pc.OrbitalViewApp's matching docstring.
     """
 
-    def __init__(self, z=DEFAULT_Z):
-        self.root = tk.Tk()
-        self.root.title("Atom viewer -- PC debug (Up/Down = change element, wheel/+- = zoom, "
-                        "D = dissect orbitals, close window to quit)")
+    def __init__(self, z=DEFAULT_Z, root=None, canvas=None, image_id=None, on_exit=None):
+        self.owns_root = root is None
+        self.root = root or tk.Tk()
+        if self.owns_root:
+            self.root.title("Atom viewer -- PC debug (Up/Down = change element, wheel/+- = zoom, "
+                            "D = dissect orbitals, Esc/close window to quit)")
 
-        self.canvas = tk.Canvas(self.root, width=DISPLAY_SIZE[0], height=DISPLAY_SIZE[1],
-                                 bg='black', highlightthickness=0)
-        self.canvas.pack()
+        self.canvas = canvas or tk.Canvas(self.root, width=DISPLAY_SIZE[0], height=DISPLAY_SIZE[1],
+                                           bg='black', highlightthickness=0)
+        if canvas is None:
+            self.canvas.pack()
         self.canvas.focus_set()
 
-        tk.Label(self.root, text="Up/Down = change element (Z). Mouse wheel or +/- = zoom. "
-                                  "D = dissect orbitals. Close window to quit.",
-                 fg='white', bg='black').pack(fill='x')
+        if self.owns_root:
+            tk.Label(self.root, text="Up/Down = change element (Z). Mouse wheel or +/- = zoom. "
+                                      "D = dissect orbitals. Esc/close window to quit.",
+                     fg='white', bg='black').pack(fill='x')
+
+        # aborted/on_exit/_bound_sequences: the shared Escape-to-return
+        # protocol fly_over()/maybe_zoom_excursion() check and stop() uses
+        # -- see orbital_view_pc.OrbitalViewApp's matching fields.
+        self.aborted = False
+        self.on_exit = on_exit
+        self._bound_sequences = []
 
         self.buf = bytearray(WIDTH * HEIGHT * 3)
         self.photo = None  # kept alive on self; tkinter drops PhotoImages with no live reference
-        self.image_id = self.canvas.create_image(0, 0, anchor='nw')
+        self.image_id = image_id if image_id is not None else self.canvas.create_image(0, 0, anchor='nw')
 
         self.z = z
         self.preset = AtomPreset(self.z)
@@ -281,25 +298,30 @@ class AtomViewApp:
         self.dissecting = False
         self._pending_dissect = False
 
-        self.canvas.bind('<Up>', lambda e: self._request_z(1))
-        self.canvas.bind('<Down>', lambda e: self._request_z(-1))
-        self.canvas.bind('<d>', lambda e: self._request_dissect())
-        self.canvas.bind('<D>', lambda e: self._request_dissect())
+        self._bind('<Up>', lambda e: self._request_z(1))
+        self._bind('<Down>', lambda e: self._request_z(-1))
+        self._bind('<d>', lambda e: self._request_dissect())
+        self._bind('<D>', lambda e: self._request_dissect())
+        # Bound on the WINDOW, not the canvas: canvas.bind() only fires
+        # while the canvas itself holds keyboard focus, which a "go back"
+        # shortcut shouldn't depend on. root.bind() fires regardless of
+        # which child widget has focus, as long as the window does.
+        self.root.bind('<Escape>', self._request_exit)
 
         # Mouse wheel: <MouseWheel>+event.delta on Windows/Mac, Button-4/5 on
         # Linux/X11 -- binding all three covers every platform this viewer
         # runs on without detecting the platform explicitly.
-        self.canvas.bind('<MouseWheel>', self._on_mouse_wheel)
-        self.canvas.bind('<Button-4>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
-        self.canvas.bind('<Button-5>', lambda e: self._zoom_by(1.0 / ZOOM_FACTOR_STEP))
+        self._bind('<MouseWheel>', self._on_mouse_wheel)
+        self._bind('<Button-4>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
+        self._bind('<Button-5>', lambda e: self._zoom_by(1.0 / ZOOM_FACTOR_STEP))
 
         # +/- keys: bare symbol, keypad variant, and '=' (the un-shifted key
         # '+' shares on a US keyboard) so zoom-in doesn't require Shift.
-        self.canvas.bind('<plus>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
-        self.canvas.bind('<equal>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
-        self.canvas.bind('<KP_Add>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
-        self.canvas.bind('<minus>', lambda e: self._zoom_by(1.0 / ZOOM_FACTOR_STEP))
-        self.canvas.bind('<KP_Subtract>', lambda e: self._zoom_by(1.0 / ZOOM_FACTOR_STEP))
+        self._bind('<plus>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
+        self._bind('<equal>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
+        self._bind('<KP_Add>', lambda e: self._zoom_by(ZOOM_FACTOR_STEP))
+        self._bind('<minus>', lambda e: self._zoom_by(1.0 / ZOOM_FACTOR_STEP))
+        self._bind('<KP_Subtract>', lambda e: self._zoom_by(1.0 / ZOOM_FACTOR_STEP))
 
         self.angle = 0.0
         self.tilt_angle = _TILT_ANGLE_START
@@ -310,10 +332,45 @@ class AtomViewApp:
 
         fly_over(self, self._effective_base_scale() * INTRO_START_SCALE_FACTOR, self._effective_base_scale(),
                  INTRO_FRAMES)
-        self.root.after(0, self._tick)
+        # If Escape fired during THIS fly-over, no _tick() has ever been
+        # scheduled yet -- _tick() is the only other place that calls
+        # stop(), so without this check an abort here would never actually
+        # take effect (the app would just freeze, aborted=True forever).
+        if self.aborted:
+            self.stop()
+        else:
+            self.root.after(0, self._tick)
 
     def run(self):
         self.root.mainloop()
+
+    def _bind(self, sequence, handler):
+        self.canvas.bind(sequence, handler)
+        self._bound_sequences.append(sequence)
+
+    def _request_exit(self, event=None):
+        """See orbital_view_pc.OrbitalViewApp._request_exit()'s docstring --
+        same reasoning applies here, including why a dissection in progress
+        (a much longer blocking sequence than a fly-over) is safe to
+        interrupt this way: _dissect_ease()/_dissect_hold() check `aborted`
+        every iteration too (see those methods).
+        """
+        print("atom: Escape pressed, aborted=True")
+        self.aborted = True
+
+    def stop(self):
+        """See orbital_view_pc.OrbitalViewApp.stop()'s docstring -- same
+        reasoning and same "only ever called from _tick()" contract.
+        """
+        print("atom: stop() -- unbinding %d sequence(s), on_exit=%r, owns_root=%r" % (
+            len(self._bound_sequences), self.on_exit, self.owns_root))
+        for sequence in self._bound_sequences:
+            self.canvas.unbind(sequence)
+        self.root.unbind('<Escape>')  # bound on root, not canvas -- see __init__
+        if self.on_exit is not None:
+            self.on_exit()
+        elif self.owns_root:
+            self.root.destroy()
 
     def _request_z(self, step):
         new_z = self.z + step
@@ -398,6 +455,8 @@ class AtomViewApp:
         matches normal viewing instead of racing ahead.
         """
         for i in range(frames):
+            if self.aborted:  # see _request_exit()'s docstring
+                return
             t = i / (frames - 1) if frames > 1 else 1.0
             scale = scale0 + (scale1 - scale0) * t
             clip = clip0 + (clip1 - clip0) * t
@@ -416,6 +475,8 @@ class AtomViewApp:
         """
         deadline = time.time() + seconds
         while time.time() < deadline:
+            if self.aborted:  # see _request_exit()'s docstring
+                return
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
             self._blit_dissection(scale, r_ref, label)
@@ -457,18 +518,29 @@ class AtomViewApp:
         outer_scale = outer_bound_scale(self.preset.r_ref)
         inner_scale = inner_bound_scale(self.preset.inner_r_ref)
 
+        # Every phase below is followed by `if self.aborted: return` -- Esc
+        # (see _request_exit()) can only interrupt a phase BETWEEN whole
+        # _dissect_ease()/_dissect_hold() calls (each of those already
+        # breaks out of its own loop promptly, but control still returns
+        # here afterward), so without this check an abort mid-sequence would
+        # otherwise fall through into the NEXT phase instead of stopping.
+
         # Phase 0: ease out from wherever the camera currently is to the
         # guaranteed "outside" overview, cut still closed, nothing singled
         # out yet.
         self._dissect_ease(resting_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=zoom_frames)
+        if self.aborted:
+            return
 
         # Phase 1: open the cut (nothing hidden -> z>0 hidden) at that
         # overview scale, no subshell singled out yet.
         self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=orient_frames)
+        if self.aborted:
+            return
 
         # Phase 2: outermost subshell to innermost -- zoom to each subshell's
         # own extent (target_scale), highlight it, hold with its label shown.
@@ -484,8 +556,12 @@ class AtomViewApp:
             self._dissect_ease(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
                                 active_subshell=(n, ell), r_ref=r_ref,
                                 frames=zoom_frames, label=label)
+            if self.aborted:
+                return
             self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, (n, ell), r_ref,
                                DISSECT_HOLD_SECONDS, label)
+            if self.aborted:
+                return
             prev_scale = target_scale
 
         # Phase 3: zoom back out to the guaranteed overview scale, still cut
@@ -494,11 +570,15 @@ class AtomViewApp:
         self._dissect_ease(prev_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=zoom_frames)
+        if self.aborted:
+            return
 
         # Phase 4: close the cut back up, still at the overview scale.
         self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=close_frames)
+        if self.aborted:
+            return
 
         # Phase 5: ease back in to the resting scale, handing off cleanly to
         # normal viewing (cut already closed throughout).
@@ -507,6 +587,11 @@ class AtomViewApp:
                             frames=zoom_frames)
 
     def _tick(self):
+        if self.aborted:
+            print("atom: _tick() saw aborted -- calling stop()")
+            self.stop()
+            return
+
         if self._pending_dissect:
             self._pending_dissect = False
             self.dissecting = True
@@ -514,6 +599,9 @@ class AtomViewApp:
                 self._run_dissection()
             finally:
                 self.dissecting = False
+            if self.aborted:
+                self.stop()
+                return
             self.root.after(FRAME_DELAY_MS, self._tick)
             return
 
@@ -523,6 +611,9 @@ class AtomViewApp:
             self.preset = AtomPreset(self.z)
             fly_over(self, self._effective_base_scale() * SWITCH_START_SCALE_FACTOR, self._effective_base_scale(),
                      SWITCH_TRANSITION_FRAMES)
+            if self.aborted:
+                self.stop()
+                return
 
         # Random zoom excursion -- same helper as OrbitalViewApp._tick(); uses
         # the zoom-adjusted base/amplitude and scale_factor so dives are
@@ -533,6 +624,8 @@ class AtomViewApp:
         if maybe_zoom_excursion(self, self._effective_base_scale(), self._effective_zoom_amplitude(),
                                  self.preset.r_ref, self.preset.inner_r_ref,
                                  shell_count=self.preset.shell_count, scale_factor=self.zoom_factor):
+            if self.aborted:
+                self.stop()
             return
 
         scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
