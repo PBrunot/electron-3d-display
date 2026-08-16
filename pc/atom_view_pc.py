@@ -143,6 +143,16 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
                     cr, cg, cb = cloud_common.PHASE_POSITIVE_RGB
                 elif signs[i] < 0:
                     cr, cg, cb = cloud_common.PHASE_NEGATIVE_RGB
+                elif only_subshell is not None:
+                    # Spotlighting THIS subshell specifically: show its true
+                    # SHELL_RGB color, not preset.colors[i] -- atom_cloud.py
+                    # brightens/dims that array for the MERGED view (outer
+                    # subshell boosted, everything else penalized, see its
+                    # Coloring docstring), which would otherwise make an
+                    # inner shell render dull-but-opaque here instead of
+                    # actually lighting up on its own turn.
+                    n = shells[i]
+                    cr, cg, cb = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
                 else:
                     cr, cg, cb = colors[i]
                 # Alpha-blended (context/dim pass) or opaque (active-subshell

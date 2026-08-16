@@ -362,8 +362,12 @@ def atom_gallery():
     (tight noble-gas cores vs diffuse alkali atoms). Cells are the full
     480x480 source frames (no downscaling); the periodic-table shape comes
     from the empty transition-metal cells in periods 2-3. Each cell draws
-    just the cloud + nucleus + its plain gray bounding circle, with the
-    symbol and Z in the caption.
+    the cloud + nucleus + its plain gray bounding circle + the physical
+    scale bar (identical in every cell -- same pixels-per-Bohr), the atomic
+    number with its electron configuration (orbital composition) right
+    after it in the cell's top-left corner (classic element-box style, the
+    config font sized so even Xe's full config fits), the symbol in the
+    caption below, and a 1-px frame around the cell.
     """
     angle, tilt, roll = CAMERA
     cell_px = 480
@@ -378,22 +382,35 @@ def atom_gallery():
         draw.text(((g - 1) * cell_px + cell_px // 2, 8), str(g),
                   fill=(150, 150, 150), font=gfont, anchor='ma')
     cfont = ImageFont.load_default(size=26)
+    zfont = ImageFont.load_default(size=32)
+    cfg_font = ImageFont.load_default(size=18)
     for z in range(1, 55):
         period, group = PERIODIC_TABLE[z]
         preset = AtomPreset(z)
         buf = fresh_buf()
-        scale = preset.base_scale  # SAME pixels-per-Bohr for every element
-
+        scale = preset.base_scale * 3
         def overlays(draw):
             draw_bounding_circle(draw, preset.r_ref, scale)
+            # The same physical scale in every cell: an identical bar in all
+            # 54 cells is the visual proof of the uniform pixels-per-Bohr.
+            draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
 
         render_frame(buf, preset, angle, tilt, roll, scale)
         img = render_to_image(buf, overlays)
         x = (group - 1) * cell_px
         y = header_h + (period - 1) * (cell_px + caption_h)
         canvas.paste(img, (x, y))
-        draw.text((x + 6, y + cell_px + 8), '%s %d' % (slater.element_symbol(z), z),
+        # Atomic number in the cell's top-left corner, with the electron
+        # configuration (orbital composition) right after it, like a classic
+        # periodic-table element box; the caption below keeps just the symbol.
+        z_width = draw.textlength(str(z), font=zfont)
+        draw.text((x + 10, y + 8), str(z), fill=(225, 225, 225), font=zfont)
+        draw.text((x + 10 + z_width + 12, y + 16), slater.configuration_str(preset.config),
+                  fill=(200, 200, 200), font=cfg_font)
+        draw.text((x + 6, y + cell_px + 8), slater.element_symbol(z),
                   fill=(225, 225, 225), font=cfont)
+        # 1-px frame around the cell.
+        draw.rectangle((x, y, x + cell_px - 1, y + cell_px - 1), outline=(90, 90, 90))
     canvas.save(os.path.join(IMG_DIR, 'atom_gallery.png'))
     print('saved atom_gallery.png (periodic table, Z=1..54, uniform scale)')
 
