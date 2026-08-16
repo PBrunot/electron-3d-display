@@ -89,6 +89,54 @@ sull'unità di questo progetto, rieseguire il test rapido in
 matematica 3D) — richiede pochi minuti e isola esattamente questi due
 problemi da qualunque bug nella pipeline di rendering.
 
+### Correzione verificata (unità di questo progetto, via esp_lcd/ESP-IDF): scambio G/B
+
+Rieseguendo il test di cui sopra sull'unità fisica di *questo* progetto (via
+`esp_lcd`, framework `espidf` — non TFT_eSPI, vedi §3), il canale rosso
+risulta corretto, ma verde e blu sono **scambiati fra loro**: inviare il
+pattern RGB565 standard del verde (`0x07E0`) mostra fisicamente blu, e
+viceversa il pattern del blu (`0x001F`) mostra verde. Il rosso puro
+(`0xF800`) è sempre corretto — la coppia R/B non è coinvolta.
+
+Questo è un fenomeno **diverso e indipendente** dallo scambio R/B (BGR) di
+cui sopra: quel bit `MADCTL`/`TFT_MAD_BGR` scambia solo R e B, non tocca mai
+G, e infatti — dato che l'invio di rosso puro esce corretto sotto
+`rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR` — quella impostazione BGR resta
+valida e va mantenuta anche su questa unità. Lo scambio G/B è quindi un
+problema ulteriore, verosimilmente un mis-wiring fisico delle linee G/B sul
+pannello/FPC di questo lotto specifico (nessun registro ST7789 standard
+offre uno scambio G/B: MADCTL/RAMCTRL coprono solo R/B e l'endianness dei
+byte).
+
+**Non esiste un fix via registro**: va compensato in software, scambiando i
+campi bit G e B nel valore RGB565 inviato. Verificato in `src/main.cpp` con
+queste costanti (bits[15:11]=R invariato, bits[10:5]="campo verde" che in
+realtà pilota il blu fisico, bits[4:0]="campo blu" che pilota il verde
+fisico):
+```c
+#define COLOR_RED    0xF800  // invariato
+#define COLOR_GREEN  0x001F  // pattern standard "blu" -> appare verde
+#define COLOR_BLUE   0x07E0  // pattern standard "verde" -> appare blu
+#define COLOR_YELLOW 0xF81F  // R pieno + campo-blu pieno (non campo-verde!)
+```
+Verificato con un test a schermo intero (un colore alla volta, non angoli —
+elimina l'ambiguità geometria/colore) su questa identica unità+prisma:
+rosso, verde, blu e giallo risultano tutti corretti con queste costanti.
+
+**Da fare quando si scrive `display.cpp`/`render3d.cpp` (§5)**: qualunque
+funzione di packing colore (es. `rgb565(r, g, b)`) deve applicare questo
+scambio G/B internamente, non solo le 4 costanti di test qui sopra — occhio
+in particolare alla differenza di ampiezza di bit (G a 6 bit, B a 5 bit): il
+campo "verde" da 6 bit riceverà un valore B già scalato a 5 bit (bit meno
+significativo perso/duplicato secondo convenzione scelta), e viceversa.
+
+**Geometria (mirror/rotazione) su questa unità: ancora da verificare** — i
+dati raccolti finora sugli angoli erano contaminati dal bug colore qui sopra
+(il "violetto" osservato ripetutamente in corrispondenza del giallo era
+proprio la firma di questo scambio G/B, non un problema di geometria).
+Rieseguire `examples/corner_calibration`-style test con le costanti colore
+corrette prima di fidarsi di `MX`/`MY`/rotazione 180° per questa unità.
+
 ## 3. Linguaggio e toolchain — decisione e motivazione
 
 **Scelto: C++ su framework Arduino (via PlatformIO), libreria `TFT_eSPI`.**
