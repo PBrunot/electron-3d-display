@@ -1,0 +1,16 @@
+# Waveshare ESP32-S3-LCD-1.3 has 16 MB external flash (see boards/WS-ESP32-S3-LCD-1-3.json).
+# The espidf framework doesn't read the board manifest's Arduino-only "partitions" key,
+# so flash size and partition table need to be pinned here explicitly.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# app_main() does real work directly on the main task (orbital/atom table building,
+# not just setup) instead of handing off to a dedicated task, so it needs more than the
+# default stack -- a stack overflow was observed with the default size once
+# buildRadialSamplerRuntime() (pointcloud.h) started actually running on-device instead
+# of only at compile time. 16KB is a generous margin above the ~5-6KB peak estimated
+# from that call chain.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
