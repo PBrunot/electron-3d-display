@@ -48,9 +48,11 @@ upside-down on its back; the prism mirrors it into thin air above the
 screen, and your eye sees a glowing 3D object hovering in space.
 
 - **Hydrogen orbitals** (1s → 5p, 16 shapes) as tumbling point clouds,
-  colored by wavefunction phase (warm = positive lobe, cool = negative
-  lobe), with zoom breathing and a slow turnover of resampled points so
-  the cloud stays alive instead of static.
+  colored by the sign of the wavefunction (orange = positive lobe, blue =
+  negative lobe — just a color choice for telling the two apart, with no
+  connection to temperature or energy), with zoom breathing and a slow
+  turnover of resampled points so the cloud stays alive instead of
+  static.
 - **Multi-electron atoms** (Z = 1–118, one click away) modeled as
   hydrogen-like subshells with effective nuclear charges (Slater /
   Clementi–Raimondi), colored by shell (K/L/M/N…).
@@ -61,7 +63,7 @@ screen, and your eye sees a glowing 3D object hovering in space.
 
 ### Gallery
 
-All hydrogen orbitals, phase-colored (warm lobe vs cool lobe):
+All hydrogen orbitals, colored by wavefunction sign (orange lobe vs blue lobe):
 
 ![orbital gallery](img/orbital_gallery.png)
 
@@ -96,6 +98,12 @@ runs. Nothing is hand-drawn.
 ---
 
 ### The hardware
+
+![illustrative concept render of the board and prism](img/waveshare.png)
+
+*Illustrative concept render (AI-generated) of the assembled board and
+prism showing a 2p orbital — not a photo of the actual hardware; see the
+[gallery](#gallery) above for real output from the project.*
 
 | Part | What it is |
 |---|---|
@@ -341,10 +349,11 @@ schermo, e il tuo occhio vede un oggetto 3D luminoso sospeso nello
 spazio.
 
 - **Orbitali dell'idrogeno** (1s → 5p, 16 forme) come nuvole di punti
-  rotanti, colorate per fase della funzione d'onda (caldo = lobo
-  positivo, freddo = lobo negativo), con respiro dello zoom e un lento
-  ricambio dei punti campionati così che la nuvola resti viva invece che
-  statica.
+  rotanti, colorate per il segno della funzione d'onda (arancione = lobo
+  positivo, blu = lobo negativo — solo una scelta cromatica per
+  distinguerli, senza alcun legame con temperatura o energia), con
+  respiro dello zoom e un lento ricambio dei punti campionati così che la
+  nuvola resti viva invece che statica.
 - **Atomi multielettronici** (Z = 1–118, a un clic di distanza)
   modellati come sottogusci idrogenoidi con cariche nucleari efficaci
   (Slater / Clementi–Raimondi), colorati per guscio (K/L/M/N…).
@@ -356,8 +365,8 @@ spazio.
 
 ### Galleria
 
-Tutti gli orbitali dell'idrogeno, colorati per fase (lobo caldo vs lobo
-freddo):
+Tutti gli orbitali dell'idrogeno, colorati per segno della funzione
+d'onda (lobo arancione vs lobo blu):
 
 ![orbital gallery](img/orbital_gallery.png)
 
@@ -392,6 +401,13 @@ gira sul dispositivo. Niente è disegnato a mano.
 ---
 
 ### L'hardware
+
+![rendering illustrativo della scheda e del prisma](img/waveshare.png)
+
+*Rendering concettuale illustrativo (generato con IA) della scheda
+montata col prisma, con un orbitale 2p — non è una foto dell'hardware
+reale; vedi la [galleria](#galleria) sopra per l'output vero del
+progetto.*
 
 | Componente | Cos'è |
 |---|---|
