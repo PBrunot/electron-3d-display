@@ -336,17 +336,76 @@ in or out.
 | `DISSECT_HOLD_SECONDS` | 2 | Real-time pause per shell, label shown, still tumbling |
 | `DISSECT_CLOSE_FRAMES` | 80 | Frames to ease the cut shut on return |
 | `DISSECT_FRAME_DELAY_S` | `FRAME_DELAY_MS / 1000.0` | Per-frame pacing of every dissection leg |
+| `WIREFRAME_SAMPLES` | 72 | Points around the reference equator (5 degrees/segment) |
+| `WIREFRAME_DASH_ON` | 2 | Segments drawn per dash |
+| `WIREFRAME_DASH_OFF` | 2 | Segments skipped per gap |
 
-The clip is applied in camera space every frame, so which physical points
-fall inside it changes continuously as the atom turns — the way a peeled
-sphere looks mid-spin. `DISSECT_FRAME_DELAY_S` paces every leg of the
-sequence to the same rotation speed normal viewing uses: unlike the fly-over
-transitions (no delay, run as fast as the CPU renders), the sequence needs a
-real-time `DISSECT_HOLD_SECONDS` pause to be legible, so all legs pace
-themselves the same way for a consistent rotation speed throughout. The
-dissection view also deliberately has no persistence — with the clip plane
-re-applied fresh to a continuously rotating cloud, a trailing glow would
-smear the cut edge instead of reading as motion.
+The clip is applied in camera space every frame, but `AtomViewApp._dissect_tumble()`
+only advances roll during the whole sequence, never yaw/tilt: since
+`rotate_yaw_tilt_roll()` computes the clipped depth `rz` from yaw and tilt
+only (roll, a rotation about the view axis, never changes it — see that
+function's docstring), freezing yaw/tilt keeps *exactly* the same half of
+the cloud excluded for the whole sequence, camera and cloud spinning
+together as one rigid unit, instead of the clip sweeping through fresh
+material as the object tumbled underneath a camera-fixed cut plane (the
+original behavior, confirmed unwanted). `DISSECT_FRAME_DELAY_S` paces every
+leg of the sequence to the same rotation speed normal viewing uses: unlike
+the fly-over transitions (no delay, run as fast as the CPU renders), the
+sequence needs a real-time `DISSECT_HOLD_SECONDS` pause to be legible, so
+all legs pace themselves the same way for a consistent rotation speed
+throughout. The dissection view also deliberately has no persistence — with
+the clip plane re-applied fresh to a continuously rotating cloud, a
+trailing glow would smear the cut edge instead of reading as motion.
+
+Note that clipping the point cloud alone does not visually shrink it to a
+hemisphere: with an orthographic projection, the on-screen silhouette of a
+solid ball sliced through its center is identical to the full ball's (every
+screen (x, y) position inside the sphere's outline has points at some depth
+in the remaining half, front or back), so the cut only reads as the cloud
+thinning out, not narrowing — confirmed empirically (a uniform test cloud's
+2D bounding box is unchanged after dropping the near half; only its point
+density roughly halves, uniformly across the disc, not just near the rim).
+The `rz > clip_z` drop itself is correct and verified (e.g. carbon's cloud:
+almost exactly half its 10000 points survive `clip_z = DISSECT_CLIP_OPEN`) —
+the reference equator ring below is what actually sells the cut visually,
+since unlike the fuzzy point cloud it has a recognizable curve whose
+near/far arc split is legible at a glance.
+
+Both this view and the normal (non-dissecting) one also draw that reference
+equator ring — `draw_equator()`, in the PIL overlay pass alongside the scale
+bar/title/labels — a shape any viewer immediately reads as "sphere," which
+the fuzzy point cloud alone doesn't reliably convey. Only its near,
+camera-facing arc is drawn (rotated depth > 0, the same "facing the camera"
+sense `render_dissection_frame()`'s `clip_z` uses): the far arc is treated
+as hidden behind the sphere's own bulk, exactly like the far side of an
+opaque globe. This is a fixed rule, independent of the dissection cut itself
+(which affects the point cloud only) — the same in both views. A segment
+with one endpoint past that boundary is trimmed to the exact crossing point
+(`_clip_lerp()`, a linear interpolation valid because rotation is linear)
+rather than dropped whole, so the arc's ends land exactly on the boundary
+instead of stopping short or overshooting by up to one segment's angular
+step. It's drawn dashed (`WIREFRAME_DASH_ON`/`_OFF`, by segment index,
+independent of the near/far split) so it reads as an annotation over the
+cloud rather than a flat colored object sitting in front of it, and colored
+to match whichever shell it's the reference sphere for — the outer shell's
+own `SHELL_RGB` color in the open/close/zoom-out legs (and in the normal
+view), the active subshell's own `SHELL_RGB` color while zoomed into it in
+the dissection view — rather than a color of its own, so it reads as an
+annotation on that shell. In the dissection view, the ring is sized to that
+same reference sphere — the whole atom's outer `r_ref` or the active
+subshell's own `r_ref` — passed down through `_dissect_ease()`/
+`_dissect_hold()` as `equator_r_ref`/`equator_color`.
+
+Alongside the equator, both views also draw `draw_bounding_circle()`'s plain
+outline circle at that same radius, in that same `equator_color` — the
+normal view via `draw_orbit_marker()` (which layers its own rotating
+spoke/marker text on top, in a separate fixed depth-gradient color,
+unrelated to the shell match), the dissection view calling
+`draw_bounding_circle()` directly (skipping the spoke/text, since it'd be a
+mismatched color and the equator is already a rotation cue there). This
+keeps the reference sphere's silhouette visible even when the active
+subshell's dimming (`DISSECT_SHADE_GRAY`) makes the actual points hard to
+see.
 
 ### Keyboard IMU (`keyboard_imu.py`)
 
