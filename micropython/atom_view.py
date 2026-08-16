@@ -5,10 +5,14 @@ unmodified with the PC viewer), device_render_common.py supplies the Q8
 fixed-point/viper rendering, framebuf/ST7789 blitting, fly-over/zoom-
 excursion camera, and nudge/IMU plumbing (all shared with orbital_view.py
 too). What's left here is genuinely atom-specific: AtomPresetState
-(shell-by-n coloring, no point-turnover -- atom_cloud's cloud is static, see
-its module docstring), N_POINTS (smaller than the PC viewer's 10000, same
-device rendering budget as orbital_view.py's 3000), and a run() loop that
-lets nudge step the atomic number Z instead of cycling a fixed preset list.
+(shell-by-n point coloring, no point-turnover -- atom_cloud's cloud is
+static, see its module docstring), _draw_atom_title() (framebuf counterpart
+of pc/atom_view_pc.py's draw_atom_title() -- same per-shell-colored
+electron-configuration label, wrapped across lines instead of PC's one wide
+line, see that function's docstring), N_POINTS (smaller than the PC
+viewer's 10000, same device rendering budget as orbital_view.py's 3000),
+and a run() loop that lets nudge step the atomic number Z instead of
+cycling a fixed preset list.
 
 Not the default boot animation (CLAUDE.md's M1-M4 roadmap is single-electron
 hydrogen orbitals) -- run this the same way corner_test.py is run, as a
@@ -45,6 +49,48 @@ DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-e
 FPS_UPDATE_INTERVAL = 50
 FPS_TEXT_POS = (2, 2)
 
+# framebuf's built-in font is a fixed 8x8 glyph -- no textlength() equivalent
+# needed (unlike pc/atom_view_pc.py's draw_atom_title(), which measures each
+# PIL-rendered segment): every character is exactly this many pixels wide.
+FONT_WIDTH_PX = 8
+FONT_LINE_HEIGHT_PX = 10
+
+
+def _draw_atom_title(fb, x, y, z, config, text_color):
+    """Device (framebuf) counterpart of pc/atom_view_pc.py's
+    draw_atom_title(): element symbol + Z in `text_color`, then each
+    subshell of its electron configuration ('1s2 2s2 2p2 ...') colored by
+    shell (atom_cloud.SHELL_RGB[n] -- the same colors the point cloud
+    itself uses), so the on-screen label and the rendered cloud read as one
+    color language on both PC and device.
+
+    Wraps to a new line (see FONT_LINE_HEIGHT_PX) instead of running off the
+    right edge when a segment would cross `x + WIDTH` -- this panel is
+    240px, a third of pc/atom_view_pc.py's window, so heavier elements'
+    configurations (e.g. iron's "1s2 2s2 2p6 3s2 3p6 3d6 4s2", ~38 chars)
+    routinely need it. `x > cursor_x`'s check is `cursor_x > x`, i.e. never
+    wraps mid-segment on the first segment of a line -- an over-wide single
+    segment still gets drawn (and clipped by framebuf itself) rather than
+    wrapping forever.
+    """
+    cursor_x = x
+    cursor_y = y
+
+    def draw_segment(segment, color):
+        nonlocal cursor_x, cursor_y
+        seg_width = len(segment) * FONT_WIDTH_PX
+        if cursor_x > x and cursor_x + seg_width > drc.WIDTH:
+            cursor_x = x
+            cursor_y += FONT_LINE_HEIGHT_PX
+        fb.text(segment, cursor_x, cursor_y, color)
+        cursor_x += seg_width
+
+    draw_segment("%s (Z=%d) " % (slater.element_symbol(z), z), text_color)
+    for n, ell, occ in config:
+        segment = "%s%d " % (slater.subshell_label(n, ell), occ)
+        r, g, b = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
+        draw_segment(segment, drc.encode_color565(r, g, b))
+
 
 class AtomPresetState:
     """Everything one loaded element needs to render: Q8 fixed-point
@@ -69,18 +115,17 @@ class AtomPresetState:
             r, g, b = colors_rgb[i]
             self.colors[i] = drc.encode_color565(r, g, b)
 
-        # Short title (element + Z only, not the full electron configuration
-        # pc/atom_view_pc.py's wide window shows) -- this panel is 240px, and
-        # framebuf's default font has no line-wrapping, so a long
-        # configuration string (e.g. iron's "1s2 2s2 2p6 3s2 3p6 3d6 4s2")
-        # would run off the right edge.
-        self.title = "%s (Z=%d)" % (slater.element_symbol(z), z)
+        self.z = z
+        self.config = config
 
         r_ref = atom_cloud.outer_subshell_r_ref(xs, ys, zs, shells, ells, config)
         self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(r_ref, atom_cloud.PIXELS_PER_BOHR)
 
         print("atom: %s loaded in %dms, scale=%.1f" % (
             slater.element_symbol(z), time.ticks_diff(time.ticks_ms(), t0), self.base_scale))
+
+    def draw_title(self, fb, x, y, text_color):
+        _draw_atom_title(fb, x, y, self.z, self.config, text_color)
 
 
 def run(z=DEFAULT_Z):
@@ -167,7 +212,7 @@ def run(z=DEFAULT_Z):
 
         scale = preset.base_scale + preset.zoom_amplitude * math.sin(zoom_angle)
         drc.render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale)
-        fb.text(preset.title, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], text_color)
+        preset.draw_title(fb, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], text_color)
         fb.text(fps_text, FPS_TEXT_POS[0], FPS_TEXT_POS[1], text_color)
         drc.draw_scale_bar(fb, scale / atom_cloud.PM_PER_BOHR, "pm", scale_bar_color, text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
