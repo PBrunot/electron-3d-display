@@ -92,6 +92,11 @@ DISSECT_FRAMES_PER_SHELL = 8
 
 DISSECT_LABEL_COLOR = (255, 255, 0)
 Z_NOTE_COLOR = (255, 140, 140)
+# Shown for the WHOLE sequence (unlike the per-subshell `label`, which is
+# None during the open/close/overview legs) -- see
+# pc/atom_view_pc.py's matching constant.
+DISSECT_BANNER_TEXT = "DISSECTING..."
+DISSECT_BANNER_COLOR = (255, 110, 40)
 
 
 def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
@@ -234,6 +239,8 @@ class WebAtomApp:
         draw_bounding_circle_canvas(r_ref, scale)
         draw_scale_bar_canvas(cloud_common, scale / atom_cloud.PM_PER_BOHR, "pm")
         draw_atom_title_canvas(TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
+        banner_x = WIDTH - measure_text_canvas(DISSECT_BANNER_TEXT) - TITLE_POS[0]
+        draw_text_canvas(banner_x, TITLE_POS[1], DISSECT_BANNER_TEXT, DISSECT_BANNER_COLOR)
         if label:
             draw_text_canvas(SUBTITLE_POS[0], SUBTITLE_POS[1], label, DISSECT_LABEL_COLOR)
         draw_text_canvas(CENTER + PROTON_SIZE, CENTER - PROTON_SIZE, "Z=%d" % self.z, Z_NOTE_COLOR)
@@ -241,7 +248,13 @@ class WebAtomApp:
     def dissect_tumble(self):
         self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
-    def dissect_ease_gen(self, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, label=None):
+    def dissect_ease_gen(self, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, label=None,
+                          full_tumble=False):
+        """See pc/atom_view_pc.py's _dissect_ease() docstring for
+        full_tumble's meaning -- same "clip is CLOSED throughout this leg,
+        so full 3-axis tumble is safe" reasoning, used the same way by
+        dissection_sequence()'s Phase 0/5.
+        """
         for i in range(frames):
             t = i / (frames - 1) if frames > 1 else 1.0
             scale = scale0 + (scale1 - scale0) * t
@@ -249,7 +262,10 @@ class WebAtomApp:
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
             self.blit_dissection(scale, r_ref, label)
-            self.dissect_tumble()
+            if full_tumble:
+                advance_rotation(self)
+            else:
+                self.dissect_tumble()
             yield
 
     def dissect_hold_gen(self, scale, clip, active_subshell, r_ref, frames, label):
@@ -278,8 +294,12 @@ class WebAtomApp:
         inner_scale = inner_bound_scale(self.preset.inner_r_ref)
 
         # Phase 0: ease out to the guaranteed "outside" overview, cut closed.
+        # full_tumble=True: the cut has no effect yet (clip stays closed
+        # this whole leg), so yaw/tilt can keep rotating normally instead of
+        # locking to roll-only the instant Dissect is pressed -- see
+        # dissect_ease_gen()'s docstring.
         yield from self.dissect_ease_gen(resting_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
-                                          None, self.preset.r_ref, zoom_frames)
+                                          None, self.preset.r_ref, zoom_frames, full_tumble=True)
         # Phase 1: open the cut at that overview scale.
         yield from self.dissect_ease_gen(outer_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
                                           None, self.preset.r_ref, orient_frames)
@@ -303,10 +323,14 @@ class WebAtomApp:
         # Phase 4: close the cut at the overview scale.
         yield from self.dissect_ease_gen(outer_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
                                           None, self.preset.r_ref, close_frames)
-        # Phase 5: ease back in to the resting scale, cut already closed.
-        yield from self.dissect_ease_gen(outer_scale, self.effective_base_scale(),
+        # Phase 5: ease back in to the SAME resting_scale Phase 0 started
+        # from (not effective_base_scale(), which omits the breathing sin()
+        # term Phase 0's start point included -- see pc/atom_view_pc.py's
+        # matching comment), cut already closed. full_tumble=True for the
+        # same reason as Phase 0.
+        yield from self.dissect_ease_gen(outer_scale, resting_scale,
                                           DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
-                                          None, self.preset.r_ref, zoom_frames)
+                                          None, self.preset.r_ref, zoom_frames, full_tumble=True)
 
     def dissection_wrapper(self):
         self.dissecting = True

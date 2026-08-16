@@ -71,6 +71,11 @@
   }
   button:hover { background: #26262e; }
   button:active { background: #303038; }
+  button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background: #1c1c22;
+  }
   button#btn-back {
     background: #2a1c1c;
     border-color: #4a3333;
@@ -197,6 +202,7 @@ async function main() {
       try {
         webApp.tick();
         hintEl.textContent = webApp.hint_text();
+        dissectBtn.disabled = !webApp.dissect_enabled();
       } catch (err) {
         fail(err);
         return;
@@ -207,6 +213,7 @@ async function main() {
   requestAnimationFrame(frame);
 
   const canvas = document.getElementById('view');
+  const dissectBtn = document.getElementById('btn-dissect');
 
   // Every scene (chooser/orbital/atom) is routed through these same three
   // entry points -- web_app.py's WebApp decides what each key/click/wheel

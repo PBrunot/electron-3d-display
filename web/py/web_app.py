@@ -242,6 +242,18 @@ class WebApp:
         return ('Up/Down = change element (Z). Mouse wheel or +/- = zoom. '
                 'D = dissect orbitals. Esc = back to menu.')
 
+    def dissect_enabled(self):
+        """Dissection is an Element Explorer-only feature -- a single
+        hydrogen orbital has no shells to peel apart (see
+        pc/atom_view_pc.py's module docstring). index.html polls this every
+        frame to gray out btn-dissect outside CHOICE_ATOM, and also while
+        one is already running (self.atom.dissecting) since clicking it
+        again mid-sequence would just be a no-op (see
+        WebAtomApp.request_dissect()) -- doubling as the "dissection is in
+        progress" visual cue this button needed anyway.
+        """
+        return self.active == CHOICE_ATOM and not self.atom.dissecting
+
 
 app = WebApp()
 
@@ -268,3 +280,7 @@ def on_wheel(delta_y):
 
 def hint_text():
     return app.hint_text()
+
+
+def dissect_enabled():
+    return app.dissect_enabled()

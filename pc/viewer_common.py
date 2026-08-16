@@ -332,13 +332,26 @@ def fly_over(app, start_scale, end_scale, frames):
     -- stops a long fly-over within one frame of Escape instead of running
     it to completion first. Absent on standalone (non-launcher) apps, where
     getattr()'s default keeps this a no-op.
+
+    start_scale/end_scale are also re-scaled live against app.zoom_factor
+    every frame (getattr()'s 1.0 default makes this a no-op on the hydrogen
+    orbital viewer, which has no manual zoom): app.root.update() below still
+    pumps the mouse-wheel/+-/zoom-button handlers even while this loop
+    blocks, and those handlers update app.zoom_factor immediately, but
+    start_scale/end_scale themselves were captured once by the caller --
+    without this rescale a zoom press mid-flight would have no visible
+    effect until the animation finished, i.e. the buttons would feel
+    unresponsive. See maybe_zoom_excursion()'s docstring for how this
+    composes across that function's own leg boundaries too.
     """
+    z0 = getattr(app, 'zoom_factor', 1.0)
     for i in range(frames):
         if getattr(app, 'aborted', False):
             print("viewer_common: fly_over() aborted at frame %d/%d" % (i, frames))
             return
         t = i / (frames - 1) if frames > 1 else 1.0
-        scale = start_scale + (end_scale - start_scale) * t
+        base = start_scale + (end_scale - start_scale) * t
+        scale = base * (getattr(app, 'zoom_factor', 1.0) / z0)
         render_frame(app.buf, app.preset, app.angle, app.tilt_angle, app.roll_angle, scale)
         app._blit(scale)
         app.root.update()
@@ -361,17 +374,31 @@ def maybe_zoom_excursion(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_r
     (see shell_count_frames()) so a heavier, multi-shell atom's dive isn't
     rushed. zoom_angle resets to 0 after -- sin(0) == 0 lines up exactly with
     where the dive left off.
+
+    `scale_factor` is only a SNAPSHOT of app.zoom_factor taken when this
+    call started. fly_over() already rescales live against app.zoom_factor
+    within a single leg (see its docstring), but outer_scale/inner_scale/
+    base_scale below are plain numbers baked from that snapshot -- without
+    re-deriving them fresh (via _live() below) right before each leg, a zoom
+    press during one leg would only partially show (fly_over()'s own
+    within-leg rescale) and then visibly pop back at the next leg's
+    boundary, since that next leg would otherwise resume from the stale
+    snapshot instead of where the previous leg actually left off on screen.
     """
     app.zoom_excursion_countdown -= 1
     if app.zoom_excursion_countdown > 0:
         return False
+
+    def _live(value):
+        return value * (getattr(app, 'zoom_factor', scale_factor) / scale_factor) if scale_factor else value
+
     current_scale = base_scale + zoom_amplitude * math.sin(app.zoom_angle)
     outer_scale = outer_bound_scale(outer_r_ref, scale_factor)
     inner_scale = inner_bound_scale(inner_r_ref, scale_factor)
     frames = shell_count_frames(ZOOM_EXCURSION_EASE_FRAMES_BASE, ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL, shell_count)
-    fly_over(app, current_scale, outer_scale, frames)
-    fly_over(app, outer_scale, inner_scale, frames)
-    fly_over(app, inner_scale, base_scale, frames)
+    fly_over(app, current_scale, _live(outer_scale), frames)
+    fly_over(app, _live(outer_scale), _live(inner_scale), frames)
+    fly_over(app, _live(inner_scale), _live(base_scale), frames)
     app.zoom_angle = 0.0
     app.zoom_excursion_countdown = _next_zoom_excursion_countdown()
     # If Escape landed mid-dive, one of the fly_over() calls above returned
