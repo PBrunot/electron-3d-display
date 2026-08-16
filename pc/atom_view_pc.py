@@ -1,8 +1,8 @@
 """PC-only viewer for atom_cloud.py's multi-electron point clouds -- same
 tumbling-camera rendering as orbital_view_pc.py's hydrogen-preset viewer
-(reuses its render_frame()/draw_orbit_marker() unmodified), but cycling
-through atomic number Z instead of (n, ell, m) presets. See pc/README.md's
-"Multi-electron atoms" section for the model and controls.
+(both built on pc/viewer_common.py's shared render_frame()/draw_orbit_marker()
+etc.), but cycling through atomic number Z instead of (n, ell, m) presets.
+See pc/README.md's "Multi-electron atoms" section for the model and controls.
 
     python3 pc/atom_main.py [Z]
 
@@ -31,7 +31,7 @@ import atom_cloud
 import cloud_common
 import slater
 
-from orbital_view_pc import (
+from viewer_common import (
     CENTER, DISPLAY_SIZE, HEIGHT, WIDTH,
     INTRO_FRAMES, INTRO_START_SCALE_FACTOR,
     SWITCH_START_SCALE_FACTOR, SWITCH_TRANSITION_FRAMES,
