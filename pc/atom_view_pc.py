@@ -20,7 +20,6 @@ this cloud is a mixture of several subshells.
 
 import math
 import os
-import random
 import sys
 import time
 
@@ -36,16 +35,16 @@ from orbital_view_pc import (
     CENTER, DISPLAY_SIZE, HEIGHT, WIDTH,
     INTRO_FRAMES, INTRO_START_SCALE_FACTOR,
     SWITCH_START_SCALE_FACTOR, SWITCH_TRANSITION_FRAMES,
-    FRAME_DELAY_MS, ANGLE_STEP, TILT_ANGLE_STEP, ROLL_ANGLE_STEP,
-    ZOOM_ANGLE_STEP, ZOOM_EXCURSION_SCALE_MIN_FACTOR, ZOOM_EXCURSION_SCALE_MAX_FACTOR,
-    ZOOM_EXCURSION_EASE_FRAMES,
+    FRAME_DELAY_MS, ZOOM_ANGLE_STEP,
     _TILT_ANGLE_START, _ROLL_ANGLE_START,
-    PROTON_SIZE, PROTON_COLOR, ELECTRON_ALPHA,
+    PROTON_SIZE, ELECTRON_ALPHA,
     TITLE_POS, SUBTITLE_POS,
-    render_frame, draw_orbit_marker, draw_scale_bar, _next_zoom_excursion_countdown,
+    render_frame, draw_orbit_marker, draw_scale_bar,
+    draw_nucleus, rotate_yaw_tilt_roll, advance_rotation,
+    fly_over, maybe_zoom_excursion, blit_to_canvas,
+    _next_zoom_excursion_countdown,
 )
 
-from PIL import Image, ImageDraw, ImageTk
 import tkinter as tk
 
 # --- Cloud / defaults -------------------------------------------------------
@@ -72,7 +71,7 @@ DISSECT_ZOOM_FRAMES = 40     # ease camera scale from one shell to the next
 DISSECT_HOLD_SECONDS = 2     # real-time pause on each shell with its label shown
 DISSECT_CLOSE_FRAMES = 80    # ease the cut shut on the way back to the resting scale
 # Paces every leg of the dissection to the same rotation speed normal viewing
-# uses -- unlike _fly_over()'s transitions (no delay, run as fast as the CPU
+# uses -- unlike fly_over()'s transitions (no delay, run as fast as the CPU
 # renders), this sequence needs a real-time HOLD to be legible, so all legs
 # pace themselves the same way for a consistent rotation speed throughout.
 DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0
@@ -101,8 +100,7 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
     visible through every subshell by design.
 
     Rotation matches render_frame() exactly, plus the post-yaw-and-tilt depth
-    `rz` (roll never changes depth, see draw_orbit_marker()'s comment) which
-    this function's clip needs.
+    `rz` (see rotate_yaw_tilt_roll()) which this function's clip needs.
     """
     buf[:] = bytes(len(buf))
 
@@ -124,14 +122,10 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
                     and (shells[i], ells[i]) == active_subshell):
                 continue  # active subshell's points are drawn full-color in the second pass instead
 
-            rx1 = xs[i] * cos_yaw + zs[i] * sin_yaw
-            rz1 = zs[i] * cos_yaw - xs[i] * sin_yaw
-            ry2 = ys[i] * cos_tilt - rz1 * sin_tilt
-            rz = ys[i] * sin_tilt + rz1 * cos_tilt
+            rx3, ry3, rz = rotate_yaw_tilt_roll(xs[i], ys[i], zs[i],
+                                                cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll)
             if rz > clip_z:
                 continue
-            rx3 = rx1 * cos_roll - ry2 * sin_roll
-            ry3 = rx1 * sin_roll + ry2 * cos_roll
             px = CENTER + round(rx3 * scale)
             py = CENTER - round(ry3 * scale)
             if 0 <= px < WIDTH and 0 <= py < HEIGHT:
@@ -162,15 +156,7 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
     # 0 (never clipped by clip_z) but a densely-sampled inner shell could
     # otherwise paint over it; it must win any pixel it shares so it stays
     # visible through every shell.
-    proton_x0 = CENTER - PROTON_SIZE // 2
-    proton_y0 = CENTER - PROTON_SIZE // 2
-    pr, pg, pb = PROTON_COLOR
-    for py in range(proton_y0, proton_y0 + PROTON_SIZE):
-        if 0 <= py < HEIGHT:
-            for px in range(proton_x0, proton_x0 + PROTON_SIZE):
-                if 0 <= px < WIDTH:
-                    idx = (py * WIDTH + px) * 3
-                    buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
+    draw_nucleus(buf)
 
 
 def draw_atom_title(draw, x, y, z, config):
@@ -282,8 +268,8 @@ class AtomViewApp:
         self.two_pi = 2 * math.pi
         self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
 
-        self._fly_over(self._effective_base_scale() * INTRO_START_SCALE_FACTOR, self._effective_base_scale(),
-                       INTRO_FRAMES)
+        fly_over(self, self._effective_base_scale() * INTRO_START_SCALE_FACTOR, self._effective_base_scale(),
+                 INTRO_FRAMES)
         self.root.after(0, self._tick)
 
     def run(self):
@@ -317,49 +303,28 @@ class AtomViewApp:
         return self.preset.zoom_amplitude * self.zoom_factor
 
     def _blit(self, scale):
-        image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
-        draw = ImageDraw.Draw(image)
-        draw_orbit_marker(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle,
-                           marker_text=slater.element_symbol(self.z))
-        # Scale (px per Bohr radius, THIS frame -- varies with zoom
-        # breathing/excursions) -> px per picometer, so the bar always
-        # reflects the camera's current zoom, not just the resting one.
-        draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
-        draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
-        image = image.resize(DISPLAY_SIZE, Image.NEAREST)
-        self.photo = ImageTk.PhotoImage(image)
-        self.canvas.itemconfig(self.image_id, image=self.photo)
-
-    def _fly_over(self, start_scale, end_scale, frames):
-        """See orbital_view_pc.OrbitalViewApp._fly_over() -- identical
-        approach (blocking per-frame root.update() loop), duplicated rather
-        than shared because it closes over per-app state.
-        """
-        for i in range(frames):
-            t = i / (frames - 1) if frames > 1 else 1.0
-            scale = start_scale + (end_scale - start_scale) * t
-            render_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle, scale)
-            self._blit(scale)
-            self.root.update()
-            self.angle = (self.angle + ANGLE_STEP) % self.two_pi
-            self.tilt_angle = (self.tilt_angle + TILT_ANGLE_STEP) % self.two_pi
-            self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
+        def overlays(draw):
+            draw_orbit_marker(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle,
+                               marker_text=slater.element_symbol(self.z))
+            # Scale (px per Bohr radius, THIS frame -- varies with zoom
+            # breathing/excursions) -> px per picometer, so the bar always
+            # reflects the camera's current zoom, not just the resting one.
+            draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
+            draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
+        blit_to_canvas(self, overlays)
 
     def _blit_dissection(self, scale, label):
         """Like _blit(), but for dissection frames: no bounding-sphere/rotation
         marker (the cutaway edge is a much stronger rotation cue already).
         Draws the current shell's label plus a "Z=n" note next to the nucleus.
         """
-        image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
-        draw = ImageDraw.Draw(image)
-        draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
-        draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
-        if label:
-            draw.text(SUBTITLE_POS, label, fill=DISSECT_LABEL_COLOR)
-        draw.text((CENTER + PROTON_SIZE, CENTER - PROTON_SIZE), "Z=%d" % self.z, fill=Z_NOTE_COLOR)
-        image = image.resize(DISPLAY_SIZE, Image.NEAREST)
-        self.photo = ImageTk.PhotoImage(image)
-        self.canvas.itemconfig(self.image_id, image=self.photo)
+        def overlays(draw):
+            draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
+            draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
+            if label:
+                draw.text(SUBTITLE_POS, label, fill=DISSECT_LABEL_COLOR)
+            draw.text((CENTER + PROTON_SIZE, CENTER - PROTON_SIZE), "Z=%d" % self.z, fill=Z_NOTE_COLOR)
+        blit_to_canvas(self, overlays)
 
     def _dissect_tumble(self):
         """Advance yaw/tilt/roll by one normal-viewing step -- called every
@@ -367,15 +332,13 @@ class AtomViewApp:
         holds alike) so the cloud reads as continuously rotating, never
         paused, at the same speed as normal viewing.
         """
-        self.angle = (self.angle + ANGLE_STEP) % self.two_pi
-        self.tilt_angle = (self.tilt_angle + TILT_ANGLE_STEP) % self.two_pi
-        self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
+        advance_rotation(self)
 
     def _dissect_ease(self, scale0, scale1, clip0, clip1, active_subshell, frames, label=None):
         """One eased leg of the dissection sequence: scale and clip move
         linearly from their *0 to *1 values over `frames` frames (pass the
         same value twice to hold one constant) while the cloud keeps tumbling.
-        Paced to DISSECT_FRAME_DELAY_S (unlike _fly_over(), which has no
+        Paced to DISSECT_FRAME_DELAY_S (unlike fly_over(), which has no
         delay and runs as fast as the CPU renders) so the rotation speed here
         matches normal viewing instead of racing ahead.
         """
@@ -460,31 +423,20 @@ class AtomViewApp:
             self.z = self._pending_z
             self._pending_z = None
             self.preset = AtomPreset(self.z)
-            self._fly_over(self._effective_base_scale() * SWITCH_START_SCALE_FACTOR, self._effective_base_scale(),
-                            SWITCH_TRANSITION_FRAMES)
+            fly_over(self, self._effective_base_scale() * SWITCH_START_SCALE_FACTOR, self._effective_base_scale(),
+                     SWITCH_TRANSITION_FRAMES)
 
-        # Random zoom excursion -- same rationale as OrbitalViewApp._tick()'s
-        # matching block; uses the zoom-adjusted base/amplitude so dives are
-        # relative to wherever the user has manually zoomed to.
-        self.zoom_excursion_countdown -= 1
-        if self.zoom_excursion_countdown <= 0:
-            current_scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
-            target_scale = self._effective_base_scale() * random.uniform(ZOOM_EXCURSION_SCALE_MIN_FACTOR,
-                                                                           ZOOM_EXCURSION_SCALE_MAX_FACTOR)
-            self._fly_over(current_scale, target_scale, ZOOM_EXCURSION_EASE_FRAMES)
-            self._fly_over(target_scale, self._effective_base_scale(), ZOOM_EXCURSION_EASE_FRAMES)
-            self.zoom_angle = 0.0
-            self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
-            self.root.after(FRAME_DELAY_MS, self._tick)
+        # Random zoom excursion -- same helper as OrbitalViewApp._tick(); uses
+        # the zoom-adjusted base/amplitude so dives are relative to wherever
+        # the user has manually zoomed to.
+        if maybe_zoom_excursion(self, self._effective_base_scale(), self._effective_zoom_amplitude()):
             return
 
         scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
         render_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle, scale)
         self._blit(scale)
 
-        self.angle = (self.angle + ANGLE_STEP) % self.two_pi
-        self.tilt_angle = (self.tilt_angle + TILT_ANGLE_STEP) % self.two_pi
-        self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
+        advance_rotation(self)
         self.zoom_angle = (self.zoom_angle + ZOOM_ANGLE_STEP) % self.two_pi
 
         self.root.after(FRAME_DELAY_MS, self._tick)
