@@ -322,3 +322,46 @@ ridisegnata.
   pixel solo nell'ultimo passaggio.
 - Commenti e nomi di variabili in inglese per coerenza con le librerie
   (TFT_eSPI ecc.); i messaggi utente/log possono restare in italiano.
+
+## 10. Nota operativa — backtick nelle docstring Python (lavorare con run_code)
+
+Esperienza verificata su `pc/` (vedi commit b41c292/d5c1c40): quando si
+scrive o modifica codice Python tramite lo strumento `run_code`, il
+contenuto del file viene composto dentro **template literal JavaScript** del
+tool. Ogni backtick (`) nel contenuto **termina il template literal** e fa
+fallire la chiamata con "Expected a semicolon". Le docstring Python citano
+spesso identificatori con i backtick (`buf`, `frames`, ...), quindi il
+problema è reale e ricorrente.
+
+Regole:
+
+1. **Approccio preferito — array di righe**: costruire il file come lista di
+   stringhe JS con apici singoli e scriverlo con
+   `content: lines.join("\n")`. Nessun escaping necessario, backtick
+   compresi (dentro apici singoli JS il backtick è un carattere normale).
+2. Se invece si usa un template literal, **escapare ogni backtick** come
+   `\``. Attenzione: `String.raw` NON aiuta — il backtick termina
+   comunque il literal.
+3. **Non appiattire i newline** per passare uno script a `python -c` (es.
+   `script.replace(/\n/g, " ")`): l'IndentationError rompe gli script
+   multi-riga. Scrivere gli script di test in un file temporaneo, eseguirli,
+   poi cancellarli.
+4. Nei test, `sum(1 for b in buf)` conta **tutti** i byte, non solo i
+   non-zero — usare `sum(1 for b in buf if b)` per contare byte non-zero.
+
+I backtick nelle docstring sono perfettamente validi nei file Python veri
+(sono caratteri normali): il vincolo riguarda solo il trasporto JS, non il
+codice Python — non "correggere" le docstring togliendo i backtick.
+
+Esempio (regola 1):
+
+```js
+const lines = [
+  'def draw_nucleus(buf):',
+  '    """Draw the nucleus marker at screen center.',
+  '    Used by render_frame() and render_dissection_frame().',
+  '    """',
+  '    ...',
+];
+await tools.write({ file_path: "pc/example.py", content: lines.join("\n") });
+```
