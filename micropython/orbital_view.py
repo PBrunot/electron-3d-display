@@ -114,6 +114,14 @@ class PresetState:
         print("orbital: %s loaded in %dms, scale=%.1f" % (
             label, time.ticks_diff(time.ticks_ms(), t0), self.base_scale))
 
+    def draw_title(self, fb, x, y, text_color):
+        """See device_render_common.fly_over()'s docstring for why this is a
+        method, not a plain fb.text(preset.title, ...) call at the call
+        site: a single orbital title is one uniformly-colored string, unlike
+        AtomPresetState's per-shell-colored segments.
+        """
+        fb.text(self.title, x, y, text_color)
+
     def resample(self, count):
         """Point turnover (see CULL_FRACTION/CULL_REFRESH_FRAMES): redraw
         `count` points from the same distribution, in place.
@@ -226,7 +234,7 @@ def run():
         drc.render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, buzz_frame,
                           buzz_threshold)
         buzz_frame = buzz_frame + 1 if buzz_frame < 1_000_000 else 0
-        fb.text(preset.title, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], text_color)
+        preset.draw_title(fb, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], text_color)
         fb.text(fps_text, FPS_TEXT_POS[0], FPS_TEXT_POS[1], text_color)
         drc.draw_scale_bar(fb, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)

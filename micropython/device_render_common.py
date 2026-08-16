@@ -247,13 +247,20 @@ def fly_over(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angl
     explicitly so the "buzz" effect stays active through transitions too,
     matching this code's pre-refactor behavior; atom_view.py's static cloud
     has no use for it and leaves it at the default.
+
+    Title text is drawn via `preset.draw_title(fb, x, y, text_color)`, not a
+    plain `fb.text(preset.title, ...)` call -- PresetState's title is one
+    plain string, but AtomPresetState's is several segments each colored by
+    shell (mirrors pc/atom_view_pc.py's draw_atom_title()), which a single
+    fb.text() call can't express. Delegating to the preset keeps this
+    function agnostic to which kind it's driving.
     """
     two_pi = 2 * math.pi
     for i in range(frames):
         t = i / (frames - 1) if frames > 1 else 1.0
         scale = start_scale + (end_scale - start_scale) * t
         render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, i, buzz_threshold)
-        fb.text(preset.title, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
+        preset.draw_title(fb, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
         draw_scale_bar(fb, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
         angle += ANGLE_STEP
