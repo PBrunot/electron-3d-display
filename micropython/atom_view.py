@@ -46,6 +46,13 @@ CENTER = drc.CENTER
 N_POINTS = 3000  # same device render budget as orbital_view.py's cloud_common.N_POINTS
 DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
 
+# Calibrated once for THIS panel's own CENTER (see
+# atom_cloud.pixels_per_bohr_for_canvas()'s docstring for why it's a
+# fraction of CENTER rather than a fixed pixel count -- the same call in
+# pc/atom_view_pc.py uses the PC debug window's much larger CENTER and lands
+# on a different, PC-appropriate PIXELS_PER_BOHR).
+PIXELS_PER_BOHR = atom_cloud.pixels_per_bohr_for_canvas(CENTER)
+
 FPS_UPDATE_INTERVAL = 50
 FPS_TEXT_POS = (2, 2)
 
@@ -119,7 +126,7 @@ class AtomPresetState:
         self.config = config
 
         r_ref = atom_cloud.outer_subshell_r_ref(xs, ys, zs, shells, ells, config)
-        self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(r_ref, atom_cloud.PIXELS_PER_BOHR)
+        self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(r_ref, PIXELS_PER_BOHR)
 
         print("atom: %s loaded in %dms, scale=%.1f" % (
             slater.element_symbol(z), time.ticks_diff(time.ticks_ms(), t0), self.base_scale))

@@ -106,10 +106,21 @@ PM_PER_BOHR = cloud_common.PM_PER_BOHR
 ANGSTROM_PER_BOHR = PM_PER_BOHR / 100.0
 
 # Calibration for scale_for_atom() below: reference atomic number and its
-# on-screen target size, used ONCE at import time to derive PIXELS_PER_BOHR
-# (a single pixels-per-Bohr-radius conversion factor shared by every
-# element -- see scale_for_atom()'s docstring for why this must NOT be
-# cloud_common.scale_from_radii()'s per-cloud renormalization).
+# on-screen target size, used by pixels_per_bohr_for_canvas() to derive
+# PIXELS_PER_BOHR (a single pixels-per-Bohr-radius conversion factor shared
+# by every element -- see scale_for_atom()'s docstring for why this must NOT
+# be cloud_common.scale_from_radii()'s per-cloud renormalization).
+#
+# The target is a FRACTION of the caller's own canvas half-width (CENTER),
+# not a fixed pixel count -- this module is shared verbatim between the PC
+# debug viewer (pc/atom_view_pc.py, a 480px-wide math buffer) and the real
+# ESP32 device (micropython/atom_view.py, a 240px-wide panel); a fixed pixel
+# target tuned for one would be wrong on the other (either far too small on
+# PC or clipping off the device's smaller screen), whereas the same FRACTION
+# of each one's own CENTER reproduces the same relative on-screen size on
+# both. Each canvas-owning module calls pixels_per_bohr_for_canvas(CENTER)
+# once with its own CENTER and caches the result (see pc/atom_view_pc.py and
+# micropython/atom_view.py) -- this module itself has no canvas of its own.
 #
 # Rubidium (Z=37) is the reference: the largest atom this model produces
 # within the Clementi-Raimondi-covered range (Z<=54, see
@@ -128,14 +139,15 @@ ANGSTROM_PER_BOHR = PM_PER_BOHR / 100.0
 # every other (correctly-computed) element on screen to compensate for a
 # probably-wrong outlier, so Rb -- the biggest atom in the range this model
 # is actually validated against (see pc/validate_atoms.py) -- is the safer
-# reference until that separate issue is chased down. Calibrating off the
-# biggest trustworthy case, at a target smaller than
-# cloud_common.P90_TARGET_PX, keeps every other CR-range element
-# comfortably inside the 240x240 canvas at rest, with headroom left for the
-# zoom-breathing swing on top; Slater-fallback elements (Z>=55) may still
-# render oversized/clipped until the underlying z_eff issue is fixed.
+# reference until that separate issue is chased down. 0.6 of CENTER keeps
+# every other CR-range element comfortably inside the canvas at rest, with
+# headroom left for the zoom-breathing swing on top (0.6 * (1 +
+# cloud_common.ZOOM_AMPLITUDE_FRACTION) == 0.84 of CENTER at the outer edge
+# of the breathing swing, still short of the canvas edge on either canvas);
+# Slater-fallback elements (Z>=55) may still render oversized/clipped until
+# the underlying z_eff issue is fixed.
 _CALIBRATION_Z = 37
-_CALIBRATION_TARGET_PX = 70.0
+_CALIBRATION_RADIUS_FRACTION = 0.6
 
 
 def _p90_radius(xs, ys, zs, percentile=0.90):
@@ -205,9 +217,19 @@ def outer_subshell_r_ref(xs, ys, zs, shells, ells, config):
     return plan[0][5] if plan else 1.0
 
 
-def _calibrate_pixels_per_bohr(target_px=_CALIBRATION_TARGET_PX, reference_z=_CALIBRATION_Z):
+def pixels_per_bohr_for_canvas(canvas_center, radius_fraction=_CALIBRATION_RADIUS_FRACTION,
+                                reference_z=_CALIBRATION_Z):
+    """The single pixels-per-Bohr-radius conversion factor scale_for_atom()
+    needs, calibrated so the reference element (Rubidium) reaches
+    `radius_fraction` of `canvas_center` at rest -- see the calibration
+    comment above for why this takes the canvas's own CENTER instead of a
+    fixed pixel count. Call once per canvas (PC and device each have their
+    own CENTER) and cache the result -- this repeats build_atom_point_cloud()
+    for the reference element, not free.
+    """
     xs, ys, zs, _colors, shells, ells, _signs, config = build_atom_point_cloud(
         reference_z, count=2000, seed=SEED)
+    target_px = radius_fraction * canvas_center
     return target_px / outer_subshell_r_ref(xs, ys, zs, shells, ells, config)
 
 # One color/letter per shell (principal quantum number n) -- historical
@@ -485,8 +507,3 @@ def subshell_dissection_plan(xs, ys, zs, shells, ells, config):
 
     plan.sort(key=lambda entry: entry[5], reverse=True)
     return plan
-
-
-# Computed once at import time (see _calibrate_pixels_per_bohr()'s call
-# site requirement: build_atom_point_cloud() must already be defined).
-PIXELS_PER_BOHR = _calibrate_pixels_per_bohr()

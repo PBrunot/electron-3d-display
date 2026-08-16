@@ -163,8 +163,12 @@ class OrbitalViewApp:
                              SWITCH_TRANSITION_FRAMES)
 
         # Random zoom excursion: skip the normal render/turnover below since
-        # the dive already blitted every frame of itself (see maybe_zoom_excursion()).
-        if maybe_zoom_excursion(self, self.preset.base_scale, self.preset.zoom_amplitude):
+        # the dive already blitted every frame of itself (see
+        # maybe_zoom_excursion()). A single hydrogen orbital has no
+        # inner/outer shell split -- its own r_ref serves as both bounds and
+        # shell_count stays 1 (the default).
+        if maybe_zoom_excursion(self, self.preset.base_scale, self.preset.zoom_amplitude,
+                                 self.preset.r_ref, self.preset.r_ref):
             return
 
         if not DEBUG_DISABLE_CULL:

@@ -51,22 +51,64 @@ _ROLL_ANGLE_START = 2.1
 FRAME_DELAY_MS = 20  # tkinter .after() delay; PC is fast enough this is the real throttle
 
 # --- Intro / preset-switch transitions --------------------------------------
-INTRO_START_SCALE_FACTOR = 12.0
+INTRO_START_SCALE_FACTOR = 1
 INTRO_FRAMES = 70
-SWITCH_START_SCALE_FACTOR = 10.0
-SWITCH_TRANSITION_FRAMES = 18
+SWITCH_START_SCALE_FACTOR = 3.0
+SWITCH_TRANSITION_FRAMES = 20
+
+# --- Zoom bounds shared by the excursion dive and the atom dissection -------
+# Both animations guarantee the same physical span: eased out to twice the
+# cloud's own outer radius (a clearly "outside" overview) and eased in to a
+# QUARTER of the innermost/first shell's own radius (well past that shell's
+# own extent, so the dive clearly passes into/through it), then back. TARGET_PX
+# matches cloud_common.P90_TARGET_PX/the dissection's own on-screen framing
+# target, so "radius R fills TARGET_PX" means the same thing everywhere.
+ZOOM_BOUNDS_TARGET_PX = 150.0
+ZOOM_OUTER_RADIUS_FACTOR = 1.25   # outer bound: outer radius x2 fills TARGET_PX (zoomed OUT)
+ZOOM_INNER_RADIUS_FACTOR = 0.35  # inner bound: first-shell radius x0.25 fills TARGET_PX (zoomed IN)
+
+
+def outer_bound_scale(outer_r_ref, scale_factor=1.0):
+    """Scale at which `outer_r_ref` (the cloud's own outer/valence radius)
+    x ZOOM_OUTER_RADIUS_FACTOR fills ZOOM_BOUNDS_TARGET_PX -- the "outside"
+    end of the shared zoom envelope. `scale_factor` folds in a caller's
+    manual zoom (e.g. atom_view_pc.py's mouse-wheel zoom_factor) so the
+    bound stays relative to wherever the user has zoomed to; pass 1.0 where
+    no manual zoom applies (e.g. the dissection sequence, whose per-shell
+    targets already ignore it -- see _run_dissection()).
+    """
+    return scale_factor * ZOOM_BOUNDS_TARGET_PX / max(outer_r_ref * ZOOM_OUTER_RADIUS_FACTOR, 1e-6)
+
+
+def inner_bound_scale(inner_r_ref, scale_factor=1.0):
+    """Scale at which `inner_r_ref` (the first/innermost shell's own radius)
+    x ZOOM_INNER_RADIUS_FACTOR fills ZOOM_BOUNDS_TARGET_PX -- the "deep dive"
+    end of the shared zoom envelope. See outer_bound_scale() for
+    `scale_factor`.
+    """
+    return scale_factor * ZOOM_BOUNDS_TARGET_PX / max(inner_r_ref * ZOOM_INNER_RADIUS_FACTOR, 1e-6)
+
+
+def shell_count_frames(base_frames, per_shell_frames, shell_count):
+    """Ease-leg frame count that grows with `shell_count` -- a heavier,
+    multi-shell atom's dive/dissection gets proportionally more frames per
+    leg so it doesn't feel rushed next to a single-shell (shell_count=1)
+    hydrogen orbital, which gets exactly `base_frames`.
+    """
+    return int(base_frames + per_shell_frames * max(0, shell_count - 1))
+
 
 # --- Random zoom excursions -------------------------------------------------
-# At randomized intervals, dive from the current breathing scale to a
-# randomized target and back, layered on the constant sine breathing so the
-# motion doesn't read as purely mechanical. Max factor is deeper than the
-# device's 5.0 -- no render budget to protect, so a dive can feel like
-# passing through the cloud itself.
-ZOOM_EXCURSION_MIN_INTERVAL_FRAMES = 150
-ZOOM_EXCURSION_MAX_INTERVAL_FRAMES = 400
-ZOOM_EXCURSION_SCALE_MIN_FACTOR = 0.35
-ZOOM_EXCURSION_SCALE_MAX_FACTOR = 9.0
-ZOOM_EXCURSION_EASE_FRAMES = 30
+# At randomized intervals, dive from the current breathing scale out to the
+# shared "outside" bound, in through the cloud to the shared "deep" bound,
+# and back to the resting breathing scale, layered on the constant sine
+# breathing so the motion doesn't read as purely mechanical. No render
+# budget to protect on PC, so a dive can feel like passing through the cloud
+# itself.
+ZOOM_EXCURSION_MIN_INTERVAL_FRAMES = 500
+ZOOM_EXCURSION_MAX_INTERVAL_FRAMES = 1000
+ZOOM_EXCURSION_EASE_FRAMES_BASE = 100
+ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL = 50
 
 # --- Bounding sphere + rotation marker ---------------------------------------
 BOUNDING_SPHERE_COLOR = (70, 70, 90)
@@ -290,22 +332,33 @@ def fly_over(app, start_scale, end_scale, frames):
         advance_rotation(app)
 
 
-def maybe_zoom_excursion(app, base_scale, zoom_amplitude):
-    """If the excursion countdown expired, dive to a random scale and back
-    and return True -- the caller should skip its normal frame, since the
-    dive already blitted every frame of itself. `base_scale`/`zoom_amplitude`
-    come from the caller so the atom viewer can dive relative to the user's
-    manual zoom factor. zoom_angle resets to 0 after -- sin(0) == 0 lines up
-    exactly with where the dive left off.
+def maybe_zoom_excursion(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_ref,
+                          shell_count=1, scale_factor=1.0):
+    """If the excursion countdown expired, dive from wherever the camera
+    currently is out to the shared "outside" bound (outer_r_ref x
+    ZOOM_OUTER_RADIUS_FACTOR filling the frame), in through the cloud to the
+    shared "deep" bound (inner_r_ref -- the FIRST/innermost shell's own
+    radius -- x ZOOM_INNER_RADIUS_FACTOR filling the frame, deeper than any
+    shell's own extent), and back out to the resting breathing scale; return
+    True so the caller skips its normal frame render, since the dive already
+    blitted every frame of itself. `base_scale`/`zoom_amplitude` come from
+    the caller so the atom viewer can dive relative to the user's manual
+    zoom factor; `scale_factor` (typically that same manual zoom factor)
+    scales the two bounds the same way. `shell_count` stretches every leg
+    (see shell_count_frames()) so a heavier, multi-shell atom's dive isn't
+    rushed. zoom_angle resets to 0 after -- sin(0) == 0 lines up exactly with
+    where the dive left off.
     """
     app.zoom_excursion_countdown -= 1
     if app.zoom_excursion_countdown > 0:
         return False
     current_scale = base_scale + zoom_amplitude * math.sin(app.zoom_angle)
-    target_scale = base_scale * random.uniform(ZOOM_EXCURSION_SCALE_MIN_FACTOR,
-                                                ZOOM_EXCURSION_SCALE_MAX_FACTOR)
-    fly_over(app, current_scale, target_scale, ZOOM_EXCURSION_EASE_FRAMES)
-    fly_over(app, target_scale, base_scale, ZOOM_EXCURSION_EASE_FRAMES)
+    outer_scale = outer_bound_scale(outer_r_ref, scale_factor)
+    inner_scale = inner_bound_scale(inner_r_ref, scale_factor)
+    frames = shell_count_frames(ZOOM_EXCURSION_EASE_FRAMES_BASE, ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL, shell_count)
+    fly_over(app, current_scale, outer_scale, frames)
+    fly_over(app, outer_scale, inner_scale, frames)
+    fly_over(app, inner_scale, base_scale, frames)
     app.zoom_angle = 0.0
     app.zoom_excursion_countdown = _next_zoom_excursion_countdown()
     app.root.after(FRAME_DELAY_MS, app._tick)
