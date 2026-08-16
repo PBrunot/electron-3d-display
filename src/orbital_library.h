@@ -20,19 +20,32 @@ struct OrbitalDescriptor {
     const char* label;
 };
 
+// Index-matched to micropython/cloud_common.py's ORBITAL_PRESETS (same order, same 16
+// entries) so preset N here is the same orbital as preset N there -- kept that way on
+// purpose for cross-port parity/debugging, not just coincidence. Index 15's (5,2,0) is
+// what cloud_common.py itself labels "5p_z3", despite (n=5,ell=2,m=0) actually being a
+// 5d_z2 orbital by its own quantum numbers -- ported as-is (same mismatch, not "fixed"
+// here) per the parity plan's explicit call on this.
 constexpr OrbitalDescriptor kOrbitalLibrary[] = {
-    {1, 0, 0, "1s"},
-    {2, 0, 0, "2s"},
-    {2, 1, 0, "2pz"},
-    {2, 1, 1, "2px"},
-    {2, 1, -1, "2py"},
-    {3, 2, 0, "3dz2"},
-    {3, 2, 1, "3dxz"},
-    {3, 2, -1, "3dyz"},
-    {3, 2, 2, "3dx2-y2"},
-    {3, 2, -2, "3dxy"},
+    {1, 0, 0, "1s"},       // 0
+    {2, 0, 0, "2s"},       // 1
+    {2, 1, 1, "2px"},      // 2
+    {2, 1, -1, "2py"},     // 3
+    {2, 1, 0, "2pz"},      // 4 -- DEFAULT_PRESET_INDEX, matches cloud_common.py
+    {3, 0, 0, "3s"},       // 5
+    {3, 1, 1, "3px"},      // 6
+    {3, 1, -1, "3py"},     // 7
+    {3, 1, 0, "3pz"},      // 8
+    {3, 2, 0, "3dz2"},     // 9
+    {3, 2, 1, "3dxz"},     // 10
+    {3, 2, -1, "3dyz"},    // 11
+    {3, 2, 2, "3dx2-y2"},  // 12
+    {3, 2, -2, "3dxy"},    // 13
+    {4, 3, 0, "4fz3"},     // 14
+    {5, 2, 0, "5pz3"},     // 15 -- mislabeled in cloud_common.py, see comment above
 };
 constexpr int kOrbitalLibraryCount = sizeof(kOrbitalLibrary) / sizeof(kOrbitalLibrary[0]);
+constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz, matches cloud_common.DEFAULT_PRESET_INDEX
 
 constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> buildOrbitalLibrarySamplers() {
     std::array<OrbitalSampler, kOrbitalLibraryCount> samplers{};
@@ -42,8 +55,8 @@ constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> buildOrbitalLibrarySa
     return samplers;
 }
 
-// ~12KB per orbital (see main.cpp's original single-sampler note) x 10 orbitals
-// here = ~120KB of .rodata, trivial next to this board's 16MB flash. Compiling
+// ~12KB per orbital (see main.cpp's original single-sampler note) x 16 orbitals
+// here = ~192KB of .rodata, trivial next to this board's 16MB flash. Compiling
 // this many constexpr table-builds at once is noticeably slower than the single-
 // orbital version but still well inside GCC's default constexpr step/loop limits
 // (our loops top out at kOrbitalTableSize=1001 iterations, vs the default
