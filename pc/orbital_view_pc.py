@@ -298,13 +298,11 @@ def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_
 
 
 # Bottom-left physical-size reference bar (see draw_scale_bar() below).
-# "Nice" round lengths only (1/2/5 x a power of ten -- the same ladder a
-# ruler or a map's scale bar uses) so the printed number is always easy to
-# read at a glance, never something like "37 px = 0.68374 units".
-_SCALE_BAR_CANDIDATES = (
-    0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,
-    1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
-)
+# "Nice" round lengths + the picking rule live in cloud_common.py now
+# (SCALE_BAR_CANDIDATES/pick_scale_bar_length()) -- shared with this
+# module's device counterpart, orbital_view.py, so a scale bar reads the
+# same physical length on both renderers at the same zoom. What's left
+# here is PIL-specific: geometry/margins and the actual draw calls.
 SCALE_BAR_MARGIN_X = 8
 SCALE_BAR_MARGIN_Y = 8
 SCALE_BAR_MAX_PX = 90
@@ -312,38 +310,21 @@ SCALE_BAR_TICK_PX = 4
 SCALE_BAR_COLOR = (210, 210, 210)
 
 
-def _pick_scale_bar_length(pixels_per_unit, max_bar_px):
-    """Largest candidate from _SCALE_BAR_CANDIDATES whose on-screen length
-    (candidate * pixels_per_unit) still fits under max_bar_px -- i.e. the
-    most precise round number the bar can show without overflowing. Falls
-    back to the smallest candidate if even that one would be too long
-    (only possible at extreme zoom-in, where the bar is allowed to overflow
-    max_bar_px rather than disappear to zero length).
-    """
-    best = _SCALE_BAR_CANDIDATES[0]
-    for candidate in _SCALE_BAR_CANDIDATES:
-        if candidate * pixels_per_unit <= max_bar_px:
-            best = candidate
-        else:
-            break
-    return best
-
-
 def draw_scale_bar(draw, pixels_per_unit, unit_label, canvas_height=HEIGHT, max_bar_px=SCALE_BAR_MAX_PX):
     """Bottom-left physical-size reference bar, the way a microscope or map
     view shows one: a horizontal line `length` physical units long (a
-    "nice" round number, see _pick_scale_bar_length()), labeled with that
-    length and unit_label. Recomputed from the CURRENT pixels_per_unit
-    every call (callers pass in the frame's live rendering scale, not a
-    fixed one), so it tracks the camera's zoom-breathing/excursion dives
-    instead of only being accurate at rest scale.
+    "nice" round number, see cloud_common.pick_scale_bar_length()), labeled
+    with that length and unit_label. Recomputed from the CURRENT
+    pixels_per_unit every call (callers pass in the frame's live rendering
+    scale, not a fixed one), so it tracks the camera's zoom-breathing/
+    excursion dives instead of only being accurate at rest scale.
 
     pixels_per_unit <= 0 draws nothing (defensive only -- render_frame()'s
     scale is never <= 0 in normal operation).
     """
     if pixels_per_unit <= 0:
         return
-    length = _pick_scale_bar_length(pixels_per_unit, max_bar_px)
+    length, label = cloud_common.pick_scale_bar_length(pixels_per_unit, max_bar_px)
     bar_px = length * pixels_per_unit
 
     x0 = SCALE_BAR_MARGIN_X
@@ -354,7 +335,7 @@ def draw_scale_bar(draw, pixels_per_unit, unit_label, canvas_height=HEIGHT, max_
     draw.line((x0, y - SCALE_BAR_TICK_PX, x0, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR)
     draw.line((x1, y - SCALE_BAR_TICK_PX, x1, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR)
 
-    draw.text((x0, y - SCALE_BAR_TICK_PX - 12), "%g %s" % (length, unit_label), fill=SCALE_BAR_COLOR)
+    draw.text((x0, y - SCALE_BAR_TICK_PX - 12), "%s %s" % (label, unit_label), fill=SCALE_BAR_COLOR)
 
 
 class OrbitalViewApp:
@@ -404,6 +385,10 @@ class OrbitalViewApp:
         image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
         draw = ImageDraw.Draw(image)
         self._draw_bounding_sphere_and_marker(draw, scale)
+        # scale (px per Bohr radius, THIS frame -- varies with zoom
+        # breathing/excursions) -> px per picometer, so the bar always
+        # reflects the camera's current zoom, not just the resting one.
+        draw_scale_bar(draw, scale / cloud_common.PM_PER_BOHR, "pm")
         draw.text((2, 2), self.preset.title, fill=(255, 255, 255))
         if extra_text:
             draw.text((2, 12), extra_text, fill=(255, 255, 255))
