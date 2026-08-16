@@ -1,0 +1,11 @@
+# Repo convention: CRLF line endings for tracked text files (matches the
+# Windows/WSL editor this project is developed in -- see CLAUDE.md's dev
+# environment). `text=auto` lets git auto-detect text vs. binary; anything
+# it classifies as text is normalized to CRLF in the working tree.
+* text=auto eol=crlf
+
+# Explicit binary overrides -- belt-and-suspenders on top of text=auto's
+# heuristic detection for the file types actually in this repo.
+*.png binary
+*.gif binary
+*.pdf binary
