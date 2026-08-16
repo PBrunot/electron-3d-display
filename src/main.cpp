@@ -60,7 +60,7 @@ static const char *TAG = "orbital_test";
 // ATOMS.md's worked example (3d Z_eff=11.180). Switching elements is future UI work.
 constexpr int kAtomicNumber = 26; // Fe
 
-constexpr int kNumPoints = 2000;
+constexpr int kNumPoints = 5000;
 constexpr uint32_t kRngSeed = 12345;
 // Orbital-space-units-to-pixels scale. A full atom's outer/valence subshell reaches much
 // further out (in Bohr radii) than a bare 1s cloud does, so this is a rough starting

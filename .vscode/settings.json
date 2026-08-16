@@ -3,5 +3,6 @@
     "*.ino": "cpp"
   },
   "C_Cpp.intelliSenseEngine": "disabled",
-  "platformio-ide.useBuiltinPIOCore": true
+  "platformio-ide.useBuiltinPIOCore": true,
+  "idf.currentSetup": "C:\\Users\\pasca\\esp\\v5.2.2\\esp-idf"
 }
