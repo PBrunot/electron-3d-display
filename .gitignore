@@ -11,3 +11,4 @@ examples/js-calculations/Quantum physics online.html
 /tools/orbitals_host/out
 /micropython/__pycache__
 /pc/__pycache__
+/web/py/__pycache__
