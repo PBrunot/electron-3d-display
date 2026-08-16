@@ -56,6 +56,56 @@ keep meaning the same L/R/U/D without needing a separate edit.
 
 Close the window to quit.
 
+## README screenshots
+
+`pc/screenshot.py` renders the same frames the two viewers show - same
+seeded point clouds, same camera pose, same overlays - straight to PNG/GIF
+in the repo's `img/` folder, without opening a window. Used for the GitHub
+README's visual illustrations:
+
+```sh
+python3 pc/screenshot.py                      # everything below
+python3 pc/screenshot.py --orbitals           # hydrogen orbital presets + 4x4 gallery
+python3 pc/screenshot.py --atoms 6 26         # multi-electron atoms for those Z values
+python3 pc/screenshot.py --dissect 20         # shell-dissection journey for that Z
+python3 pc/screenshot.py --orbitals-gif       # animated orbital showcase (img/orbitals.gif)
+python3 pc/screenshot.py --dissect-gif 20     # animated dissection journey (img/dissect_Ca.gif)
+```
+
+Outputs: one `orbital_*.png` per `ORBITAL_PRESETS` entry, one `atom_*.png`
+per element (auto-zoomed so the outer reference sphere fills the frame like
+the orbital presets do), the shell-dissection journey per element as
+still frames (`dissect_<sym>_<n>_<subshell>.png`, outermost to innermost,
+plus the full-cloud wide shots at the start and end), an `atom_gallery.png`
+arranged like a PERIODIC TABLE (every element H..Xe, Z=1..54 -- the
+Clementi-Raimondi-validated range -- at its (period, group) cell, all at
+the SAME physical scale, no per-element zoom, so the real size trend
+across periods/groups reads directly), an `orbital_gallery.png`, and a
+`hero.png` strip. The dissection journey has NO clip plane: unlike the
+app's debug D-key view, the full cloud stays visible in every frame (the
+camera just zooms through the subshells, highlighting each in turn) and
+the bounding circle is plain gray, not shell-colored. All montages (`hero.png`,
+galleries, journey strips) are assembled at FULL source resolution - each
+cell is the 480x480 screenshot itself, no downscaling.
+
+Two animated GIFs replay the ORIGINAL viewer loops -- the same per-source-
+frame rotation/zoom-breathing/point-turnover cadence as the live app and
+the same eased dissection zoom legs with the source's own frame counts
+(the journey GIF also drops the clip plane, matching the stills) -- at
+FULL 480x480 resolution, the same as the still PNGs. To keep files
+README-sized the GIF writes only every GIF_SUBSAMPLE-th source frame and
+plays them back at the same wall-clock speed, so the motion is temporally
+identical to the source at a lower frame rate (default GIF_FPS = 12 ->
+12.5 fps actual). Tunables: ORBITAL_GIF_SECONDS (1s per orbital),
+DISSECT_GIF_HOLD_SECONDS (1s per dissected layer), and GIF_FPS (lower =
+smaller file). Current sizes: `img/orbitals.gif` ~9 MB (283 frames, ~22s,
+all 16 presets with the nudge-switch fly-overs), `img/dissect_Ca.gif`
+~1.4 MB (148 frames, ~11s, calcium journey without clipping).
+
+All frames are deterministic (the samplers use fixed seeds) and reuse the
+viewers' own render/overlay functions - nothing is reimplemented for
+screenshots.
+
 ## Multi-electron atoms (approximate)
 
 ```sh
@@ -336,9 +386,6 @@ in or out.
 | `DISSECT_HOLD_SECONDS` | 2 | Real-time pause per shell, label shown, still tumbling |
 | `DISSECT_CLOSE_FRAMES` | 80 | Frames to ease the cut shut on return |
 | `DISSECT_FRAME_DELAY_S` | `FRAME_DELAY_MS / 1000.0` | Per-frame pacing of every dissection leg |
-| `WIREFRAME_SAMPLES` | 72 | Points around the reference equator (5 degrees/segment) |
-| `WIREFRAME_DASH_ON` | 2 | Segments drawn per dash |
-| `WIREFRAME_DASH_OFF` | 2 | Segments skipped per gap |
 
 The clip is applied in camera space every frame, but `AtomViewApp._dissect_tumble()`
 only advances roll during the whole sequence, never yaw/tilt: since
@@ -366,46 +413,20 @@ thinning out, not narrowing — confirmed empirically (a uniform test cloud's
 2D bounding box is unchanged after dropping the near half; only its point
 density roughly halves, uniformly across the disc, not just near the rim).
 The `rz > clip_z` drop itself is correct and verified (e.g. carbon's cloud:
-almost exactly half its 10000 points survive `clip_z = DISSECT_CLIP_OPEN`) —
-the reference equator ring below is what actually sells the cut visually,
-since unlike the fuzzy point cloud it has a recognizable curve whose
-near/far arc split is legible at a glance.
+almost exactly half its 10000 points survive `clip_z = DISSECT_CLIP_OPEN`).
+The reference equator ring that used to accompany the cut was removed
+entirely from the visualization (see below), so the cut now reads only as
+the cloud thinning out.
 
-Both this view and the normal (non-dissecting) one also draw that reference
-equator ring — `draw_equator()`, in the PIL overlay pass alongside the scale
-bar/title/labels — a shape any viewer immediately reads as "sphere," which
-the fuzzy point cloud alone doesn't reliably convey. Only its near,
-camera-facing arc is drawn (rotated depth > 0, the same "facing the camera"
-sense `render_dissection_frame()`'s `clip_z` uses): the far arc is treated
-as hidden behind the sphere's own bulk, exactly like the far side of an
-opaque globe. This is a fixed rule, independent of the dissection cut itself
-(which affects the point cloud only) — the same in both views. A segment
-with one endpoint past that boundary is trimmed to the exact crossing point
-(`_clip_lerp()`, a linear interpolation valid because rotation is linear)
-rather than dropped whole, so the arc's ends land exactly on the boundary
-instead of stopping short or overshooting by up to one segment's angular
-step. It's drawn dashed (`WIREFRAME_DASH_ON`/`_OFF`, by segment index,
-independent of the near/far split) so it reads as an annotation over the
-cloud rather than a flat colored object sitting in front of it, and colored
-to match whichever shell it's the reference sphere for — the outer shell's
-own `SHELL_RGB` color in the open/close/zoom-out legs (and in the normal
-view), the active subshell's own `SHELL_RGB` color while zoomed into it in
-the dissection view — rather than a color of its own, so it reads as an
-annotation on that shell. In the dissection view, the ring is sized to that
-same reference sphere — the whole atom's outer `r_ref` or the active
-subshell's own `r_ref` — passed down through `_dissect_ease()`/
-`_dissect_hold()` as `equator_r_ref`/`equator_color`.
-
-Alongside the equator, both views also draw `draw_bounding_circle()`'s plain
-outline circle at that same radius, in that same `equator_color` — the
-normal view via `draw_orbit_marker()` (which layers its own rotating
-spoke/marker text on top, in a separate fixed depth-gradient color,
-unrelated to the shell match), the dissection view calling
-`draw_bounding_circle()` directly (skipping the spoke/text, since it'd be a
-mismatched color and the equator is already a rotation cue there). This
-keeps the reference sphere's silhouette visible even when the active
-subshell's dimming (`DISSECT_SHADE_GRAY`) makes the actual points hard to
-see.
+Both this view and the normal (non-dissecting) one draw a plain gray
+bounding-circle outline (`draw_bounding_circle()`, the neutral
+`BOUNDING_SPHERE_COLOR` — deliberately NOT shell-colored) tracking the
+reference sphere, so the eye has a recognizable sphere silhouette to track
+even when the active subshell's dimming (`DISSECT_SHADE_GRAY`) makes the
+actual points hard to see. The normal view layers it through
+`draw_orbit_marker()` (which adds its own rotating spoke/marker text); the
+dissection view calls `draw_bounding_circle()` directly, skipping the
+spoke/text.
 
 ### Keyboard IMU (`keyboard_imu.py`)
 
