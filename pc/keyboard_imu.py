@@ -1,21 +1,12 @@
-"""Fake accelerometer for the PC simulator -- exposes the same
-`read_accel_g() -> (ax, ay, az)` interface as micropython/qmi8658.py's
-QMI8658 class, so micropython/nudge.py's NudgeDetector (imported
-unmodified, see micropython_shim.py) can run identically against either
-one. The real board's nudge-to-direction mapping is a hardware-orientation
-question (see nudge.py's docstring) that simply doesn't apply here -- a
-keyboard has no accelerometer axes to be faithful to -- so this maps arrow
-keys straight to L/R/U/D via nudge.AXIS_SIGN_TO_DIRECTION's *current*
-table, inverted, rather than inventing a separate parallel mapping that
-could drift from whatever the real board is calibrated to.
+"""Keyboard stand-in for the QMI8658 accelerometer.
 
-read_accel_g() always includes a resting +1g on Z (gravity, matching
-qmi8658.py's raw-includes-gravity convention -- as if the board were lying
-flat), plus whatever spike is currently decaying from a recent key press.
-The spike decays geometrically each call rather than stepping instantly to
-zero, so NudgeDetector's EMA-baseline high-pass filter sees a believable
-transient (rise then fade) instead of a step function -- closer to what an
-actual physical nudge's accelerometer trace looks like.
+Exposes the same `read_accel_g() -> (ax, ay, az)` interface as
+micropython/qmi8658.py so nudge.py's NudgeDetector (imported unmodified)
+runs identically against either. Arrow keys inject a +-SPIKE_MAGNITUDE_G
+spike on the axis nudge.py's AXIS_SIGN_TO_DIRECTION table maps to that
+direction (inverted), with a resting +1g on Z (gravity, matching the raw
+board convention). Spikes decay geometrically per read so the detector's
+EMA high-pass sees a believable rise-then-fade transient.
 """
 
 import nudge as _nudge
@@ -30,15 +21,13 @@ _KEYSYM_TO_DIRECTION = {
     'Down': 'D',
 }
 
-SPIKE_MAGNITUDE_G = 0.6   # comfortably over nudge.NUDGE_THRESHOLD_G (0.35)
-SPIKE_DECAY = 0.5          # fraction of the remaining spike kept per read_accel_g() call
+# Spike magnitude is comfortably over nudge.NUDGE_THRESHOLD_G (0.35).
+SPIKE_MAGNITUDE_G = 0.6
+SPIKE_DECAY = 0.5  # fraction of the remaining spike kept per read_accel_g() call
 
 
 class KeyboardIMU:
-    """Bind arrow keys on `tk_widget` (must be focusable/focused to receive
-    key events -- see orbital_view_pc.py's canvas.focus_set()) to synthetic
-    accelerometer spikes.
-    """
+    """Bind arrow keys on `tk_widget` to synthetic accelerometer spikes."""
 
     def __init__(self, tk_widget):
         self._spike = {'x': 0.0, 'y': 0.0, 'z': 0.0}

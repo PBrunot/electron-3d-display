@@ -1,27 +1,16 @@
-"""PC debug port of micropython/orbital_view.py: same hydrogen-orbital
-point-cloud animation, same nudge-to-switch-orbital control, same
-point-turnover/"buzz" liveliness effects, running in a tkinter window
-instead of on the ESP32-S3 panel -- see pc/README.md for how to run it.
+"""PC debug port of micropython/orbital_view.py: the same hydrogen-orbital
+point-cloud animation and nudge-to-switch-orbital control, rendered in a
+tkinter window instead of on the ESP32-S3 panel (see pc/README.md).
 
-Shared with the device via micropython/cloud_common.py (orbital math,
-sampling, ranking, point-turnover -- see that module's docstring) and
-micropython/nudge.py (gesture detection, imported unmodified; only the
-"sensor" underneath it differs, see keyboard_imu.py). Nothing else is
-duplicated -- what's left here is genuinely PC-only:
-
-- Rendering: bytearray RGB buffer -> PIL Image -> tkinter Canvas, plain
-  floats throughout (no Q8 fixed-point/viper -- that's an ESP32-viper
-  workaround, see orbital_view.py's docstring; a desktop CPU doesn't need
-  it). No 180-degree prism offset either -- there's no physical prism here.
-- "Buzz" uses real per-point randomness instead of orbital_view.py's
-  integer hash (that hash exists only because viper has no RNG/floats).
-- Nudge input is the keyboard (arrow keys) via keyboard_imu.KeyboardIMU.
-- N_POINTS=10000 (vs. the device's 3000) -- no render-loop budget to
-  respect on a desktop CPU.
-- Bounding sphere + rotating "H" marker: a debug aid with no device
-  equivalent, since several presets look close to rotationally symmetric
-  in plain orthographic projection and the rotation is hard to perceive
-  from the point cloud alone.
+Everything shared with the device comes from micropython/cloud_common.py
+(orbital math, sampling, ranking, point turnover) and micropython/nudge.py
+(gesture detection, imported unmodified; only the "sensor" underneath it
+differs -- keyboard_imu.KeyboardIMU). What's left here is genuinely PC-only:
+plain-float rendering into a bytearray -> PIL Image -> tkinter Canvas (no Q8
+fixed-point/viper -- that's an ESP32 workaround), real per-point randomness
+for the "buzz" effect (viper has no RNG), a bounding-sphere + rotating "H"
+marker so rotation is visible on nearly-symmetric presets, phosphor-style
+persistence, and N_POINTS=20000 (no render-loop budget to respect).
 """
 
 import math
@@ -30,7 +19,7 @@ import random
 import sys
 import time
 
-import micropython_shim  # noqa: F401 -- import for its side effect (see that module)
+import micropython_shim  # noqa: F401 -- must precede micropython/ imports (see that module)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'micropython'))
 
@@ -42,111 +31,104 @@ from keyboard_imu import KeyboardIMU
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 import tkinter as tk
 
+# --- Display geometry -------------------------------------------------------
 WIDTH = 480
 HEIGHT = 480
 CENTER = WIDTH // 2
-
 DISPLAY_SCALE = 2  # tkinter window is WIDTH*DISPLAY_SCALE square; math stays at WIDTH/HEIGHT
 DISPLAY_SIZE = (WIDTH * DISPLAY_SCALE, HEIGHT * DISPLAY_SCALE)
+N_POINTS = 20000  # more than the device's 3000 -- a desktop CPU has the headroom
 
-N_POINTS = 20000  # higher than the device's 3000 -- a desktop CPU has the headroom for it
-
-# Bounding sphere + rotation marker (PC-only, see module docstring). The
-# circle sits at radius r_ref (same p90 radius base_scale is calibrated
-# against) and never rotates (a sphere's silhouette is a circle from every
-# angle) -- a pure size anchor. The marker is a single reference vector,
-# elevated near the pole (MARKER_ELEVATION_DEG) rather than lying in the
-# horizontal plane -- 90deg would sit exactly on the Y rotation axis and
-# never move; 0deg would sweep the equator (tried first, replaced on
-# request: "on top of the sphere", plus it visually competed with the
-# title text at the top of the frame). It's what visibly moves each frame,
-# giving an unambiguous read on rotation direction/speed.
-BOUNDING_SPHERE_COLOR = (70, 70, 90)
-MARKER_TEXT = "H"
-MARKER_FONT_SIZE = 15
-MARKER_ELEVATION_DEG = 50.0
-_MARKER_ELEVATION_RAD = math.radians(MARKER_ELEVATION_DEG)
-MARKER_COLOR_BEHIND = (110, 110, 110)  # flat gray when rotating away from the viewer
-MARKER_COLOR_FRONT = (255, 220, 40)    # vivid warm yellow when rotating toward the viewer --
-                                        # a color shift (not just dimmer/brighter gray-blue)
-                                        # reads as a much stronger front/back cue
-_MARKER_FONT = ImageFont.load_default(size=MARKER_FONT_SIZE)  # loaded once, not per frame
-
+# --- Camera motion ----------------------------------------------------------
+# Yaw/tilt/roll angular speed per frame. Roll is required, not cosmetic:
+# yaw+tilt alone leave a point's screen-X independent of tilt, pinning points
+# near the world Y axis to the vertical screen centerline (see orbital_view.py's
+# module docstring for the derivation). Tilt/roll are kept close to ANGLE_STEP
+# (and non-resonant with it) so axis-aligned lobes visibly rotate instead of
+# lagging behind yaw, and the tumble doesn't fall into a short repeating loop.
 ANGLE_STEP = 0.030
+TILT_ANGLE_STEP = 0.023
+ROLL_ANGLE_STEP = 0.017
 ZOOM_ANGLE_STEP = 0.016
-TILT_ANGLE_STEP = 0.023   # second (X-axis) rotation's angular speed. Kept close to ANGLE_STEP
-                           # (not much slower) on purpose: with tilt=roll=0, a point's screen-Y
-                           # depends only on tilt+roll, NOT on yaw at all -- so if tilt/roll lag
-                           # far behind yaw, axis-aligned lobes (e.g. 3d_x2-y2's) sit still for
-                           # the first second or two while yaw visibly spins everything else,
-                           # reading as "a fixed axis that doesn't rotate" even though it does
-                           # eventually. Non-resonant vs. ANGLE_STEP/ROLL_ANGLE_STEP so the
-                           # tumble doesn't fall into a short repeating loop.
-ROLL_ANGLE_STEP = 0.017   # third (Z-axis) rotation's angular speed -- required, not cosmetic:
-                           # yaw+tilt alone leave a point's screen-X depending only on its own
-                           # (x,z), never on tilt, so anything near the world Y axis stays pinned
-                           # to the vertical screen centerline without this third axis -- see
-                           # orbital_view.py's module docstring for the full derivation. Also
-                           # kept close to ANGLE_STEP for the same "don't lag behind yaw" reason.
-_TILT_ANGLE_START = 0.9   # tilt_angle/roll_angle start away from the degenerate all-zero pose
-_ROLL_ANGLE_START = 2.1   # (where yaw alone can't move axis-aligned lobes at all), so even
-                           # frame 0 right after boot isn't axis-locked
+# Tilt/roll start away from the degenerate all-zero pose (where yaw alone
+# can't move axis-aligned lobes at all), so even frame 0 isn't axis-locked.
+_TILT_ANGLE_START = 0.9
+_ROLL_ANGLE_START = 2.1
 FRAME_DELAY_MS = 20  # tkinter .after() delay; PC is fast enough this is the real throttle
 
-# Debug isolation switches (temporary -- for confirming the yaw/tilt/roll
-# rotation math in isolation, with no point-turnover or per-frame flicker
-# muddying the picture). Flip back to False once done.
-DEBUG_DISABLE_CULL = False   # point-turnover (resample) off: the cloud stays exactly as sampled
-DEBUG_DISABLE_BUZZ = True   # per-frame flicker off: every point renders every frame
-
+# --- Intro / orbital-switch transitions ------------------------------------
 INTRO_START_SCALE_FACTOR = 12.0
 INTRO_FRAMES = 70
 SWITCH_START_SCALE_FACTOR = 10.0
 SWITCH_TRANSITION_FRAMES = 18
 
-# Random zoom excursions (ported from orbital_view.py's device loop -- see
-# that module for the original): at randomized intervals, dive from the
-# current breathing scale to a randomized target and back, layered on top
-# of the constant sine-wave breathing so the motion doesn't read as purely
-# mechanical. MAX_FACTOR=9.0 (device uses 5.0) -- PC has no render-loop
-# budget to protect, so the dive can go deep enough to feel like passing
-# through individual points into the electron cloud ("go deeper into the
-# atom"), not just a bigger breath.
+# --- Random zoom excursions -------------------------------------------------
+# At randomized intervals, dive from the current breathing scale to a
+# randomized target and back, layered on the constant sine breathing so the
+# motion doesn't read as purely mechanical. Max factor is deeper than the
+# device's 5.0 -- no render budget to protect, so a dive can feel like
+# passing through the cloud itself.
 ZOOM_EXCURSION_MIN_INTERVAL_FRAMES = 150
 ZOOM_EXCURSION_MAX_INTERVAL_FRAMES = 400
 ZOOM_EXCURSION_SCALE_MIN_FACTOR = 0.35
 ZOOM_EXCURSION_SCALE_MAX_FACTOR = 9.0
 ZOOM_EXCURSION_EASE_FRAMES = 30
 
+# --- Bounding sphere + rotation marker (PC-only, see module docstring) ------
+BOUNDING_SPHERE_COLOR = (70, 70, 90)
+MARKER_TEXT = "H"
+MARKER_FONT_SIZE = 15
+# Elevated near the pole (not 0deg, which would sit exactly on the Y rotation
+# axis and never move) so the marker visibly moves every frame, giving an
+# unambiguous read on rotation direction/speed.
+MARKER_ELEVATION_DEG = 50.0
+_MARKER_ELEVATION_RAD = math.radians(MARKER_ELEVATION_DEG)
+MARKER_COLOR_BEHIND = (110, 110, 110)  # rotating away from the viewer
+MARKER_COLOR_FRONT = (255, 220, 40)    # rotating toward the viewer -- a warm
+                                        # color shift reads much stronger than
+                                        # a gray brightness change
+_MARKER_FONT = ImageFont.load_default(size=MARKER_FONT_SIZE)  # loaded once, not per frame
+
+# --- Nucleus ----------------------------------------------------------------
 PROTON_SIZE = 3
 PROTON_COLOR = (255, 0, 0)
 
-# Per-point alpha blend for every sampled electron point (the nucleus marker
-# above is NOT affected -- it represents one literal particle, not a
-# probability cloud, so it stays fully opaque). Each point blends toward its
-# own color by this fraction instead of overwriting the pixel outright:
-# new = old + (color - old) * ELECTRON_ALPHA. A single isolated point then
-# renders dimmer than its "true" color (blended toward the black
-# background), while a pixel several points project onto in the same frame
-# (common at these projection densities -- 240x240 screen space is coarse
-# next to N_POINTS=3000-20000 samples) converges toward full brightness as
-# each subsequent point blends further in -- i.e. apparent brightness starts
-# tracking local sample DENSITY at a pixel, not just whether it's occupied,
-# the way a translucent point cloud reads. 1.0 = opaque (old behavior,
-# equivalent to the direct overwrite this replaces).
+# --- Electron point rendering ----------------------------------------------
+# Each point alpha-blends toward its own color instead of overwriting the
+# pixel (1.0 = opaque). Overlapping points converge toward full brightness,
+# so apparent brightness tracks local sample DENSITY at a pixel -- the way a
+# translucent point cloud reads. The nucleus above is NOT blended (one literal
+# particle, not a probability cloud).
 ELECTRON_ALPHA = 0.5
 
-# Phosphor-style persistence (PC-only cosmetic; the device stays a hard
-# clear+redraw -- see orbital_view.py, no budget on-device for this).
-# Each frame fades the previous buffer toward black instead of clearing it,
-# so points leave a trailing glow as they tumble -- softens the flicker from
-# "buzz" turnover too, since a skipped point fades out instead of vanishing.
-# Applied via bytes.translate() (one C-level lookup pass over the whole
-# buffer) rather than a per-byte Python loop -- translate() is effectively
-# free at 240x240x3 bytes/frame; a Python loop over the same bytes would not be.
+# Phosphor-style persistence (PC-only cosmetic; the device hard-clears each
+# frame -- see orbital_view.py). Each frame fades the previous buffer toward
+# black via bytes.translate() (one C-level pass, effectively free at
+# 240x240x3 bytes/frame) instead of clearing, so points leave a trailing glow
+# and skipped "buzz" points fade out instead of vanishing.
 ENABLE_PERSISTENCE = True
-PERSISTENCE_DECAY = 100  # /256 kept per frame (~0.39) -- lower = shorter trails, 256 = never fades
+PERSISTENCE_DECAY = 100  # /256 kept per frame (~0.39); lower = shorter trails, 256 = never fades
 _PERSISTENCE_TABLE = bytes((i * PERSISTENCE_DECAY) // 256 for i in range(256))
+
+# --- Scale bar (bottom-left physical-size reference) ------------------------
+# "Nice" round lengths + the picking rule live in cloud_common.py
+# (pick_scale_bar_length()), shared with the device renderer so a bar reads
+# the same physical length on both. What's left here is PIL-specific geometry.
+SCALE_BAR_MARGIN_X = 8
+SCALE_BAR_MARGIN_Y = 8
+SCALE_BAR_MAX_PX = 90
+SCALE_BAR_TICK_PX = 4
+SCALE_BAR_COLOR = (210, 210, 210)
+
+# --- HUD text positions -----------------------------------------------------
+TITLE_POS = (2, 2)
+SUBTITLE_POS = (2, 12)
+
+# --- Debug isolation switches -----------------------------------------------
+# Set False to disable point-turnover (resample) or per-frame "buzz" flicker,
+# to inspect the raw rotation math in isolation.
+DEBUG_DISABLE_CULL = False
+DEBUG_DISABLE_BUZZ = True
 
 _NUDGE_DIRECTION_STEP = {'R': 1, 'U': 1, 'L': -1, 'D': -1}
 
@@ -156,9 +138,9 @@ def _next_zoom_excursion_countdown():
 
 
 class Preset:
-    """PC equivalent of orbital_view.py's PresetState -- everything one
-    loaded orbital needs to render and turn over. No Q8 fixed-point (see
-    module docstring); colors are a plain list of (r, g, b) tuples.
+    """Everything one loaded orbital needs to render and turn over. PC
+    equivalent of orbital_view.py's PresetState, minus Q8 fixed-point --
+    colors are plain (r, g, b) tuples.
     """
 
     def __init__(self, index):
@@ -187,14 +169,9 @@ class Preset:
 
 
 def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
-    """Clear (or fade, see ENABLE_PERSISTENCE) `buf` (WIDTH*HEIGHT*3 RGB
-    bytearray), draw the proton marker, then rotate (yaw about Y by `angle`,
-    tilt about X by `tilt_angle`, roll about Z by `roll_angle` -- all three
-    needed, see orbital_view.py's module docstring) /project/draw every
-    point in `preset`. Each point is alpha-blended into the buffer, not
-    overwritten -- see ELECTRON_ALPHA's module comment. Plain float math,
-    direct buffer writes -- see module docstring for why no fixed-point is
-    needed here.
+    """Clear (or fade, see ENABLE_PERSISTENCE) `buf`, draw the proton
+    marker, then rotate (yaw/tilt/roll -- all three needed, see module
+    docstring) and alpha-blend every point of `preset` into the buffer.
     """
     if ENABLE_PERSISTENCE:
         buf[:] = buf.translate(_PERSISTENCE_TABLE)  # fade previous frame instead of clearing
@@ -227,10 +204,8 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
         ry2 = ys[i] * cos_tilt - rz1 * sin_tilt
         rx3 = rx1 * cos_roll - ry2 * sin_roll
         ry3 = rx1 * sin_roll + ry2 * cos_roll
-        # round(), not int(): int() truncates toward zero, which is a biased
-        # rounding rule (both +0.9 and -0.9 truncate to 0) -- disabling that
-        # quantization bias to check whether it's contributing to the
-        # axis-aligned density seen at the pixel-grid level.
+        # round(), not int(): int() truncates toward zero, a biased rounding
+        # rule that could contribute to axis-aligned density at pixel level.
         px = CENTER + round(rx3 * scale)
         py = CENTER - round(ry3 * scale)
 
@@ -243,24 +218,18 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
 
 
 def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_text=MARKER_TEXT):
-    """Bounding-sphere + rotating marker overlay -- see MARKER_TEXT's module
-    comment for why this exists (a pure-orthographic cue for rotation on
-    presets/clouds whose silhouette alone doesn't show it). Free function
-    (not a method) so pc/atom_view_pc.py can reuse it unmodified with its
-    own marker_text (the element symbol) instead of the hydrogen demo's
-    fixed "H" -- an atom's spherically-averaged cloud (see atom_cloud.py)
-    needs this cue even more, since its silhouette looks the same from
-    every angle by construction.
+    """Bounding-sphere + rotating marker overlay -- a pure-orthographic
+    rotation cue for presets whose silhouette alone doesn't show it (see
+    MARKER_TEXT's comment). Free function so pc/atom_view_pc.py can reuse it
+    unmodified with its own marker_text (the element symbol).
     """
     px_r = r_ref * scale
     draw.ellipse((CENTER - px_r, CENTER - px_r, CENTER + px_r, CENTER + px_r),
                  outline=BOUNDING_SPHERE_COLOR)
 
-    # Reference vector (horizontal_r, y0, 0) before rotation; rotated by the
-    # same yaw+tilt+roll three-axis transform as every sampled point (see
-    # render_frame()). Roll (about Z) never changes the Z coordinate, so
-    # `rz` computed pre-roll is still the correct depth cue post-roll --
-    # only rx/ry need the extra roll step.
+    # Reference vector (horizontal_r, y0, 0) rotated by the same yaw+tilt+roll
+    # transform as every sampled point. Roll (about Z) never changes Z, so
+    # `rz` computed pre-roll is still the correct depth cue post-roll.
     horizontal_r = r_ref * math.cos(_MARKER_ELEVATION_RAD)
     y0 = r_ref * math.sin(_MARKER_ELEVATION_RAD)
     cos_yaw = math.cos(angle)
@@ -272,55 +241,34 @@ def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_
     rx1 = horizontal_r * cos_yaw
     rz1 = -horizontal_r * sin_yaw
     ry2 = y0 * cos_tilt - rz1 * sin_tilt
-    rz = y0 * sin_tilt + rz1 * cos_tilt  # depth cue only -- render_frame()'s points don't need this
+    rz = y0 * sin_tilt + rz1 * cos_tilt
     rx3 = rx1 * cos_roll - ry2 * sin_roll
     ry3 = rx1 * sin_roll + ry2 * cos_roll
     marker_x = CENTER + rx3 * scale
     marker_y = CENTER - ry3 * scale
 
-    # depth_frac: 0 rotating away from the viewer, 1 rotating toward -- the
-    # only depth signal an orthographic projection can give. r_ref (not
-    # horizontal_r) is the right normalizer now that yaw+tilt can swing rz
-    # across the marker vector's full length, not just its horizontal
-    # component (rotation preserves vector length, so |rz| never exceeds
-    # r_ref).
+    # depth_frac: 0 rotating away, 1 rotating toward -- the only depth signal
+    # an orthographic projection gives. Rotation preserves vector length, so
+    # |rz| never exceeds r_ref.
     depth_frac = (rz / r_ref + 1.0) / 2.0 if r_ref > 1e-6 else 0.5
     marker_color = tuple(
         int(MARKER_COLOR_BEHIND[c] + depth_frac * (MARKER_COLOR_FRONT[c] - MARKER_COLOR_BEHIND[c]))
         for c in range(3))
 
-    # Spoke from the nucleus to the marker -- same depth-interpolated color
-    # as the marker text itself, so the whole radius (not just the letter)
-    # reads as gray when rotating behind / lit up in front.
+    # Spoke from the nucleus to the marker in the same depth-interpolated
+    # color, so the whole radius reads gray-behind / lit-in-front.
     draw.line((CENTER, CENTER, marker_x, marker_y), fill=marker_color)
 
     draw.text((marker_x, marker_y), marker_text, fill=marker_color, font=_MARKER_FONT, anchor='mm')
 
 
-# Bottom-left physical-size reference bar (see draw_scale_bar() below).
-# "Nice" round lengths + the picking rule live in cloud_common.py now
-# (SCALE_BAR_CANDIDATES/pick_scale_bar_length()) -- shared with this
-# module's device counterpart, orbital_view.py, so a scale bar reads the
-# same physical length on both renderers at the same zoom. What's left
-# here is PIL-specific: geometry/margins and the actual draw calls.
-SCALE_BAR_MARGIN_X = 8
-SCALE_BAR_MARGIN_Y = 8
-SCALE_BAR_MAX_PX = 90
-SCALE_BAR_TICK_PX = 4
-SCALE_BAR_COLOR = (210, 210, 210)
-
-
 def draw_scale_bar(draw, pixels_per_unit, unit_label, canvas_height=HEIGHT, max_bar_px=SCALE_BAR_MAX_PX):
-    """Bottom-left physical-size reference bar, the way a microscope or map
-    view shows one: a horizontal line `length` physical units long (a
-    "nice" round number, see cloud_common.pick_scale_bar_length()), labeled
-    with that length and unit_label. Recomputed from the CURRENT
-    pixels_per_unit every call (callers pass in the frame's live rendering
-    scale, not a fixed one), so it tracks the camera's zoom-breathing/
-    excursion dives instead of only being accurate at rest scale.
-
-    pixels_per_unit <= 0 draws nothing (defensive only -- render_frame()'s
-    scale is never <= 0 in normal operation).
+    """Bottom-left physical-size reference bar, like a microscope/map scale:
+    a horizontal line `length` physical units long (a "nice" round number,
+    see cloud_common.pick_scale_bar_length()), labeled with that length and
+    unit_label. Recomputed from the frame's live pixels_per_unit every call
+    so it tracks the camera's zoom-breathing/excursion dives. pixels_per_unit
+    <= 0 draws nothing (defensive).
     """
     if pixels_per_unit <= 0:
         return
@@ -385,30 +333,27 @@ class OrbitalViewApp:
         image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
         draw = ImageDraw.Draw(image)
         self._draw_bounding_sphere_and_marker(draw, scale)
-        # scale (px per Bohr radius, THIS frame -- varies with zoom
+        # Scale (px per Bohr radius, THIS frame -- varies with zoom
         # breathing/excursions) -> px per picometer, so the bar always
         # reflects the camera's current zoom, not just the resting one.
         draw_scale_bar(draw, scale / cloud_common.PM_PER_BOHR, "pm")
-        draw.text((2, 2), self.preset.title, fill=(255, 255, 255))
+        draw.text(TITLE_POS, self.preset.title, fill=(255, 255, 255))
         if extra_text:
-            draw.text((2, 12), extra_text, fill=(255, 255, 255))
+            draw.text(SUBTITLE_POS, extra_text, fill=(255, 255, 255))
         image = image.resize(DISPLAY_SIZE, Image.NEAREST)
         self.photo = ImageTk.PhotoImage(image)
         self.canvas.itemconfig(self.image_id, image=self.photo)
 
     def _draw_bounding_sphere_and_marker(self, draw, scale):
-        """See draw_orbit_marker()'s docstring. Rotated by the same `angle`
-        the cloud itself is rotated by, so it always matches the current
-        frame.
+        """See draw_orbit_marker()'s docstring; rotated by the same `angle`
+        the cloud itself is rotated by, so it always matches the frame.
         """
         draw_orbit_marker(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle)
 
     def _fly_over(self, start_scale, end_scale, frames):
-        """PC equivalent of orbital_view.py's _fly_over() -- blocking (uses
-        self.root.update() per frame to keep the window responsive) since
-        it's a short, one-shot camera move. Takes absolute scales (not a
-        factor of base_scale) so it can ease to/from anywhere -- e.g. a
-        zoom excursion's deep-dive target, not just back to base_scale.
+        """Short, one-shot camera move -- blocking (self.root.update() per
+        frame keeps the window responsive). Takes absolute scales so it can
+        ease to/from anywhere, not just back to base_scale.
         """
         for i in range(frames):
             t = i / (frames - 1) if frames > 1 else 1.0
@@ -437,12 +382,10 @@ class OrbitalViewApp:
                     self._fly_over(self.preset.base_scale * SWITCH_START_SCALE_FACTOR, self.preset.base_scale,
                                     SWITCH_TRANSITION_FRAMES)
 
-        # Random zoom excursion: pause breathing, dive to a random scale
-        # (deep in most of the time -- see ZOOM_EXCURSION_SCALE_MAX_FACTOR)
-        # and back. zoom_angle resets to 0 after -- sin(0) == 0 lines up
-        # exactly with where the excursion left off. Skips the normal
-        # render/turnover below since _fly_over() already rendered+blitted
-        # every frame of the dive.
+        # Random zoom excursion: dive to a random scale and back, skipping the
+        # normal render/turnover below since _fly_over() already blitted every
+        # frame of the dive. zoom_angle resets to 0 after -- sin(0) == 0 lines
+        # up exactly with where the excursion left off.
         self.zoom_excursion_countdown -= 1
         if self.zoom_excursion_countdown <= 0:
             current_scale = self.preset.base_scale + self.preset.zoom_amplitude * math.sin(self.zoom_angle)
