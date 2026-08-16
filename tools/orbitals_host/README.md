@@ -2,8 +2,9 @@
 
 Confronta due implementazioni candidate della matematica degli orbitali
 dell'idrogeno **e** del campionamento a nuvola di punti (M2, CLAUDE.md §5/§7)
-contro `js_reference.js` (l'estrazione/estensione di
-`examples/js-calculations/quantum-physics.js`, di Manuel Joffre):
+contro `js_reference.js` (l'estrazione/estensione di `quantum-physics.js` di
+Manuel Joffre — l'originale non è ridistribuito in questo repo, vedi
+`examples/js-calculations/README.md` per dove recuperarlo):
 
 - `src/orbitals.h/.cpp` (funzione d'onda) + `src/pointcloud.h/.cpp`
   (campionamento della nuvola di punti via CDF inversa) — porting C++,

@@ -3,9 +3,10 @@
 //
 // This is a near-verbatim extraction of the orbital-math functions from
 // quantum-physics.js (c) 2020-2022 Manuel Joffre, www.quantum-physics.polytechnique.fr
-// (see examples/js-calculations/quantum-physics.js for the full original file,
-// which also contains unrelated double-slit-experiment / FFT / 2D-plotting
-// code not needed here). Function bodies below are copied unmodified from
+// (the full original file, which also contains unrelated double-slit-
+// experiment / FFT / 2D-plotting code not needed here, is not redistributed
+// in this repo -- see examples/js-calculations/README.md for where to get it).
+// Function bodies below are copied unmodified from
 // initLegendreCoeffs, computePLM, initLookupTable, initLaguerreCoeffs,
 // hydrogenRadialFunction, initLookupTableRadial and getValueFromLookupTable —
 // only the module-level `var` state they read/write has been kept alongside
