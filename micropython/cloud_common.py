@@ -64,10 +64,7 @@ COLOR_MAX_LEVEL = 255
 # out from center. Measured per preset (scale_from_radii()) rather than a
 # global constant, since radial extent depends on n, l, AND m, not n alone.
 P90_TARGET_PX = 100.0
-ZOOM_AMPLITUDE_FRACTION = 0.4  # dolly-breathing swing, as a fraction of base_scale -- raised from
-                                # 0.23 for a more pronounced constant in/out motion, on top of the
-                                # periodic deep-dive zoom excursions (see ZOOM_EXCURSION_* in
-                                # orbital_view.py / pc/orbital_view_pc.py)
+ZOOM_AMPLITUDE_FRACTION = 0.4
 
 CULL_FRACTION = 0.01        # point-turnover: fraction of the cloud resampled...
 CULL_REFRESH_FRAMES = 3     # ...every this many frames
