@@ -43,7 +43,22 @@ exactly what the electron count says it should be, in every view.
 
 Coloring: every point's default color (SHELL_RGB) is still by shell
 (principal quantum number n) regardless of which path produced it, so the
-classic K/L/M/N shell structure reads visually across the whole atom. Every
+classic K/L/M/N shell structure reads visually across the whole atom. The
+points belonging to the OUTERMOST subshell (outer_subshell_r_ref()'s own
+plan[0] -- the same subshell the bounding circle/scale calibration already
+treats as "the atom's size", see that function's docstring) are additionally
+brightened (_brighten_outer_shell(), toward white) after the fact, while
+every OTHER point is dimmed the other way (_dim_inner_shell(), toward black)
+to widen the contrast further. Without this, the outer/valence subshell is
+easy to miss entirely: for any atom past Ne it is a small minority of the
+total point BUDGET too (points are split strictly proportional to electron
+count, see _split_counts() -- e.g. potassium's single valence 4s electron is
+1 of 19, ~5% of its points), so the correctly-larger valence cloud reads as
+visually similar-sized "blob" to every other element's core-dominated cloud
+unless its own points are made to stand out individually. Dimming the inner
+layers by default is safe, not lossy: each one still gets its own
+full-brightness moment when the shell-dissection view (pc/atom_view_pc.py's
+D-key sequence) zooms into it specifically -- see below. Every
 point ALSO carries a signed-wavefunction sign (see `signs`, below) wherever
 one is meaningful: isotropic (full-subshell) groups have none -- angle-
 averaging erases it, same reasoning Unsoeld's theorem relies on above -- and
@@ -53,15 +68,17 @@ at each sampled point (same z_eff*r substitution the radial table itself
 was built with, see init_orbital_sampler()'s docstring) after the fact --
 the inverse-CDF sampling that placed the point only ever used |psi|^2,
 which loses the sign, so it has to be recomputed, not reused. Not applied
-to `colors` itself (still SHELL_RGB everywhere, unconditionally) since
-mixing signed/unsigned coloring across one atom's cloud by default would be
-more confusing than informative; instead left for a caller that wants it
-for a specific purpose to use `signs` selectively -- see
-pc/atom_view_pc.py's shell-dissection view, which swaps to phase coloring
+to `colors` itself (still the plain outer-brightened/inner-dimmed SHELL_RGB
+above, unconditionally, never phase) since mixing signed/unsigned coloring
+across one atom's cloud by default would be more confusing than
+informative; instead left for a caller that wants it for a specific purpose
+to use `signs` selectively -- see pc/atom_view_pc.py's shell-dissection
+view, which swaps to phase coloring
 (cloud_common.PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB) only for the ONE shell
 currently exploded, where "isotropic groups have none" doesn't collide with
 anything else on screen -- and only for its anisotropic points; sign=0
-points there keep reading as their normal shell color.
+points there fall back to that subshell's true (undimmed/unbrightened)
+SHELL_RGB, not `colors[i]` -- see render_dissection_frame()'s comment.
 
 No point-turnover/resample here either (unlike cloud_common.ResampleState)
 -- the cloud is built once and stays static; see pc/atom_view_pc.py's
@@ -76,7 +93,7 @@ import orbitals
 import pointcloud
 import slater
 
-N_POINTS = 10000  # PC default; matches pc/orbital_view_pc.py's hydrogen-preset count
+N_POINTS = 15000  # PC default; matches pc/orbital_view_pc.py's hydrogen-preset count
 SEED = 12345
 
 # Bohr radius, re-exported from cloud_common (single source of truth --
@@ -216,6 +233,52 @@ SHELL_RGB = (
 )
 SHELL_LETTERS = ('?', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', '?')
 
+# How far the outermost subshell's points get lerped toward white (0 = no
+# change, 1 = pure white) -- see build_atom_point_cloud()'s call to
+# _brighten_outer_shell() and the module docstring's Coloring paragraph.
+# 0.55 read as only a modest change once actually rendered (PC's
+# ELECTRON_ALPHA=0.7 per-hit blending already discounts whatever color a
+# sparse, rarely-repeated-pixel point carries, and the device path draws the
+# color outright with no discount at all) -- pushed close to 1.0 so a single
+# hit is close to pure white, the brightest a pixel can get against the
+# black background, while keeping a sliver of the shell hue.
+OUTER_SHELL_BRIGHTEN = 0.92
+
+
+def _brighten_outer_shell(rgb, factor=OUTER_SHELL_BRIGHTEN):
+    """Lerp an SHELL_RGB color toward white by `factor` -- makes the
+    outermost/valence subshell's points individually stand out from the much
+    denser, same-colored-by-shell inner core swarm around them.
+    """
+    r, g, b = rgb
+    return (
+        r + int((255 - r) * factor),
+        g + int((255 - g) * factor),
+        b + int((255 - b) * factor),
+    )
+
+
+# Companion knob to OUTER_SHELL_BRIGHTEN: fraction of brightness removed from
+# every OTHER (non-outer) point, widening the contrast further instead of
+# relying on the outer boost alone. Deliberately mild ("slightly penalize") --
+# unlike the outer shell, the inner/core layers still need to read as their
+# own K/L/M/N colors in the normal merged view; they don't lose visibility
+# altogether since each one gets its own full-brightness moment in the
+# shell-dissection view (pc/atom_view_pc.py's D-key sequence, phase-colored
+# and undimmed while active -- see atom_cloud.py's Coloring docstring
+# paragraph), so dimming them here by default is safe rather than lossy.
+INNER_SHELL_DIM = 0.2
+
+
+def _dim_inner_shell(rgb, factor=INNER_SHELL_DIM):
+    """Scale an SHELL_RGB color toward black by `factor` -- the inverse of
+    _brighten_outer_shell(), applied to every point that ISN'T in the
+    outermost subshell.
+    """
+    r, g, b = rgb
+    keep = 1.0 - factor
+    return (int(r * keep), int(g * keep), int(b * keep))
+
 
 def title_for_atom(z, config=None):
     if config is None:
@@ -349,6 +412,31 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
                 signs[idx] = 1 if psi >= 0.0 else -1
 
                 idx += 1
+
+    # Brighten the outermost subshell's points and dim every other one (see
+    # _brighten_outer_shell()/_dim_inner_shell() and the module docstring's
+    # Coloring paragraph) -- same subshell outer_subshell_r_ref() uses for
+    # the bounding circle/scale calibration, so the brightened points are
+    # literally the ones that circle bounds.
+    plan = subshell_dissection_plan(xs, ys, zs, shells, ells, config)
+    if plan:
+        n_out, ell_out = plan[0][0], plan[0][1]
+        bright_cache = {}
+        dim_cache = {}
+        for i in range(count):
+            base = colors[i]
+            if shells[i] == n_out and ells[i] == ell_out:
+                bright = bright_cache.get(base)
+                if bright is None:
+                    bright = _brighten_outer_shell(base)
+                    bright_cache[base] = bright
+                colors[i] = bright
+            else:
+                dim = dim_cache.get(base)
+                if dim is None:
+                    dim = _dim_inner_shell(base)
+                    dim_cache[base] = dim
+                colors[i] = dim
 
     return xs, ys, zs, colors, shells, ells, signs, config
 

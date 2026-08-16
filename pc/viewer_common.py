@@ -93,7 +93,7 @@ PROTON_COLOR = (255, 0, 0)
 # so apparent brightness tracks local sample DENSITY at a pixel -- the way a
 # translucent point cloud reads. The nucleus above is NOT blended (one literal
 # particle, not a probability cloud).
-ELECTRON_ALPHA = 0.7
+ELECTRON_ALPHA = 0.8
 
 # Phosphor-style persistence (PC-only cosmetic; the device hard-clears each
 # frame -- see orbital_view.py). Each frame fades the previous buffer toward
