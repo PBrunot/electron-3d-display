@@ -1,7 +1,9 @@
 """Multi-electron atom point-cloud approximation, built on top of
 orbitals.py/pointcloud.py's hydrogenic math and slater.py's effective-
-nuclear-charge model. PC-only for now (see pc/atom_view_pc.py) -- not yet
-wired into the ESP32 firmware path.
+nuclear-charge model. Platform-agnostic (no PC- or device-only imports),
+consumed by both pc/atom_view_pc.py and micropython/atom_view.py -- the
+latter is not the default boot animation (see main.py's docstring), but the
+model itself needs no adaptation to run on-device.
 
 Model, in one paragraph: for atomic number Z, fill subshells by the Madelung
 rule with the known real-world exceptions applied
