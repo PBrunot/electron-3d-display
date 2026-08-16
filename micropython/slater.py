@@ -1,27 +1,44 @@
-"""Slater's-rules effective-nuclear-charge model for multi-electron atoms,
-layered on top of orbitals.py's hydrogenic radial wavefunction. Lets
-atom_cloud.py approximate any element's electron density as a sum of
-hydrogen-LIKE subshells, each shrunk by its own effective nuclear charge
-Z_eff, instead of solving the real (much harder) many-electron Schrodinger
-equation. Pure data/math, no display/hardware imports -- shared between the
-PC simulator and (eventually) the device, same as orbitals.py/pointcloud.py.
+"""Effective-nuclear-charge model for multi-electron atoms, layered on top
+of orbitals.py's hydrogenic radial wavefunction. Lets atom_cloud.py
+approximate any element's electron density as a sum of hydrogen-LIKE
+subshells, each shrunk by its own effective nuclear charge Z_eff, instead
+of solving the real (much harder) many-electron Schrodinger equation. Pure
+data/math, no display/hardware imports -- shared between the PC simulator
+and (eventually) the device, same as orbitals.py/pointcloud.py.
 
-Two approximations stacked here, both standard textbook simplifications,
-not something specific to this project:
-  1. Electron configuration is filled by the simple n+l (Madelung) rule --
-     the handful of real exceptions (Cr, Cu, Nb, ... where a d subshell
-     "steals" an electron from the ns subshell for extra stability) are
-     ignored.
-  2. Z_eff is estimated per SUBSHELL via Slater's rules (Slater, Phys. Rev.
-     36, 57 (1930)), not solved self-consistently -- real Z_eff varies
-     slightly per electron within a subshell too, and Slater's rules are
-     themselves a fit to more accurate calculations, not exact.
+Three standard textbook approximations stacked here (all explicit, none
+specific to this project):
+
+  1. Electron configuration is filled by the simple n+l (Madelung) rule,
+     with the well-known real exceptions (Cr, Cu, Nb, Mo, Ru, Rh, Pd, Ag,
+     Pt, Au and the La/Ce/Gd/Ac/Th/Pa/U/Np/Cm/Lr anomalies) overridden by
+     an explicit table (see _CONFIG_EXCEPTIONS). For elements like Pd
+     (4d10, no 5s) the Madelung rule otherwise puts an electron in the
+     WRONG, much more diffuse outermost subshell.
+
+  2. Z_eff comes from the refined Hartree-Fock values of Clementi,
+     Raimondi & Reinhardt (1963/1967, see slater_cr_zeff.py) wherever the
+     table covers the subshell (Z <= 54), falling back to Slater's rules
+     (Slater, Phys. Rev. 36, 57 (1930)) beyond that -- Slater's constants
+     are documented as progressively less accurate for heavier elements.
+
+  3. For subshells that DO fall back to Slater's rules, the effective
+     charge used in the hydrogenic radial substitution is additionally
+     rescaled by n/n* (Slater's effective principal quantum number, see
+     n_star()): Slater's Z_eff was calibrated for STO exponents Z_eff/n*,
+     so using it with the true hydrogenic exponent Z_eff/n overestimates
+     radii by n/n* for n >= 4 (8% at n=4, 25% at n=5, 43% at n=6). CR
+     Z_eff values are NOT rescaled: they are defined via the actual n
+     (Z_eff = n*sqrt(-2E)), so they are n-consistent by construction.
+
 Good enough to get shell contraction right (Z_eff grows across a period,
 inner shells sit at higher effective Z than outer ones) for a visual demo --
 not meant to reproduce spectroscopic-grade energies.
 """
 
 MAX_Z = 118
+
+from slater_cr_zeff import CR_Z_EFF  # noqa: E402 -- data module, same package
 
 _SUBSHELL_CAPACITY = {0: 2, 1: 6, 2: 10, 3: 14}
 _SUBSHELL_LABELS = 'spdf'
@@ -41,15 +58,49 @@ def _aufbau_order(max_n=8, max_ell=3):
 _AUFBAU_ORDER = _aufbau_order()
 
 
-def electron_configuration(z):
-    """Ground-state electron configuration for atomic number `z` via the
-    simple Madelung (n+l) filling rule -- see module docstring for the
-    known real-world exceptions this ignores.
+# Real ground-state configurations that deviate from the n+l (Madelung)
+# filling rule, in the standard chemistry order (n then ell) -- same
+# (n, ell, occupancy) triple format as electron_configuration()'s output.
+# Sources: NIST ground-state levels / standard periodic-table data; the
+# entries are the well-established s->d (Cr, Cu, Nb, Mo, Ru, Rh, Pd, Ag,
+# Pt, Au) and f/d (La, Ce, Gd, Ac, Th, Pa, U, Np, Cm, Lr) anomalies. Each
+# entry is the FULL configuration so the list is self-contained.
+_CONFIG_EXCEPTIONS = {
+    24: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 5), (4, 0, 1)],       # Cr 3d5 4s1
+    29: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 1)],     # Cu 3d10 4s1
+    41: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 4), (5, 0, 1)],    # Nb 4d4 5s1
+    42: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 5), (5, 0, 1)],    # Mo 4d5 5s1
+    44: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 7), (5, 0, 1)],    # Ru 4d7 5s1
+    45: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 8), (5, 0, 1)],    # Rh 4d8 5s1
+    46: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10)],              # Pd 4d10 (no 5s)
+    47: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (5, 0, 1)],  # Ag 4d10 5s1
+    57: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (5, 0, 2), (5, 1, 6), (5, 2, 1), (6, 0, 2)],                    # La 5d1 6s2
+    58: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 1), (5, 0, 2), (5, 1, 6), (5, 2, 1), (6, 0, 2)],       # Ce 4f1 5d1 6s2
+    64: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 7), (5, 0, 2), (5, 1, 6), (5, 2, 1), (6, 0, 2)],        # Gd 4f7 5d1 6s2
+    78: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 9), (6, 0, 1)],      # Pt 5d9 6s1
+    79: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (6, 0, 1)],     # Au 5d10 6s1
+    89: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (6, 0, 2), (6, 1, 6), (6, 2, 1), (7, 0, 2)],  # Ac 6d1 7s2
+    90: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (6, 0, 2), (6, 1, 6), (6, 2, 2), (7, 0, 2)],  # Th 6d2 7s2
+    91: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (5, 3, 2), (6, 0, 2), (6, 1, 6), (6, 2, 1), (7, 0, 2)],   # Pa 5f2 6d1 7s2
+    92: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (5, 3, 3), (6, 0, 2), (6, 1, 6), (6, 2, 1), (7, 0, 2)],   # U 5f3 6d1 7s2
+    93: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (5, 3, 4), (6, 0, 2), (6, 1, 6), (6, 2, 1), (7, 0, 2)],  # Np 5f4 6d1 7s2
+    96: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (5, 3, 7), (6, 0, 2), (6, 1, 6), (6, 2, 1), (7, 0, 2)],  # Cm 5f7 6d1 7s2
+    103: [(1, 0, 2), (2, 0, 2), (2, 1, 6), (3, 0, 2), (3, 1, 6), (3, 2, 10), (4, 0, 2), (4, 1, 6), (4, 2, 10), (4, 3, 14), (5, 0, 2), (5, 1, 6), (5, 2, 10), (5, 3, 14), (6, 0, 2), (6, 1, 6), (7, 0, 2), (7, 1, 1)],  # Lr 5f14 7s2 7p1
+}
 
-    Returns a list of (n, ell, occupancy) triples in fill order.
+
+def electron_configuration(z):
+    """Ground-state electron configuration for atomic number z -- the
+    simple Madelung (n+l) filling rule, with the real-world exceptions in
+    _CONFIG_EXCEPTIONS applied (see module docstring).
+
+    Returns a list of (n, ell, occupancy) triples: Madelung fill order for
+    regular elements, n-then-ell chemistry order for the exceptions.
     """
     if not (1 <= z <= MAX_Z):
         raise ValueError("z must be within 1..%d, got %d" % (MAX_Z, z))
+    if z in _CONFIG_EXCEPTIONS:
+        return list(_CONFIG_EXCEPTIONS[z])
     remaining = z
     config = []
     for n, ell in _AUFBAU_ORDER:
@@ -121,6 +172,69 @@ def slater_z_eff(z, config, n, ell):
     shield += same_group_factor * max(same_group_total - 1, 0)
 
     return max(z - shield, 1.0)
+
+
+# Slater's effective principal quantum number n*, indexed by n (index 0 unused).
+# From Slater (1930): n=1..3 -> n, n=4 -> 3.7, n=5 -> 4.0, n=6 -> 4.2. Slater's own
+# table stops at n=6; the last value is reused for n >= 7 (a documented extension,
+# needed for the 7s/7p shells of the actinides -- Fr, Ra, ...).
+_N_STAR = (None, 1.0, 2.0, 3.0, 3.7, 4.0, 4.2)
+
+
+def n_star(n):
+    """Slater's effective principal quantum number n* for principal quantum
+    number n (Slater, Phys. Rev. 36, 57 (1930)): 1, 2, 3, 3.7, 4.0, 4.2 for
+    n = 1..6; n >= 7 reuses 4.2 (extension, see _N_STAR). n* is the quantum
+    number Slater's rules were calibrated with: his Z_eff values are meant for
+    Slater-type-orbital exponents Z_eff/n*, so using them in the true hydrogenic
+    exponent Z_eff/n overestimates radii by n/n* for n >= 4 (see z_eff_radial()).
+    """
+    return _N_STAR[n] if n < len(_N_STAR) else _N_STAR[-1]
+
+
+def z_eff_cr(z, config, n, ell):
+    """Clementi-Raimondi Z_eff for subshell (n, ell) of element z, from the
+    Hartree-Fock SCF table in slater_cr_zeff.py (Clementi & Raimondi 1963,
+    Clementi, Raimondi & Reinhardt 1967). Returns None when the table does not
+    cover this element/subshell (Z > 54, or a subshell absent from the table
+    because it is unoccupied in the real ground state -- e.g. Pd 5s). `config`
+    is accepted for signature symmetry with slater_z_eff(); it is not used.
+    """
+    return CR_Z_EFF.get(z, {}).get((n, ell))
+
+
+def z_eff(z, config, n, ell):
+    """Effective nuclear charge for a subshell (n, ell) of element z: the refined
+    Clementi-Raimondi Hartree-Fock value where the table covers it, else
+    Slater's rules. This is the raw Z_eff (no n* rescaling) -- use
+    z_eff_radial() for the value that actually goes into the hydrogenic radial
+    substitution.
+    """
+    cr = z_eff_cr(z, config, n, ell)
+    if cr is not None:
+        return cr
+    return slater_z_eff(z, config, n, ell)
+
+
+def z_eff_radial(z, config, n, ell):
+    """Effective charge to use in the r -> Z_eff*r substitution of the hydrogenic
+    radial wavefunction for subshell (n, ell) of element z -- the single number
+    atom_cloud.py passes to pointcloud's samplers (and to psi_real() for the sign
+    recomputation, which must use the same substitution).
+
+    - Clementi-Raimondi Z_eff (where available, Z <= 54): used as-is. CR Z_eff
+      is defined via the actual principal quantum number (Z_eff = n*sqrt(-2E)),
+      so it is n-consistent with the hydrogenic exponent Z_eff/n by construction.
+    - Slater's Z_eff (fallback, Z > 54): rescaled by n/n* (n_star()). Slater's
+      constants were calibrated for STO exponents Z_eff/n*, so using them with
+      the hydrogenic exponent Z_eff/n makes radii systematically too large by
+      n/n* (8% at n=4, 25% at n=5, 43% at n=6); the rescaling contracts the
+      radial coordinate by n*/n to restore Slater's intended sizes.
+    """
+    cr = z_eff_cr(z, config, n, ell)
+    if cr is not None:
+        return cr
+    return slater_z_eff(z, config, n, ell) * n / n_star(n)
 
 
 def hund_fill_m(ell, occ):

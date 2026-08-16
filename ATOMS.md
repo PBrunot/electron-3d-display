@@ -16,12 +16,19 @@ multi-elettronico (intrattabile analiticamente).
 Modello a tre livelli, ciascuno un'approssimazione standard da manuale, non
 qualcosa di specifico a questo progetto:
 
-1. **Riempimento shell**: regola di Madelung (n+l) — `slater.electron_configuration(z)`.
-   Ignora le eccezioni reali note (Cr, Cu, Nb, Au, ... dove un d "ruba" un
-   elettrone da ns) — vedi §4.3 per l'impatto misurato su Au.
-2. **Carica nucleare efficace**: regole di Slater (1930) —
-   `slater.slater_z_eff(z, config, n, ell)`. Un solo Z_eff per sottoshell
-   (non per singolo elettrone).
+1. **Riempimento shell**: regola di Madelung (n+l) con le eccezioni reali
+   note applicate — `slater.electron_configuration(z)` usa
+   `slater._CONFIG_EXCEPTIONS` (Cr, Cu, Nb, Mo, Ru, Rh, Pd, Ag, Pt, Au e le
+   anomalie La/Ce/Gd/Ac/Th/Pa/U/Np/Cm/Lr).
+2. **Carica nucleare efficace**: per la sostituzione radiale `r → Z_eff·r` il
+   modello usa `slater.z_eff_radial(z, config, n, ell)`: il valore
+   **Clementi-Raimondi** (Hartree-Fock SCF, 1963/1967, tabella in
+   `micropython/slater_cr_zeff.py`, copertura Z≤54) dove disponibile, altrimenti
+   le regole di Slater (1930) riscalate di n/n* — la consistenza con il numero
+   quantico efficace n* di Slater (`slater.n_star()`), che corregge la
+   sovrastima sistematica dei raggi per n≥4 dell'uso naive di Z_eff con la
+   funzione idrogenoide. Un solo Z_eff per sottoshell (non per singolo
+   elettrone).
 3. **Forma della densità**:
    - sottoshell **piena** → media sferica esatta (teorema di Unsöld) —
      `pointcloud.sample_isotropic_point()`.
@@ -46,14 +53,18 @@ per shell esattamente semi-piene con un elettrone per orbitale); il neon
 ## 1. Mappa dei file
 
 ```
-micropython/slater.py       Config. elettronica (Madelung), Z_eff (Slater),
-                             regola di Hund (hund_fill_m), tabella simboli
-                             elemento Z=1..118. Nessuna dipendenza hardware.
+micropython/slater.py       Config. elettronica (Madelung + eccezioni reali,
+                             _CONFIG_EXCEPTIONS), Z_eff (Clementi-Raimondi via
+                             z_eff_cr()/z_eff()/z_eff_radial(), fallback
+                             Slater con correzione n*, n_star()), regola di
+                             Hund (hund_fill_m), tabella simboli Z=1..118.
+micropython/slater_cr_zeff.py  Tabella Z_eff Clementi-Raimondi Z=1..54 per
+                             sottoshell (dati, citati in testa al file).
 micropython/pointcloud.py   + init_radial_sampler()/sample_isotropic_point()
                              (nuovo, sottoshell piene)
                              + z_eff opzionale in init_orbital_sampler()
-                             (nuovo parametro, default 1.0 = comportamento
-                             invariato per i preset idrogeno esistenti)
+                             + radial_mode_radius() (moda di r²R(r)², usata
+                             dalla validazione — vedi pc/validate_atoms.py)
 micropython/orbitals.py     NON MODIFICATO — lo Z_eff entra come
                              sostituzione di variabile al momento della
                              chiamata (r → Z_eff·r), non nella libreria
@@ -82,10 +93,11 @@ Soluzione: `atom_cloud.scale_for_atom()` usa **`PIXELS_PER_BOHR`**, una
 costante di conversione px/raggio-di-Bohr UGUALE per tutti gli elementi,
 calibrata una sola volta all'import su **litio (Z=3)** — verificato
 empiricamente essere l'atomo più diffuso in tutto l'intervallo Z=1..118 di
-questo modello (raggio p90 da 1.37 a₀ per il neon a 5.47 a₀ per il litio,
-~4×), coerente con la chimica reale (i metalli alcalini sono i più
-diffusi/grandi nel loro periodo). Calibrando sul caso peggiore, nessun
-elemento sfora il canvas 240×240 a riposo.
+questo modello (raggio p90 ≈ 6.5 a₀ per il litio a count=2000/seed=SEED;
+la contrazione n* dei pesanti in fallback Slater li tiene sotto il litio,
+vedi `pc/validate_atoms.py`), coerente con la chimica reale (i metalli
+alcalini sono i più diffusi/grandi nel loro periodo). Calibrando sul caso
+peggiore, nessun elemento sfora il canvas 240×240 a riposo.
 
 Aggiunta correlata: **barra di scala fisica** in basso a sinistra
 (`orbital_view_pc.draw_scale_bar()`), in Ångström
@@ -106,9 +118,9 @@ lunghezza "tonda" (1/2/5 × potenza di dieci) che sta nel canvas.
   colore incoerente tra i due casi nello stesso atomo.
 - Un solo Z_eff per sottoshell, non per singolo elettrone (approssimazione
   standard di Slater stesso).
-- Nessun effetto relativistico (rilevante per elementi pesanti, vedi §4.3).
-- Nessuna delle eccezioni reali di riempimento (Cr, Cu, Nb, Mo, Ru, Rh, Pd,
-  Ag, Pt, Au, ...) — regola di Madelung pura.
+- La tabella Clementi-Raimondi copre Z≤54 (fino a Xe): per Z>54 si torna
+  alle regole di Slater + correzione n* (approssimazione peggiore, vedi §4.2).
+- Nessun effetto relativistico (rilevante per elementi pesanti, vedi §4.2).
 
 ## 4. Validazione contro la letteratura (fatta in questa sessione)
 
@@ -121,109 +133,167 @@ citate sotto): per il carbonio, elettrone 2p, Z_eff calcolato = **3.25**
 6.25). Corrispondenza esatta — l'implementazione delle regole di shielding
 (0.35/0.85/1.00, gruppo (n,l) sp/d/f, caso speciale 1s=0.30) è corretta.
 
-### 4.2 Raggio calcolato vs tabella Clementi-Raimondi (1963) — H/He esatti, poi deviazione sistematica
+### 4.1b Z_eff (tabella Clementi-Raimondi, ora il valore primario)
 
-Confronto tra il **raggio di massima probabilità** (moda di r²R(r)², NON il
-percentile 90 misto multi-shell `r_ref` usato per il rendering — sono
-quantità diverse, vedi nota metodologica sotto) della sottoshell più
-estesa di ogni atomo, e i valori pubblicati (Clementi, Raimondi, Reinhardt,
-*J. Chem. Phys.* 38, 2686 (1963) — "raggio di massima densità di carica
-nella shell più esterna", la stessa identica definizione fisica):
+La tabella trascritta in `micropython/slater_cr_zeff.py` (Clementi &
+Raimondi 1963 per Z≤36; Clementi, Raimondi & Reinhardt 1967 per Z=37..54,
+come riportata nell'articolo Wikipedia "Effective nuclear charge" archiviato)
+è verificata su punti noti: Li 2s = 1.279, C 2p = 3.136, Na 3s = 2.507,
+Fe 3d = 11.180, Kr 4p = 9.338, e il fatto che Pd non abbia voce 5s (il suo
+stato fondamentale è 4d¹⁰, coerente con l'eccezione di configurazione).
+Nota: la voce Kr 2p della pagina archiviata riporta 26.047, che rompe la
+sequenza monotona (Br 2p 31.056, Rb 2p 33.039); è un refuso di trascrizione
+del 1963 originale (32.047), corretto e documentato nel file dati.
 
-| Z  | Elemento | Modello (pm) | Letteratura (pm) | Rapporto |
-|----|----------|-------------:|------------------:|---------:|
-| 1  | H        |         53.0 |                 53 |     1.00 |
-| 2  | He       |         31.2 |                 31 |     1.00 |
-| 3  | Li       |        213.0 |                167 |     1.28 |
-| 4  | Be       |        142.0 |                112 |     1.27 |
-| 5  | B        |        106.5 |                 87 |     1.22 |
-| 6  | C        |         85.2 |                 67 |     1.27 |
-| 7  | N        |         71.0 |                 56 |     1.27 |
-| 8  | O        |         60.9 |                 48 |     1.27 |
-| 9  | F        |         53.3 |                 42 |     1.27 |
-| 10 | Ne       |         47.3 |                 38 |     1.25 |
-| 11 | Na       |        314.4 |                190 |     1.65 |
-| 26 | Fe       |        347.2 |                156 |     2.23 |
-| 36 | Kr       |        157.8 |                 88 |     1.79 |
-| 55 | Cs       |       1420.0 |                298 |     4.77 |
-| 79 | Au       |        743.8 |                174 |     4.27 |
+### 4.2 Raggio calcolato vs tabella Clementi-Raimondi — correzione metodologica e numeri nuovi (post-R5)
 
-**Interpretazione:**
+**Correzione metodologica (questa sessione):** la tabella precedente
+confrontava la moda di r²R(r)² della sottoshell **più estesa** del modello
+con i valori Clementi-Raimondi, che sono definiti sulla **sottoshell di
+valenza** ("raggio di massima densità di carica nella shell più esterna" =
+la sottoshell con l più alto tra quelle con n più alto). Le due quantità
+NON coincidono: a parità di n una s (l=0) si estende più di una p
+(per carbonio la 2s arriva a 85 pm mentre la 2p a 65 pm), quindi per
+B..Ne la vecchia tabella confrontava la 2s del modello con il valore di
+letteratura della 2p — da qui la "sovrastima sistematica del 22-28%" sul
+periodo 2, che era in gran parte un artefatto di definizione, non un errore
+delle costanti (verificato con `pc/validate_atoms.py`, che riporta per ogni
+elemento anche il confronto "vecchio" più-esteso vs "corretto" di valenza).
+
+Numeri attuali (modello con Z_eff Clementi-Raimondi + correzione n* sul
+fallback Slater + eccezioni di configurazione; generati da
+`python3 pc/validate_atoms.py`):
+
+| Z  | Elemento | Valenza | Z_eff (fonte) | Modello (pm) | Letteratura (pm) | Rapporto |
+|----|----------|---------|--------------:|-------------:|------------------:|---------:|
+| 1  | H        | 1s      | 1.00 (CR)     |         52.9 |                 53 |     1.00 |
+| 2  | He       | 1s      | 1.69 (CR)     |         31.3 |                 31 |     1.01 |
+| 3  | Li       | 2s      | 1.28 (CR)     |        216.6 |                167 |     1.30 |
+| 4  | Be       | 2s      | 1.91 (CR)     |        144.9 |                112 |     1.29 |
+| 5  | B        | 2p      | 2.42 (CR)     |         87.4 |                 87 |     1.00 |
+| 6  | C        | 2p      | 3.14 (CR)     |         67.5 |                 67 |     1.01 |
+| 7  | N        | 2p      | 3.83 (CR)     |         55.2 |                 56 |     0.99 |
+| 8  | O        | 2p      | 4.45 (CR)     |         47.5 |                 48 |     0.99 |
+| 9  | F        | 2p      | 5.10 (CR)     |         41.5 |                 42 |     0.99 |
+| 10 | Ne       | 2p      | 5.76 (CR)     |         36.8 |                 38 |     0.97 |
+| 11 | Na       | 3s      | 2.51 (CR)     |        276.0 |                190 |     1.45 |
+| 26 | Fe       | 4s      | 5.43 (CR)     |        239.7 |                156 |     1.54 |
+| 36 | Kr       | 4p      | 9.34 (CR)     |        133.6 |                 88 |     1.52 |
+| 55 | Cs       | 6s      | 3.14 (SL+n*)  |        994.0 |                298 |     3.34 |
+| 79 | Au       | 6s      | 5.29 (SL+n*)  |        591.0 |                174 |     3.40 |
+| 92 | U        | 7s      | 5.00 (SL+n*)  |        867.0 |                175 |     4.96 |
+
+**Interpretazione (dopo R5):**
 
 - **H, He: corrispondenza esatta** (nessuno shielding complesso in gioco)
   → conferma che le unità di base (a₀, conversione Å) sono corrette.
-- **Periodo 2 (Li-Ne): sovrastima sistematica e stabile del ~22-28%.**
-  Non è rumore/bug: è la firma nota dell'uso delle costanti di shielding
-  ORIGINALI di Slater (1930), che sono un'approssimazione grossolana —
-  è esplicitamente per questo che Clementi & Raimondi hanno pubblicato nel
-  1963 un set di Z_eff *raffinato* via calcoli Hartree-Fock SCF (fonte:
-  pagina Wikipedia "Slater's rules", che cita esplicitamente questo
-  raffinamento).
-- **Elementi più pesanti/transizione (Na, Fe, Kr, Cs, Au): deviazione
-  molto più grande** (65% - 377%). Tre cause concorrenti, non un errore
-  singolo:
-  1. le regole di Slater sono documentate come più accurate per elementi
-     leggeri del blocco s/p; degradano su d/f e Z alti;
-  2. **nessun effetto relativistico** nel modello — per Cs/Au questo è
-     fisicamente rilevante (la contrazione relativistica degli orbitali s
-     è il motivo da manuale per cui l'oro ha proprietà anomale);
-  3. Slater stesso definisce un numero quantico principale "effettivo"
-     n* (3.7 per n=4, 4.0 per n=5, 4.2 per n=6) da usare quando si
-     costruisce un orbitale di tipo Slater (STO, forma esponenziale senza
-     nodi) — **non applicato qui** perché usiamo la funzione radiale
-     idrogenoide VERA (con nodi, via `orbitals.py`), per cui n* non è
-     direttamente traducibile (è stato inventato per compensare la forma
-     funzionale semplificata delle STO, non è una correzione universale).
-  Per Au specificamente si aggiunge la config. reale nota come eccezione
-  (5d¹⁰6s¹, non 5d⁹6s² come darebbe Madelung puro) — vedi §3.
+- **Periodo 2 blocco p (B-Ne): corrispondenza quasi esatta (0.97-1.01).**
+  Con la definizione corretta (valenza vs valenza) le costanti di Slater
+  bastavano già (~0.94-1.0); con la tabella Clementi-Raimondi il massimo
+  scarto è ~3%. La vecchia sovrastima del 22-28% era l'artefatto di
+  definizione descritto sopra.
+- **Li, Be (2s) e periodi 3-4 (Na..Kr): sovrastima residua del 29-54%.**
+  La causa NON è più Z_eff (per Li le costanti Slater e Clementi-Raimondi
+  coincidono entro il 2%, eppure il raggio è ancora ~1.3×): è la **forma
+  funzionale idrogenoide**. La funzione radiale Hartree-Fock reale è più
+  contratta di qualunque idrogenoide con lo stesso Z_eff, perché deve
+  essere ortogonale al core pieno (oscillazioni interne che spingono il
+  massimo di r²R² verso l'interno); l'effetto cresce con n (periodo 4 ≈
+  1.5×, periodo 3 ≈ 1.3×, periodo 2 ≈ 1.0×).
+- **Z > 54 (fallback Slater + n*): Cs/Au/U ancora 3.3-5.0×.** La
+  correzione n* recupera il 30% su Cs (1420 → 994 pm, vedi tabella
+  vecchia) ma la forma idrogenoide + le costanti Slater grezze per i
+  pesanti lasciano un residuo grande. La soluzione vera è un potenziale a
+  schermo risolto numericamente (Numerov) — vedi §5.
 
-**Nota metodologica importante per confronti futuri**: la definizione
-Clementi-Raimondi è "raggio di massima densità di carica nella shell più
-esterna" — cioè la moda di UNA sola sottoshell (quella con l'estensione
-maggiore, non necessariamente l'ultima riempita in ordine di Madelung: per
-Fe la 3d riempie DOPO la 4s ma è spazialmente PIÙ INTERNA — fatto noto in
-chimica, è il motivo per cui gli ioni dei metalli di transizione perdono
-prima gli elettroni ns). Il valore `r_ref`/`base_scale` usato dal viewer
-(`atom_cloud.scale_for_atom`) è invece il percentile 90 dell'INTERA nuvola
-mista multi-shell — utile per inquadrare la camera, ma **non** direttamente
-confrontabile con le tabelle di letteratura. Per validare, ricalcolare
-sempre la moda della singola sottoshell più estesa (script usato per la
-tabella sopra, non ancora salvato come funzione di libreria — vedi §6).
+**Nota metodologica (vale ancora, ora codificata):** la definizione
+Clementi-Raimondi è la moda di UNA sola sottoshell, quella di valenza — non
+la più estesa (per Fe la 3d riempie DOPO la 4s ma è spazialmente PIÙ
+INTERNA: moda 3d = 43 pm vs moda 4s = 240 pm — fatto noto in chimica, è il
+motivo per cui gli ioni dei metalli di transizione perdono prima gli
+elettroni ns). Il valore `r_ref`/`base_scale` del viewer è il percentile 90
+dell'INTERA nuvola mista — utile per la camera, non confrontabile con le
+tabelle. La moda di r²R(r)² è ora una funzione di libreria
+(`pointcloud.radial_mode_radius()`) e l'intero confronto è automatizzato in
+`pc/validate_atoms.py` (tabella + statistiche + gate `--strict` + check
+fisici: isotropia Unsöld su shell piene e semi-piene, anisotropia Hund su
+2p², ordinamento radiale Fe 3d<4s, H/He esatti).
 
 ### Fonti
 
 - [Slater's rules — Wikipedia](https://en.wikipedia.org/wiki/Slater%27s_rules)
   (formula, costanti di shielding, nota sul raffinamento Clementi, n*)
-- Clementi, E.; Raimondi, D. L.; Reinhardt, W. P. (1963), *J. Chem. Phys.*
-  **38**, 2686 — pubblicazione originale dei raggi atomici calcolati
-  (citata da WebElements, non letta in originale in questa sessione)
+- Clementi, E.; Raimondi, D. L. (1963), "Atomic Screening Constants from
+  SCF Functions", *J. Chem. Phys.* **38**, 2686 — pubblicazione originale
+  dei raggi atomici calcolati e della tabella Z_eff per Z≤36
+- Clementi, E.; Raimondi, D. L.; Reinhardt, W. P. (1967), "Atomic Screening
+  Constants from SCF Functions. II", *J. Chem. Phys.* **47**, 1300 —
+  tabella Z_eff per Z=37..54
+- [Effective nuclear charge — Wikipedia (rev. archiviata)](https://en.wikipedia.org/w/index.php?title=Effective_nuclear_charge&oldid=712358437)
+  (tabella Z_eff Clementi-Raimondi Z=1..54 trascritta in
+  `micropython/slater_cr_zeff.py`; voce Kr 2p corretta da 26.047 a 32.047,
+  refuso di trascrizione documentato nel file)
 - [Atomic Radius (Calculated) — SchoolMyKids periodic table](https://www.schoolmykids.com/learn/periodic-table/atomic-radius-of-all-the-elements)
-  (tabella numerica usata per il confronto in pm)
+  (tabella numerica in pm trascritta in `pc/clementi_radii.py`)
 - [WebElements — Atomic radii (Clementi)](https://winter.group.shef.ac.uk/webelements/periodicity/atomic_radius/)
-  (conferma provenienza/definizione dei dati, nessun valore numerico
-  estratto direttamente da qui)
+  (conferma provenienza/definizione dei dati)
 
-## 5. Idee per migliorare l'accuratezza (non fatto, da valutare)
+## 5. Accuratezza — fatto e da fare
 
-- Sostituire le costanti di shielding di Slater (1930) con quelle
-  raffinate di Clementi-Raimondi (1963) per Z_eff — dovrebbe correggere
-  gran parte della sovrastima sistematica del ~25% sul periodo 2 già
-  misurata. Richiede reperire/trascrivere la tabella dei coefficienti
-  raffinati (non ancora cercata in questa sessione).
-- Valutare se applicare una contrazione empirica per n≥4 (ispirata a n*,
-  ma adattata alla funzione radiale idrogenoide vera invece che alle STO)
-  per ridurre la sovrastima su elementi pesanti — euristica, da tarare
-  contro più punti dati prima di fidarsene.
-- Aggiungere una funzione di libreria dedicata per il "raggio di massima
-  probabilità" (moda di r²R(r)²) in `atom_cloud.py` o `pointcloud.py`, così
-  la validazione contro la letteratura non richiede più uno script usa e
-  getta come quello di questa sessione.
+Fatto in questa sessione (R1/R4/R5):
+
+- **Eccezioni di configurazione** (R4): tabella `slater._CONFIG_EXCEPTIONS`
+  per Cr, Cu, Nb, Mo, Ru, Rh, Pd, Ag, Pt, Au, La, Ce, Gd, Ac, Th, Pa, U,
+  Np, Cm, Lr — corregge la forma qualitativa della shell esterna (es. Pd
+  diventa 4d¹⁰ senza la 5s diffusa che Madelung sbagliato avrebbe creato).
+- **Z_eff Clementi-Raimondi** (R5): tabella trascritta e verificata in
+  `micropython/slater_cr_zeff.py` (Z≤54), usata da `slater.z_eff_radial()`;
+  oltre Xe si torna a Slater. Impatto misurato: corregge il residuo del
+  periodo 2 (già quasi esatto con la definizione giusta) e aiuta i periodi
+  3-4 di qualche punto %, ma la sovrastima residua è dominata dalla forma
+  idrogenoide (vedi §4.2), non dalle costanti.
+- **Consistenza n*** (R5, resa come `n_star()`): `slater.n_star()` applicato SOLO al fallback
+  Slater (il valore Clementi-Raimondi è per costruzione consistente con n,
+  Z_eff = n·√(−2ε), quindi non va riscalato). Recupera il 30% su Cs 6s
+  (1420 → 994 pm); i pesanti restano ~3-5×.
+- **Harness di validazione** (R1): `pc/validate_atoms.py` + dati letteratura
+  in `pc/clementi_radii.py` + `pointcloud.radial_mode_radius()`. La
+  metodologia è ora quella corretta (valenza vs valenza) e il gate `--strict`
+  protegge dalle regressioni.
+
+Da fare (il vero salto di accuratezza):
+
+- **Potenziale centrale a schermo + Numerov (R2, consigliato)**: sostituire
+  l'idrogenoide a Z_eff costante con autofunzioni di V(r) = −Z_eff(r)/r
+  (Z_eff(r) → Z per r→0, → valore asintotico per r→∞), risolte numericamente
+  offline e tabulate come [rR]² — il sampler esistente non cambia. È l'unica
+  strada che corregge davvero la sovrastima di Li/Be e dei periodi 3-4
+  (1.3-1.5×), dei pesanti (3-5×) e che dà la coda asintotica giusta (carica
+  +1), perché la forma radiale reale è più contratta dell'idrogenoide per
+  ortogonalità al core.
+- **Effetto relativistico (R3)** per Z≳55: contrazione di scala
+  √(1−(Zα)²) (8% a Cs, 18% ad Au, 26% a U) sugli orbitali s/p — come
+  correzione del potenziale se si fa R2, o come fattore empirico sul raggio
+  se si resta idrogenoidi.
 
 ## 6. Prossimi passi
 
-- Colorazione per fase/segno nei gruppi Hund (vedi §3) — miglioria visiva,
-  non richiesta esplicitamente finora.
+Accuratezza fisica (in ordine di impatto):
+
+1. **Potenziale centrale a schermo + Numerov (R2)** — l'unico passo che
+   rimuove davvero la sovrastima residua (1.3-1.5× periodi 3-4, 3-5×
+   pesanti); il sampler non cambia, si tabula solo [rR]² diverso.
+2. **Correzione relativistica (R3)** per Z≳55 (√(1−(Zα)²), 8-26%).
+3. Estendere la tabella Z_eff Clementi-Raimondi oltre Z=54 se si trova la
+   fonte (il paper 1967 copre fino a Z=86; la pagina archiviata usata si
+   ferma a Xe).
+
+Visivo/interattivo (invariato):
+
+- Colorazione per fase/segno nei gruppi Hund (vedi §3).
 - Point-turnover/shimmer per la modalità atomo (vedi §3).
 - Eventuale porting firmware ESP32 (vedi CLAUDE.md §7 roadmap M4) — non
   iniziato, questa modalità è PC-only per ora (`pc/atom_view_pc.py`).
-- Se si vuole più accuratezza fisica: vedi §5.
+
+Ricordarsi di rieseguire `python3 pc/validate_atoms.py --strict` dopo
+qualunque modifica alla matematica radiale o a `slater.py`.

@@ -59,10 +59,15 @@ python3 pc/atom_main.py [Z]
 
 A separate viewer (`atom_view_pc.py`/`atom_main.py`) for elements beyond
 hydrogen, approximating any atomic number `Z` (default 6, carbon) as a sum
-of hydrogenic subshells: electrons are filled into shells with the simple
-n+l (Madelung) rule, and each occupied subshell gets its own effective
-nuclear charge via Slater's rules (`micropython/slater.py`). A FULL subshell
-is sampled as spherically symmetric (exact per Unsoeld's theorem); a
+of hydrogenic subshells: electrons are filled into shells with the n+l
+(Madelung) rule plus the known real ground-state exceptions
+(`micropython/slater.py`'s `_CONFIG_EXCEPTIONS` — Cr, Cu, Nb, Mo, Ru, Rh,
+Pd, Ag, Pt, Au, La, Ce, Gd, Ac, Th, Pa, U, Np, Cm, Lr), and each occupied
+subshell gets its own effective nuclear charge via
+`slater.z_eff_radial()`: the refined Clementi-Raimondi Hartree-Fock values
+(`micropython/slater_cr_zeff.py`, Z<=54) with a fallback to Slater's rules
+rescaled by n/n* (Slater's n* consistency) beyond Xe. A FULL subshell is
+sampled as spherically symmetric (exact per Unsoeld's theorem); a
 partially-filled subshell (e.g. carbon's 2p2) is instead expanded into its
 individually-occupied real orbitals per Hund's rule
 (`slater.hund_fill_m()`) and sampled with the same per-orbital sampler the
@@ -70,6 +75,19 @@ hydrogen presets use — this is what gives partially-filled outer shells
 their real, non-spherical shape (see `micropython/atom_cloud.py`'s module
 docstring for the full reasoning). Points are colored by shell
 (K/L/M/N/...) rather than by wavefunction phase either way.
+
+Accuracy regression checks:
+
+```sh
+python3 pc/validate_atoms.py [--strict]
+```
+
+Compares the model's valence-shell radii against the Clementi-Raimondi
+literature values (period 2 matches within ~3%; periods 3-4 are 1.3-1.5x
+over — a known limit of the hydrogenic form, not the Z_eff constants; heavy
+Z>54 fallback elements are further off) and runs automated physics checks
+(Unsoeld isotropy, Hund anisotropy, Fe 3d<4s ordering, H/He exactness).
+See `ATOMS.md` sections 4-5 for the numbers and the methodology note.
 
 **Up/Down arrow keys** change the element (Z) live, with the same fly-over
 transition as switching a hydrogen preset. **Mouse wheel** (or **+/- keys**)
@@ -83,10 +101,10 @@ path yet, PC-only for now.
 This reuses `micropython/orbitals.py`/`pointcloud.py`'s hydrogenic radial
 math completely unmodified (the Z-dependence is just the variable
 substitution `r -> Z_eff*r` at sampling time, added as new functions
-`pointcloud.init_radial_sampler()`/`sample_isotropic_point()`) — only the
-angular part (no longer a single `(n, ell, m)` orbital's real spherical
-harmonic, but a spherically-averaged subshell) and the multi-subshell
-mixing (`atom_cloud.build_atom_point_cloud()`) are new.
+`pointcloud.init_radial_sampler()`/`sample_isotropic_point()`/`radial_mode_radius()`)
+— only the angular part (no longer a single `(n, ell, m)` orbital's real
+spherical harmonic, but a spherically-averaged subshell) and the
+multi-subshell mixing (`atom_cloud.build_atom_point_cloud()`) are new.
 
 ## Keeping this in sync with the device
 
