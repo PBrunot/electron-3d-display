@@ -77,19 +77,14 @@ import slater
 N_POINTS = 10000  # PC default; matches pc/orbital_view_pc.py's hydrogen-preset count
 SEED = 12345
 
-# 1 Bohr radius in Angstrom (CODATA a0 = 0.52917721090(80)e-10 m, rounded to
-# float precision) -- lets pc/atom_view_pc.py's scale bar report physical
-# size in a unit chemists actually use, since every length elsewhere in
-# this module (and in orbitals.py/pointcloud.py) is implicitly in Bohr
-# radii (see orbitals.py's module docstring: r is physical radius with
-# a0=1, Z=1 folded into the hydrogenic formula).
-ANGSTROM_PER_BOHR = 0.529177210903
-# Same, in picometers -- what the scale bar actually renders with (see
-# pc/atom_view_pc.py's draw_scale_bar() calls): PIL's default bitmap font
-# (used for that label, no custom font loaded) has no glyph for "Å", so it
-# renders as a missing-glyph box; "pm" is plain ASCII and every value here
-# is already the same physical length, just x100.
-PM_PER_BOHR = ANGSTROM_PER_BOHR * 100.0
+# Bohr radius, re-exported from cloud_common (single source of truth --
+# atom_cloud.py already imports cloud_common regardless, see below) so
+# pc/atom_view_pc.py's scale bar can read it off either module. Every
+# length elsewhere in this module (and in orbitals.py/pointcloud.py) is
+# implicitly in Bohr radii (see orbitals.py's module docstring: r is
+# physical radius with a0=1, Z=1 folded into the hydrogenic formula).
+PM_PER_BOHR = cloud_common.PM_PER_BOHR
+ANGSTROM_PER_BOHR = PM_PER_BOHR / 100.0
 
 # Calibration for scale_for_atom() below: reference atomic number and its
 # on-screen target size, used ONCE at import time to derive PIXELS_PER_BOHR

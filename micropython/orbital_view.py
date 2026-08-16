@@ -125,6 +125,17 @@ TITLE_TEXT_POS = (2, 12)
 LOADING_TEXT = "Loading..."
 LOADING_TEXT_POS = (2, 22)
 
+# Bottom-left physical-size reference bar -- device (framebuf) counterpart
+# of pc/orbital_view_pc.draw_scale_bar(), same geometry/margins (panel is
+# the same 240x240 as the PC debug window's un-upscaled buffer) so a bar
+# reads the same physical length on both renderers at a given zoom. The
+# "nice round length" ladder itself (cloud_common.pick_scale_bar_length())
+# is shared too -- see _draw_scale_bar() below for the framebuf drawing.
+SCALE_BAR_MARGIN_X = 8
+SCALE_BAR_MARGIN_Y = 8
+SCALE_BAR_MAX_PX = 90
+SCALE_BAR_TICK_PX = 4
+
 
 def swap16(color565):
     return ((color565 & 0xFF) << 8) | (color565 >> 8)
@@ -142,6 +153,32 @@ def _to_fixed(values):
     for i in range(len(values)):
         out[i] = int(values[i] * FX_SCALE)
     return out
+
+
+def _draw_scale_bar(fb, pixels_per_unit, unit_label, bar_color, text_color, max_bar_px=SCALE_BAR_MAX_PX):
+    """Device (framebuf) counterpart of pc/orbital_view_pc.draw_scale_bar()
+    -- same "nice round length" ladder (cloud_common.pick_scale_bar_length(),
+    which also supplies each length's precomputed display string, so this
+    never needs '%g'-style float formatting), drawn with fb.hline()/
+    fb.vline()/fb.text() instead of PIL. Panel-native (non-prism-corrected)
+    coordinates, same convention as the title/FPS text it sits next to (see
+    module docstring's "Overlays are drawn..." note). pixels_per_unit <= 0
+    draws nothing (defensive only -- scale is never <= 0 in normal
+    operation).
+    """
+    if pixels_per_unit <= 0:
+        return
+    length, label = cloud_common.pick_scale_bar_length(pixels_per_unit, max_bar_px)
+    bar_px = max(1, int(length * pixels_per_unit))
+
+    x0 = SCALE_BAR_MARGIN_X
+    y = HEIGHT - SCALE_BAR_MARGIN_Y
+    x1 = x0 + bar_px
+
+    fb.hline(x0, y, bar_px, bar_color)
+    fb.vline(x0, y - SCALE_BAR_TICK_PX, 2 * SCALE_BAR_TICK_PX + 1, bar_color)
+    fb.vline(x1, y - SCALE_BAR_TICK_PX, 2 * SCALE_BAR_TICK_PX + 1, bar_color)
+    fb.text("%s %s" % (label, unit_label), x0, y - SCALE_BAR_TICK_PX - 12, text_color)
 
 
 class PresetState:
@@ -274,7 +311,7 @@ def _render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, 
                     CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold)
 
 
-def _fly_over(d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+def _fly_over(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,
               start_scale, end_scale, frames):
     """Ease the projection scale from start_scale to end_scale over `frames`
     frames, rendering+blitting each one. Shared by the boot intro,
@@ -288,6 +325,7 @@ def _fly_over(d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, r
         scale = start_scale + (end_scale - start_scale) * t
         _render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, i)
         fb.text(preset.title, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
+        _draw_scale_bar(fb, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
         angle += ANGLE_STEP
         if angle >= two_pi:
@@ -344,6 +382,7 @@ def run():
 
     proton_color = swap16(st7789.color565(255, 0, 0))
     text_color = swap16(st7789.color565(255, 255, 255))
+    scale_bar_color = swap16(st7789.color565(210, 210, 210))
 
     detector = _init_nudge_detector()
 
@@ -354,7 +393,7 @@ def run():
     two_pi = 2 * math.pi
 
     angle, tilt_angle, roll_angle = _fly_over(
-        d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+        d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,
         preset.base_scale * INTRO_START_SCALE_FACTOR, preset.base_scale, INTRO_FRAMES)
 
     fps_text = "FPS: --"
@@ -390,8 +429,8 @@ def run():
                     cull_count = max(1, int(len(preset.xs) * cloud_common.CULL_FRACTION))
                     cull_frame_count = 0
                     angle, tilt_angle, roll_angle = _fly_over(
-                        d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
-                        preset.base_scale * SWITCH_START_SCALE_FACTOR, preset.base_scale,
+                        d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle,
+                        roll_angle, preset.base_scale * SWITCH_START_SCALE_FACTOR, preset.base_scale,
                         SWITCH_TRANSITION_FRAMES)
 
         # Random zoom excursion: pause breathing, fly to a random scale and
@@ -405,10 +444,10 @@ def run():
             target_scale = preset.base_scale * random.uniform(ZOOM_EXCURSION_SCALE_MIN_FACTOR,
                                                                 ZOOM_EXCURSION_SCALE_MAX_FACTOR)
             angle, tilt_angle, roll_angle = _fly_over(
-                d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+                d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,
                 current_scale, target_scale, ZOOM_EXCURSION_EASE_FRAMES)
             angle, tilt_angle, roll_angle = _fly_over(
-                d, fb, buf, preset, proton_color, text_color, angle, tilt_angle, roll_angle,
+                d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,
                 target_scale, preset.base_scale, ZOOM_EXCURSION_EASE_FRAMES)
             zoom_angle = 0.0
             zoom_excursion_countdown = _next_zoom_excursion_countdown()
@@ -424,6 +463,7 @@ def run():
         buzz_frame = buzz_frame + 1 if buzz_frame < 1_000_000 else 0
         fb.text(preset.title, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
         fb.text(fps_text, FPS_TEXT_POS[0], FPS_TEXT_POS[1], text_color)
+        _draw_scale_bar(fb, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
 
         frame_count += 1
