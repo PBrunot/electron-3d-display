@@ -11,6 +11,10 @@ fixed-point/viper -- that's an ESP32 workaround), real per-point randomness
 for the "buzz" effect (viper has no RNG), a bounding-sphere + rotating "H"
 marker so rotation is visible on nearly-symmetric presets, phosphor-style
 persistence, and N_POINTS=20000 (no render-loop budget to respect).
+
+The module-level helpers between the constants and the app classes are
+shared with pc/atom_view_pc.py via import -- see the "Shared ... helpers"
+section markers.
 """
 
 import math
@@ -137,6 +141,37 @@ def _next_zoom_excursion_countdown():
     return random.randint(ZOOM_EXCURSION_MIN_INTERVAL_FRAMES, ZOOM_EXCURSION_MAX_INTERVAL_FRAMES)
 
 
+# --- Shared render helpers (also used by pc/atom_view_pc.py) ----------------
+def draw_nucleus(buf):
+    """Draw the fully-opaque nucleus marker (small square) at screen center.
+    The nucleus is one literal particle, not a probability cloud, so it never
+    alpha-blends.
+    """
+    proton_x0 = CENTER - PROTON_SIZE // 2
+    proton_y0 = CENTER - PROTON_SIZE // 2
+    pr, pg, pb = PROTON_COLOR
+    for py in range(proton_y0, proton_y0 + PROTON_SIZE):
+        if 0 <= py < HEIGHT:
+            for px in range(proton_x0, proton_x0 + PROTON_SIZE):
+                if 0 <= px < WIDTH:
+                    idx = (py * WIDTH + px) * 3
+                    buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
+
+
+def rotate_yaw_tilt_roll(x, y, z, cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll):
+    """Rotate (x, y, z) by yaw (about Y), tilt (about X), roll (about Z).
+    Returns (rx, ry, rz). rz is the post-yaw-and-tilt depth -- roll (about Z)
+    never changes z, so rz is the correct depth cue for clipping.
+    """
+    rx1 = x * cos_yaw + z * sin_yaw
+    rz1 = z * cos_yaw - x * sin_yaw
+    ry2 = y * cos_tilt - rz1 * sin_tilt
+    rz = y * sin_tilt + rz1 * cos_tilt
+    rx3 = rx1 * cos_roll - ry2 * sin_roll
+    ry3 = rx1 * sin_roll + ry2 * cos_roll
+    return rx3, ry3, rz
+
+
 class Preset:
     """Everything one loaded orbital needs to render and turn over. PC
     equivalent of orbital_view.py's PresetState, minus Q8 fixed-point --
@@ -169,24 +204,16 @@ class Preset:
 
 
 def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
-    """Clear (or fade, see ENABLE_PERSISTENCE) `buf`, draw the proton
-    marker, then rotate (yaw/tilt/roll -- all three needed, see module
-    docstring) and alpha-blend every point of `preset` into the buffer.
+    """Clear (or fade, see ENABLE_PERSISTENCE) `buf`, draw the nucleus, then
+    rotate (yaw/tilt/roll -- all three needed, see module docstring) and
+    alpha-blend every point of `preset` into the buffer.
     """
     if ENABLE_PERSISTENCE:
         buf[:] = buf.translate(_PERSISTENCE_TABLE)  # fade previous frame instead of clearing
     else:
         buf[:] = bytes(len(buf))  # fast bulk clear
 
-    proton_x0 = CENTER - PROTON_SIZE // 2
-    proton_y0 = CENTER - PROTON_SIZE // 2
-    pr, pg, pb = PROTON_COLOR
-    for py in range(proton_y0, proton_y0 + PROTON_SIZE):
-        if 0 <= py < HEIGHT:
-            for px in range(proton_x0, proton_x0 + PROTON_SIZE):
-                if 0 <= px < WIDTH:
-                    idx = (py * WIDTH + px) * 3
-                    buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
+    draw_nucleus(buf)
 
     cos_yaw = math.cos(angle)
     sin_yaw = math.sin(angle)
@@ -199,11 +226,8 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
         if buzz_fraction and random.random() < buzz_fraction:
             continue
 
-        rx1 = xs[i] * cos_yaw + zs[i] * sin_yaw
-        rz1 = zs[i] * cos_yaw - xs[i] * sin_yaw
-        ry2 = ys[i] * cos_tilt - rz1 * sin_tilt
-        rx3 = rx1 * cos_roll - ry2 * sin_roll
-        ry3 = rx1 * sin_roll + ry2 * cos_roll
+        rx3, ry3, _rz = rotate_yaw_tilt_roll(xs[i], ys[i], zs[i],
+                                             cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll)
         # round(), not int(): int() truncates toward zero, a biased rounding
         # rule that could contribute to axis-aligned density at pixel level.
         px = CENTER + round(rx3 * scale)
@@ -228,8 +252,7 @@ def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_
                  outline=BOUNDING_SPHERE_COLOR)
 
     # Reference vector (horizontal_r, y0, 0) rotated by the same yaw+tilt+roll
-    # transform as every sampled point. Roll (about Z) never changes Z, so
-    # `rz` computed pre-roll is still the correct depth cue post-roll.
+    # transform as every sampled point (see rotate_yaw_tilt_roll()).
     horizontal_r = r_ref * math.cos(_MARKER_ELEVATION_RAD)
     y0 = r_ref * math.sin(_MARKER_ELEVATION_RAD)
     cos_yaw = math.cos(angle)
@@ -238,12 +261,8 @@ def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_
     sin_tilt = math.sin(tilt_angle)
     cos_roll = math.cos(roll_angle)
     sin_roll = math.sin(roll_angle)
-    rx1 = horizontal_r * cos_yaw
-    rz1 = -horizontal_r * sin_yaw
-    ry2 = y0 * cos_tilt - rz1 * sin_tilt
-    rz = y0 * sin_tilt + rz1 * cos_tilt
-    rx3 = rx1 * cos_roll - ry2 * sin_roll
-    ry3 = rx1 * sin_roll + ry2 * cos_roll
+    rx3, ry3, rz = rotate_yaw_tilt_roll(horizontal_r, y0, 0.0,
+                                        cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll)
     marker_x = CENTER + rx3 * scale
     marker_y = CENTER - ry3 * scale
 
@@ -286,6 +305,63 @@ def draw_scale_bar(draw, pixels_per_unit, unit_label, canvas_height=HEIGHT, max_
     draw.text((x0, y - SCALE_BAR_TICK_PX - 12), "%s %s" % (label, unit_label), fill=SCALE_BAR_COLOR)
 
 
+# --- Shared app helpers (also used by pc/atom_view_pc.py) -------------------
+def advance_rotation(app):
+    """Advance yaw/tilt/roll by one normal-viewing step."""
+    app.angle = (app.angle + ANGLE_STEP) % app.two_pi
+    app.tilt_angle = (app.tilt_angle + TILT_ANGLE_STEP) % app.two_pi
+    app.roll_angle = (app.roll_angle + ROLL_ANGLE_STEP) % app.two_pi
+
+
+def fly_over(app, start_scale, end_scale, frames):
+    """Short, one-shot camera move -- blocking (app.root.update() per frame
+    keeps the window responsive). Takes absolute scales so it can ease
+    to/from anywhere, not just back to base_scale.
+    """
+    for i in range(frames):
+        t = i / (frames - 1) if frames > 1 else 1.0
+        scale = start_scale + (end_scale - start_scale) * t
+        render_frame(app.buf, app.preset, app.angle, app.tilt_angle, app.roll_angle, scale)
+        app._blit(scale)
+        app.root.update()
+        advance_rotation(app)
+
+
+def maybe_zoom_excursion(app, base_scale, zoom_amplitude):
+    """If the excursion countdown expired, dive to a random scale and back
+    and return True -- the caller should skip its normal frame, since the
+    dive already blitted every frame of itself. `base_scale`/`zoom_amplitude`
+    come from the caller so the atom viewer can dive relative to the user's
+    manual zoom factor. zoom_angle resets to 0 after -- sin(0) == 0 lines up
+    exactly with where the dive left off.
+    """
+    app.zoom_excursion_countdown -= 1
+    if app.zoom_excursion_countdown > 0:
+        return False
+    current_scale = base_scale + zoom_amplitude * math.sin(app.zoom_angle)
+    target_scale = base_scale * random.uniform(ZOOM_EXCURSION_SCALE_MIN_FACTOR,
+                                                ZOOM_EXCURSION_SCALE_MAX_FACTOR)
+    fly_over(app, current_scale, target_scale, ZOOM_EXCURSION_EASE_FRAMES)
+    fly_over(app, target_scale, base_scale, ZOOM_EXCURSION_EASE_FRAMES)
+    app.zoom_angle = 0.0
+    app.zoom_excursion_countdown = _next_zoom_excursion_countdown()
+    app.root.after(FRAME_DELAY_MS, app._tick)
+    return True
+
+
+def blit_to_canvas(app, overlays):
+    """Convert app.buf to a tkinter canvas image, letting `overlays(draw)`
+    add PIL overlays (marker, scale bar, title) in between. Shared by both
+    viewers' _blit methods.
+    """
+    image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(app.buf), 'raw', 'RGB', 0, 1)
+    draw = ImageDraw.Draw(image)
+    overlays(draw)
+    image = image.resize(DISPLAY_SIZE, Image.NEAREST)
+    app.photo = ImageTk.PhotoImage(image)
+    app.canvas.itemconfig(app.image_id, image=app.photo)
+
+
 class OrbitalViewApp:
     """tkinter app driving render_frame() -- the PC equivalent of
     orbital_view.py's run(), restructured around tkinter's non-blocking
@@ -323,47 +399,29 @@ class OrbitalViewApp:
         self.two_pi = 2 * math.pi
         self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
 
-        self._fly_over(self.preset.base_scale * INTRO_START_SCALE_FACTOR, self.preset.base_scale, INTRO_FRAMES)
+        fly_over(self, self.preset.base_scale * INTRO_START_SCALE_FACTOR, self.preset.base_scale, INTRO_FRAMES)
         self.root.after(0, self._tick)
 
     def run(self):
         self.root.mainloop()
 
     def _blit(self, scale, extra_text=None):
-        image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
-        draw = ImageDraw.Draw(image)
-        self._draw_bounding_sphere_and_marker(draw, scale)
-        # Scale (px per Bohr radius, THIS frame -- varies with zoom
-        # breathing/excursions) -> px per picometer, so the bar always
-        # reflects the camera's current zoom, not just the resting one.
-        draw_scale_bar(draw, scale / cloud_common.PM_PER_BOHR, "pm")
-        draw.text(TITLE_POS, self.preset.title, fill=(255, 255, 255))
-        if extra_text:
-            draw.text(SUBTITLE_POS, extra_text, fill=(255, 255, 255))
-        image = image.resize(DISPLAY_SIZE, Image.NEAREST)
-        self.photo = ImageTk.PhotoImage(image)
-        self.canvas.itemconfig(self.image_id, image=self.photo)
+        def overlays(draw):
+            self._draw_bounding_sphere_and_marker(draw, scale)
+            # Scale (px per Bohr radius, THIS frame -- varies with zoom
+            # breathing/excursions) -> px per picometer, so the bar always
+            # reflects the camera's current zoom, not just the resting one.
+            draw_scale_bar(draw, scale / cloud_common.PM_PER_BOHR, "pm")
+            draw.text(TITLE_POS, self.preset.title, fill=(255, 255, 255))
+            if extra_text:
+                draw.text(SUBTITLE_POS, extra_text, fill=(255, 255, 255))
+        blit_to_canvas(self, overlays)
 
     def _draw_bounding_sphere_and_marker(self, draw, scale):
         """See draw_orbit_marker()'s docstring; rotated by the same `angle`
         the cloud itself is rotated by, so it always matches the frame.
         """
         draw_orbit_marker(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle)
-
-    def _fly_over(self, start_scale, end_scale, frames):
-        """Short, one-shot camera move -- blocking (self.root.update() per
-        frame keeps the window responsive). Takes absolute scales so it can
-        ease to/from anywhere, not just back to base_scale.
-        """
-        for i in range(frames):
-            t = i / (frames - 1) if frames > 1 else 1.0
-            scale = start_scale + (end_scale - start_scale) * t
-            render_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle, scale)
-            self._blit(scale)
-            self.root.update()
-            self.angle = (self.angle + ANGLE_STEP) % self.two_pi
-            self.tilt_angle = (self.tilt_angle + TILT_ANGLE_STEP) % self.two_pi
-            self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
     def _tick(self):
         if self.detector is not None:
@@ -379,23 +437,12 @@ class OrbitalViewApp:
                     self.preset = Preset(self.preset_index)
                     self.cull_count = max(1, int(len(self.preset.xs) * cloud_common.CULL_FRACTION))
                     self.cull_frame_count = 0
-                    self._fly_over(self.preset.base_scale * SWITCH_START_SCALE_FACTOR, self.preset.base_scale,
-                                    SWITCH_TRANSITION_FRAMES)
+                    fly_over(self, self.preset.base_scale * SWITCH_START_SCALE_FACTOR, self.preset.base_scale,
+                             SWITCH_TRANSITION_FRAMES)
 
-        # Random zoom excursion: dive to a random scale and back, skipping the
-        # normal render/turnover below since _fly_over() already blitted every
-        # frame of the dive. zoom_angle resets to 0 after -- sin(0) == 0 lines
-        # up exactly with where the excursion left off.
-        self.zoom_excursion_countdown -= 1
-        if self.zoom_excursion_countdown <= 0:
-            current_scale = self.preset.base_scale + self.preset.zoom_amplitude * math.sin(self.zoom_angle)
-            target_scale = self.preset.base_scale * random.uniform(ZOOM_EXCURSION_SCALE_MIN_FACTOR,
-                                                                     ZOOM_EXCURSION_SCALE_MAX_FACTOR)
-            self._fly_over(current_scale, target_scale, ZOOM_EXCURSION_EASE_FRAMES)
-            self._fly_over(target_scale, self.preset.base_scale, ZOOM_EXCURSION_EASE_FRAMES)
-            self.zoom_angle = 0.0
-            self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
-            self.root.after(FRAME_DELAY_MS, self._tick)
+        # Random zoom excursion: skip the normal render/turnover below since
+        # the dive already blitted every frame of itself (see maybe_zoom_excursion()).
+        if maybe_zoom_excursion(self, self.preset.base_scale, self.preset.zoom_amplitude):
             return
 
         if not DEBUG_DISABLE_CULL:
@@ -410,9 +457,7 @@ class OrbitalViewApp:
                      buzz_fraction=buzz_fraction)
         self._blit(scale)
 
-        self.angle = (self.angle + ANGLE_STEP) % self.two_pi
-        self.tilt_angle = (self.tilt_angle + TILT_ANGLE_STEP) % self.two_pi
-        self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
+        advance_rotation(self)
         self.zoom_angle = (self.zoom_angle + ZOOM_ANGLE_STEP) % self.two_pi
 
         self.root.after(FRAME_DELAY_MS, self._tick)
