@@ -45,10 +45,11 @@ the @micropython.native float version it replaced (~124ms/frame ->
 ~4ms/frame at 3000 points), reading/writing xs/ys/zs/colors/buf via
 ptr32/ptr16 casts (bypasses fb.pixel()'s per-point Python call entirely).
 
-Nudge-to-switch-orbital (see nudge.py): a detected L/R/U/D nudge advances
-through cloud_common.ORBITAL_PRESETS. IMU init is try/except-wrapped -- a
-board with no QMI8658 wired still runs the animation, just without nudge
-control.
+Nudge-to-switch-orbital (see nudge.py): a detected L/R nudge advances/goes
+back through cloud_common.ORBITAL_PRESETS; U returns to chooser.py's menu
+(see device_render_common.NUDGE_BACK_DIRECTION and this file's run()); D is
+currently unused. IMU init is try/except-wrapped -- a board with no QMI8658
+wired still runs the animation, just without nudge control.
 
 Point turnover / "buzz" / random zoom excursions: see CULL_FRACTION,
 BUZZ_FRACTION (both cloud_common.py) and device_render_common.py's
@@ -135,9 +136,21 @@ class PresetState:
             self.colors[idx] = _encode_color(level, sign)
 
 
-def run():
-    print("orbital: display init...")
-    d = display_mod.init()
+def run(d=None, detector=None):
+    """`d`/`detector` let chooser.py hand this an already-initialized
+    display/nudge-detector instead of each viewer re-running
+    display_mod.init()/drc.init_nudge_detector() (re-constructing the
+    SPI/I2C bus objects underneath) every time the user nudges back and
+    forth between the menu and a viewer -- untested territory worth
+    avoiding on real hardware, not just wasteful. Standalone use (`import
+    orbital_view; orbital_view.run()`) is unaffected, still creates its own.
+
+    Nudging drc.NUDGE_BACK_DIRECTION ('U') returns instead of stepping the
+    preset -- see device_render_common.py's comment on that constant.
+    """
+    if d is None:
+        print("orbital: display init...")
+        d = display_mod.init()
     print("orbital: display ready, %d presets available" % len(cloud_common.ORBITAL_PRESETS))
 
     preset_index = cloud_common.DEFAULT_PRESET_INDEX
@@ -150,7 +163,8 @@ def run():
     text_color = drc.encode_color565(255, 255, 255)
     scale_bar_color = drc.encode_color565(210, 210, 210)
 
-    detector = drc.init_nudge_detector("orbital switching")
+    if detector is None:
+        detector = drc.init_nudge_detector("orbital switching")
 
     angle = 0.0
     tilt_angle = drc._TILT_ANGLE_START
@@ -181,8 +195,10 @@ def run():
 
     while True:
         # Nudge check: switches presets and re-does the fly-over on a
-        # detected L/R/U/D. LOADING_TEXT covers PresetState()'s ~1.5-2.5s
-        # rebuild so the display doesn't just freeze on the old cloud.
+        # detected L/R. U returns to the menu (see this function's
+        # docstring); D is unused. LOADING_TEXT covers PresetState()'s
+        # ~1.5-2.5s rebuild so the display doesn't just freeze on the old
+        # cloud.
         if detector is not None:
             raw = detector.poll_raw()
             if raw is not None:
@@ -190,6 +206,9 @@ def run():
                 direction = detector.axis_sign_to_direction.get((axis, sign))
                 print("nudge: axis=%s sign=%+d mag=%.2fg -> %s" % (
                     axis, sign, mag, direction if direction else "unmapped"))
+                if direction == drc.NUDGE_BACK_DIRECTION:
+                    print("orbital: back nudge -- returning to menu")
+                    return
                 step = drc._NUDGE_DIRECTION_STEP.get(direction)
                 if step is not None:
                     preset_index = (preset_index + step) % len(cloud_common.ORBITAL_PRESETS)

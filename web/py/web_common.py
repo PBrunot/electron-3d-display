@@ -342,13 +342,14 @@ def draw_scale_bar_canvas(cloud_common_mod, pixels_per_unit, unit_label,
     _ctx.fillText("%s %s" % (label, unit_label), x0, y - SCALE_BAR_TICK_PX - 2)
 
 
-def draw_text_canvas(x, y, text, color, font_px=TITLE_FONT_PX):
+def draw_text_canvas(x, y, text, color, font_px=TITLE_FONT_PX, align='left', baseline='top'):
     """Plain single-color text overlay -- dissection labels, the Z=n note,
-    and (via web_atom.py's multi-color title helper) one segment at a time.
+    web_atom.py's multi-color title helper (one segment at a time), and
+    web_app.py's chooser button/title labels (align='center').
     """
     _ctx.font = "%dpx sans-serif" % font_px
-    _ctx.textAlign = "left"
-    _ctx.textBaseline = "top"
+    _ctx.textAlign = align
+    _ctx.textBaseline = baseline
     _ctx.fillStyle = rgb_css(color)
     _ctx.fillText(text, x, y)
 
@@ -356,3 +357,17 @@ def draw_text_canvas(x, y, text, color, font_px=TITLE_FONT_PX):
 def measure_text_canvas(text, font_px=TITLE_FONT_PX):
     _ctx.font = "%dpx sans-serif" % font_px
     return _ctx.measureText(text).width
+
+
+def draw_rect_canvas(x0, y0, x1, y1, fill_color=None, outline_color=None, line_width=2):
+    """Filled and/or outlined rectangle -- web_app.py's chooser buttons
+    (tkinter Canvas items on PC; the 2D canvas API has no persistent
+    "items" to reuse, so this is redrawn every frame like everything else).
+    """
+    if fill_color is not None:
+        _ctx.fillStyle = rgb_css(fill_color)
+        _ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+    if outline_color is not None:
+        _ctx.strokeStyle = rgb_css(outline_color)
+        _ctx.lineWidth = line_width
+        _ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)

@@ -101,11 +101,21 @@ SCALE_BAR_MARGIN_Y = 8
 SCALE_BAR_MAX_PX = 90
 SCALE_BAR_TICK_PX = 4
 
-# Direction -> index/Z step. R/U advance, L/D go back -- simplest mapping
-# satisfying "a nudge in any of 4 directions changes the preset/element",
-# and nudge.py's axis calibration is still a placeholder (see that module),
-# so a more elaborate per-direction mapping isn't worth it yet.
-_NUDGE_DIRECTION_STEP = {'R': 1, 'U': 1, 'L': -1, 'D': -1}
+# Direction -> index/Z step, within a running viewer. Only L/R cycle now --
+# U is reserved (see NUDGE_BACK_DIRECTION below) to return to chooser.py's
+# menu, and D is currently unused (free for a future gesture). The old
+# mapping had R/U both advance and L/D both go back, fully redundant since
+# nudge.py's axis calibration was still a placeholder when it was chosen;
+# dropping U/D here costs nothing real (L/R alone already cover advance and
+# go-back) and frees U for a real "back" gesture.
+_NUDGE_DIRECTION_STEP = {'R': 1, 'L': -1}
+
+# Nudging this direction from within orbital_view.py/atom_view.py's run()
+# loop returns to chooser.py's menu instead of stepping the preset/element
+# -- checked BEFORE _NUDGE_DIRECTION_STEP (that dict no longer has an entry
+# for it, so the two checks can't both match the same direction anyway, but
+# being explicit here is clearer than relying on that omission).
+NUDGE_BACK_DIRECTION = 'U'
 
 
 def swap16(color565):

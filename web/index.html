@@ -71,11 +71,16 @@
   }
   button:hover { background: #26262e; }
   button:active { background: #303038; }
-  #help {
+  button#btn-back {
+    background: #2a1c1c;
+    border-color: #4a3333;
+  }
+  #hint {
     margin-top: 8px;
     font-size: 11px;
     color: #777;
     line-height: 1.5;
+    min-height: 2.7em;
   }
 </style>
 </head>
@@ -87,33 +92,48 @@
     <div id="status">Loading physics engine&hellip; (first load can take 10&ndash;20s)</div>
   </div>
   <div id="controls">
-    <button id="btn-prev" title="Previous element">&#9664; Element</button>
-    <button id="btn-next" title="Next element">Element &#9654;</button>
+    <button id="btn-back" title="Back to menu (Esc)">&#9664;&#9664; Back</button>
+    <button id="btn-prev" title="Previous">&#9664; Prev</button>
+    <button id="btn-next" title="Next">Next &#9654;</button>
     <button id="btn-zoom-out" title="Zoom out">&minus; Zoom</button>
     <button id="btn-zoom-in" title="Zoom in">+ Zoom</button>
     <button id="btn-dissect" title="Dissect electron shells">Dissect</button>
   </div>
-  <div id="help">
-    Keyboard: &uarr;/&darr; change element, +/&minus; zoom, D dissect shells.
-    Mouse wheel also zooms.
-  </div>
+  <div id="hint"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v314.0.4/full/pyodide.js"></script>
 <script>
-// Mirrors web/py/web_atom.py's FRAME_DELAY_MS / ZOOM_FACTOR_STEP -- kept as
-// plain JS constants here so the animation loop and input handlers don't
-// need a Python round-trip just to read two numbers every frame/keypress.
+// Mirrors web/py/web_common.py's FRAME_DELAY_MS -- kept as a plain JS
+// constant here so the animation loop doesn't need a Python round-trip
+// just to read one number every frame.
 const FRAME_DELAY_MS = 20;
-const ZOOM_FACTOR_STEP = 1.1;
 
+// Shared model files are fetched straight from micropython/ and pc/ --
+// NOT duplicated into web/py/ -- so this demo can never drift from the
+// device/PC source of truth (mirrors how pc/*.py already reaches into
+// micropython/ via sys.path instead of copying). Only web_common.py,
+// web_orbital.py, web_atom.py, and web_app.py (genuinely web-only: canvas
+// rendering, generator-driven animation loop, the chooser screen) live
+// under web/py/. `dest` is the module's import name inside Pyodide's
+// virtual filesystem -- import resolution only sees `dest`, so files from
+// different source directories all land flat in the same lib/ folder there.
 const PY_FILES = [
-  'micropython_shim.py', 'slater_cr_zeff.py', 'slater.py', 'orbitals.py',
-  'pointcloud.py', 'cloud_common.py', 'atom_cloud.py',
-  'web_common.py', 'web_atom.py',
+  { src: '../pc/micropython_shim.py', dest: 'micropython_shim.py' },
+  { src: '../micropython/slater_cr_zeff.py', dest: 'slater_cr_zeff.py' },
+  { src: '../micropython/slater.py', dest: 'slater.py' },
+  { src: '../micropython/orbitals.py', dest: 'orbitals.py' },
+  { src: '../micropython/pointcloud.py', dest: 'pointcloud.py' },
+  { src: '../micropython/cloud_common.py', dest: 'cloud_common.py' },
+  { src: '../micropython/atom_cloud.py', dest: 'atom_cloud.py' },
+  { src: 'py/web_common.py', dest: 'web_common.py' },
+  { src: 'py/web_orbital.py', dest: 'web_orbital.py' },
+  { src: 'py/web_atom.py', dest: 'web_atom.py' },
+  { src: 'py/web_app.py', dest: 'web_app.py' },
 ];
 
 const statusEl = document.getElementById('status');
+const hintEl = document.getElementById('hint');
 
 function setStatus(text, isError) {
   if (!text) {
@@ -126,7 +146,7 @@ function setStatus(text, isError) {
 }
 
 async function main() {
-  let webAtom;
+  let webApp;
   try {
     setStatus('Loading Python runtime…');
     const pyodide = await loadPyodide();
@@ -134,26 +154,26 @@ async function main() {
     setStatus('Loading numpy…');
     await pyodide.loadPackage('numpy');
 
-    setStatus('Loading atom model…');
+    setStatus('Loading atom/orbital model…');
     pyodide.FS.mkdirTree('/home/pyodide/lib');
-    for (const name of PY_FILES) {
-      const resp = await fetch('py/' + name);
+    for (const file of PY_FILES) {
+      const resp = await fetch(file.src);
       if (!resp.ok) {
-        throw new Error('failed to fetch py/' + name + ' (HTTP ' + resp.status + ')');
+        throw new Error('failed to fetch ' + file.src + ' (HTTP ' + resp.status + ')');
       }
       const text = await resp.text();
-      pyodide.FS.writeFile('/home/pyodide/lib/' + name, text);
+      pyodide.FS.writeFile('/home/pyodide/lib/' + file.dest, text);
     }
 
     pyodide.runPython([
       'import sys',
       "sys.path.insert(0, '/home/pyodide/lib')",
       'import micropython_shim  # noqa: F401 -- must precede the modules below',
-      'import web_atom',
-      "web_atom.init('view')",
+      'import web_app',
+      "web_app.init('view')",
     ].join('\n'));
 
-    webAtom = pyodide.globals.get('web_atom');
+    webApp = pyodide.globals.get('web_app');
     setStatus(null);
   } catch (err) {
     console.error(err);
@@ -164,16 +184,21 @@ async function main() {
   let lastTick = 0;
   let broken = false;
 
+  function fail(err) {
+    console.error(err);
+    setStatus('Runtime error: ' + err.message, true);
+    broken = true;
+  }
+
   function frame(ts) {
     if (broken) return;
     if (ts - lastTick >= FRAME_DELAY_MS) {
       lastTick = ts;
       try {
-        webAtom.tick();
+        webApp.tick();
+        hintEl.textContent = webApp.hint_text();
       } catch (err) {
-        console.error(err);
-        setStatus('Runtime error: ' + err.message, true);
-        broken = true;
+        fail(err);
         return;
       }
     }
@@ -183,33 +208,48 @@ async function main() {
 
   const canvas = document.getElementById('view');
 
-  window.addEventListener('keydown', (e) => {
+  // Every scene (chooser/orbital/atom) is routed through these same three
+  // entry points -- web_app.py's WebApp decides what each key/click/wheel
+  // event means based on which scene is currently active, so this file
+  // doesn't need to know or care which one that is.
+  function sendKey(key) {
     if (broken) return;
-    switch (e.key) {
-      case 'ArrowUp':
-        webAtom.request_z(1); e.preventDefault(); break;
-      case 'ArrowDown':
-        webAtom.request_z(-1); e.preventDefault(); break;
-      case 'd': case 'D':
-        webAtom.request_dissect(); break;
-      case '+': case '=':
-        webAtom.zoom_by(ZOOM_FACTOR_STEP); break;
-      case '-':
-        webAtom.zoom_by(1 / ZOOM_FACTOR_STEP); break;
+    try { webApp.on_key(key); } catch (err) { fail(err); }
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' '].includes(e.key)) {
+      e.preventDefault();
     }
+    sendKey(e.key === ' ' ? 'Enter' : e.key);
   });
 
   canvas.addEventListener('wheel', (e) => {
     if (broken) return;
     e.preventDefault();
-    webAtom.zoom_by(e.deltaY < 0 ? ZOOM_FACTOR_STEP : 1 / ZOOM_FACTOR_STEP);
+    try { webApp.on_wheel(e.deltaY); } catch (err) { fail(err); }
   }, { passive: false });
 
-  document.getElementById('btn-prev').onclick = () => !broken && webAtom.request_z(-1);
-  document.getElementById('btn-next').onclick = () => !broken && webAtom.request_z(1);
-  document.getElementById('btn-zoom-out').onclick = () => !broken && webAtom.zoom_by(1 / ZOOM_FACTOR_STEP);
-  document.getElementById('btn-zoom-in').onclick = () => !broken && webAtom.zoom_by(ZOOM_FACTOR_STEP);
-  document.getElementById('btn-dissect').onclick = () => !broken && webAtom.request_dissect();
+  // Canvas-space click coords: the canvas's internal resolution (set by
+  // web_common.bind_canvas(), see web_app.py) is fixed, but CSS scales the
+  // element to fit #stage responsively -- getBoundingClientRect() gives the
+  // CSS size, so client coords need rescaling to the canvas's own pixel
+  // space before web_app.py's button hit-testing (see ChooserScene.click())
+  // can compare them against button rects defined in that same space.
+  canvas.addEventListener('click', (e) => {
+    if (broken) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    try { webApp.on_click(x, y); } catch (err) { fail(err); }
+  });
+
+  document.getElementById('btn-back').onclick = () => sendKey('Escape');
+  document.getElementById('btn-prev').onclick = () => sendKey('ArrowDown');
+  document.getElementById('btn-next').onclick = () => sendKey('ArrowUp');
+  document.getElementById('btn-zoom-out').onclick = () => sendKey('-');
+  document.getElementById('btn-zoom-in').onclick = () => sendKey('+');
+  document.getElementById('btn-dissect').onclick = () => sendKey('d');
 }
 
 main();

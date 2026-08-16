@@ -27,6 +27,13 @@ What actually changed shape, mirroring web_common.py:
     while already running" check with the same idea (self.sequence is not
     None) but as the FIRST check every tick makes, since nothing here can
     block anymore.
+
+WebAtomApp is a "scene" class, not a standalone page driver: web_app.py
+(the top-level orchestrator behind the chooser screen) constructs one fresh
+each time the user picks Element Explorer, and routes tick()/request_z()/
+request_dissect()/zoom_by() calls to it while it's the active scene -- see
+that module for the chooser and scene-switching logic, and index.html for
+how it wires up Pyodide/input.
 """
 
 import math
@@ -320,8 +327,13 @@ class WebAtomApp:
     def zoom_by(self, factor):
         self.zoom_factor = min(ZOOM_FACTOR_MAX, max(ZOOM_FACTOR_MIN, self.zoom_factor * factor))
 
-    def start(self, canvas_id):
-        wc.bind_canvas(canvas_id)
+    def start(self):
+        """Kicks off the intro fly-over. Does NOT bind the canvas -- that
+        happens once, globally, in web_app.py's WebApp.start(); this app
+        (like WebOrbitalApp) is constructed fresh each time the user picks
+        Element Explorer from the chooser, but they all share the one
+        canvas web_app.py already bound.
+        """
         self.sequence = fly_over_gen(self, self.effective_base_scale() * INTRO_START_SCALE_FACTOR,
                                       self.effective_base_scale(), INTRO_FRAMES)
 
@@ -361,33 +373,3 @@ class WebAtomApp:
         self.zoom_angle = (self.zoom_angle + ZOOM_ANGLE_STEP) % self.two_pi
 
 
-# --- Module-level API for index.html's JS to call ------------------------------
-app = WebAtomApp()
-
-
-def init(canvas_id='view'):
-    app.start(canvas_id)
-
-
-def tick():
-    app.tick()
-
-
-def request_z(step):
-    app.request_z(step)
-
-
-def request_dissect():
-    app.request_dissect()
-
-
-def zoom_by(factor):
-    app.zoom_by(factor)
-
-
-def current_z():
-    return app.z
-
-
-def is_dissecting():
-    return app.dissecting
