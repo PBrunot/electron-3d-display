@@ -192,15 +192,29 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
             buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * ELECTRON_ALPHA)
 
 
-def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_text=MARKER_TEXT):
-    """Bounding-sphere + rotating marker overlay -- a pure-orthographic
-    rotation cue for presets whose silhouette alone doesn't show it (see
-    MARKER_TEXT's comment). Free function so both viewers can reuse it
-    unmodified, each with its own marker_text (element symbol for atoms).
+def draw_bounding_circle(draw, r_ref, scale, outline_color=BOUNDING_SPHERE_COLOR):
+    """Just the plain r_ref-radius outline circle -- the silhouette-tracking
+    part of draw_orbit_marker(), split out so callers that don't want its
+    rotating spoke/text marker (e.g. atom_view_pc.py's dissection view,
+    which already has its own reference equator ring giving a rotation cue)
+    can still draw a stable reference-sphere outline in a chosen color.
     """
     px_r = r_ref * scale
     draw.ellipse((CENTER - px_r, CENTER - px_r, CENTER + px_r, CENTER + px_r),
-                 outline=BOUNDING_SPHERE_COLOR)
+                 outline=outline_color)
+
+
+def draw_orbit_marker(draw, r_ref, scale, angle, tilt_angle, roll_angle, marker_text=MARKER_TEXT,
+                       outline_color=BOUNDING_SPHERE_COLOR):
+    """Bounding-sphere + rotating marker overlay -- a pure-orthographic
+    rotation cue for presets whose silhouette alone doesn't show it (see
+    MARKER_TEXT's comment). Free function so both viewers can reuse it
+    unmodified, each with its own marker_text (element symbol for atoms) and,
+    if the caller wants the bounding circle to match some other reference
+    color (e.g. atom_view_pc.py's shell-matched equator) instead of the
+    default neutral BOUNDING_SPHERE_COLOR, outline_color.
+    """
+    draw_bounding_circle(draw, r_ref, scale, outline_color)
 
     # Reference vector (horizontal_r, y0, 0) rotated by the same yaw+tilt+roll
     # transform as every sampled point (see rotate_yaw_tilt_roll()).

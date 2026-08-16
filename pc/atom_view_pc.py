@@ -8,14 +8,24 @@ See pc/README.md's "Multi-electron atoms" section for the model and controls.
 
 Up/Down changes Z live (same fly-over transition as a preset switch); D runs
 a one-shot dissection sequence (see AtomViewApp._run_dissection()): the cloud
-keeps tumbling while the near half is clipped away each frame (camera-space
-clip, so different physical points are cut as it rotates), then the camera
-zooms subshell by subshell from outermost to innermost, dimming the others
-to gray and phase-coloring the active subshell wherever a sign is defined
+keeps spinning (roll only -- see AtomViewApp._dissect_tumble()) while the
+near half stays clipped away (camera-space clip, but since roll never
+changes clip depth, the SAME half stays excluded for the whole sequence
+instead of sweeping through fresh material), then the camera zooms subshell
+by subshell from outermost to innermost, dimming the others to gray and
+phase-coloring the active subshell wherever a sign is defined
 (atom_cloud.build_atom_point_cloud()'s `signs`), and finally zooms back out
 and un-cuts. No point turnover here -- AtomPreset.resample() is a no-op,
 since cloud_common's turnover only knows single-orbital distributions and
 this cloud is a mixture of several subshells.
+
+Both this view and the normal (non-dissecting) one also draw a reference
+equator ring (draw_equator()) -- just its near, camera-facing arc, the far
+arc hidden by the sphere's own self-occlusion -- plus a bounding-circle
+outline (draw_bounding_circle()) tracking the same reference sphere, both in
+the color of whichever shell that sphere represents, so the eye has a
+recognizable, consistently colored sphere shape to track even when the
+active subshell's dimming makes the actual points hard to see.
 """
 
 import math
@@ -35,11 +45,11 @@ from viewer_common import (
     CENTER, DISPLAY_SIZE, HEIGHT, WIDTH,
     INTRO_FRAMES, INTRO_START_SCALE_FACTOR,
     SWITCH_START_SCALE_FACTOR, SWITCH_TRANSITION_FRAMES,
-    FRAME_DELAY_MS, ZOOM_ANGLE_STEP,
+    FRAME_DELAY_MS, ZOOM_ANGLE_STEP, ROLL_ANGLE_STEP,
     _TILT_ANGLE_START, _ROLL_ANGLE_START,
     PROTON_SIZE, ELECTRON_ALPHA,
     TITLE_POS, SUBTITLE_POS,
-    render_frame, draw_orbit_marker, draw_scale_bar,
+    render_frame, draw_orbit_marker, draw_bounding_circle, draw_scale_bar,
     draw_nucleus, rotate_yaw_tilt_roll, advance_rotation,
     fly_over, maybe_zoom_excursion, blit_to_canvas,
     _next_zoom_excursion_countdown,
@@ -79,6 +89,99 @@ DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0
 # --- Dissection HUD ---------------------------------------------------------
 DISSECT_LABEL_COLOR = (255, 255, 0)
 Z_NOTE_COLOR = (255, 140, 140)
+
+# --- Wireframe reference equator ---------------------------------------------
+# Purely a visual aid: a single reference great circle (radius r_ref, "up" is
+# Y so this is the horizontal circle around the pole axis), rotating with the
+# cloud, so the eye has something sphere-shaped and recognizable to track
+# instead of just the fuzzy point cloud. Only the near (camera-facing) arc is
+# drawn -- see draw_equator()'s docstring -- no filled cap: an unbroken ring
+# already reads as "sphere" without needing a solid surface. Dashed (not
+# solid) and colored to match whichever shell it's the reference sphere for
+# (see callers), so it reads as an annotation on that shell rather than a
+# separate colored object of its own.
+WIREFRAME_SAMPLES = 72  # points around the ring -- 5 degrees/segment
+WIREFRAME_DASH_ON = 2    # segments drawn per dash
+WIREFRAME_DASH_OFF = 2   # segments skipped per gap
+
+
+def _unit_equator():
+    """Unit-circle points in the XZ plane (Y=0) -- the equator, treating Y as
+    the polar axis to match how every other point in this viewer already
+    treats Y as "up" on screen.
+    """
+    return [(math.cos(2 * math.pi * i / WIREFRAME_SAMPLES), 0.0, math.sin(2 * math.pi * i / WIREFRAME_SAMPLES))
+            for i in range(WIREFRAME_SAMPLES)]
+
+
+# Precomputed once at import time -- the shape is radius-independent (scaled
+# at draw time), so there's no reason to regenerate it every frame.
+_UNIT_EQUATOR = _unit_equator()
+
+
+def _clip_lerp(inside, outside):
+    """Point on the segment inside->outside where rotated depth == 0 --
+    inside/outside are (rx, ry, rz) triples already in rotated space, so a
+    straight lerp there is exact (rotation is linear; no need to un-rotate
+    first).
+    """
+    t = -inside[2] / (outside[2] - inside[2])
+    return (inside[0] + t * (outside[0] - inside[0]),
+            inside[1] + t * (outside[1] - inside[1]))
+
+
+def draw_equator(draw, radius, scale, angle, tilt_angle, roll_angle, color):
+    """Draw only the near (camera-facing) arc of a `radius`-sized reference
+    sphere's equator, in `color` (the shell color it's the reference sphere
+    for -- see callers), rotated the same way as the point cloud (see
+    rotate_yaw_tilt_roll()). "Near" means rotated depth > 0 -- the same
+    "facing the camera" sense render_dissection_frame()'s clip_z uses -- so
+    the ring reads as sitting on the visible surface of an opaque sphere,
+    the far arc hidden behind its own bulk, instead of a full circle that
+    would show through the sphere and confuse the silhouette. This is a
+    fixed rule (the sphere's own self-occlusion), the same in the normal
+    view and the dissection view -- independent of the dissection cut, which
+    affects the point cloud only, not this reference ring.
+
+    Drawn dashed (WIREFRAME_DASH_ON segments on, WIREFRAME_DASH_OFF off, by
+    segment index -- independent of the near/far split above) rather than
+    solid, so it reads as an annotation over the cloud rather than a flat
+    colored object sitting in front of it.
+
+    Each segment with one endpoint past the z=0 boundary is trimmed to the
+    exact crossing point (_clip_lerp()) rather than dropped whole, so the
+    arc's ends land exactly on the boundary instead of stopping short or
+    overshooting by up to one segment's angular step.
+    """
+    if radius <= 0:
+        return
+    cos_yaw = math.cos(angle)
+    sin_yaw = math.sin(angle)
+    cos_tilt = math.cos(tilt_angle)
+    sin_tilt = math.sin(tilt_angle)
+    cos_roll = math.cos(roll_angle)
+    sin_roll = math.sin(roll_angle)
+
+    rotated = [
+        rotate_yaw_tilt_roll(ux * radius, uy * radius, uz * radius,
+                              cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll)
+        for ux, uy, uz in _UNIT_EQUATOR
+    ]
+    n = len(rotated)
+    dash_period = WIREFRAME_DASH_ON + WIREFRAME_DASH_OFF
+    for i in range(n):
+        if i % dash_period >= WIREFRAME_DASH_ON:
+            continue
+        p0 = rotated[i]
+        p1 = rotated[(i + 1) % n]
+        vis0 = p0[2] > 0
+        vis1 = p1[2] > 0
+        if not vis0 and not vis1:
+            continue
+        x0, y0 = (p0[0], p0[1]) if vis0 else _clip_lerp(p1, p0)
+        x1, y1 = (p1[0], p1[1]) if vis1 else _clip_lerp(p0, p1)
+        draw.line((CENTER + x0 * scale, CENTER - y0 * scale,
+                   CENTER + x1 * scale, CENTER - y1 * scale), fill=color)
 
 
 def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
@@ -197,7 +300,14 @@ class AtomPreset:
         self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
             xs, ys, zs, colors, shells, ells, signs, config)
         self.title = atom_cloud.title_for_atom(z, config)
-        r_ref = atom_cloud.outer_subshell_r_ref(xs, ys, zs, shells, ells, config)
+        # Same plan atom_cloud.outer_subshell_r_ref() would compute internally
+        # -- called directly here instead so its outermost entry's shell
+        # number is available too, for the reference-equator color below.
+        outer_plan = atom_cloud.subshell_dissection_plan(xs, ys, zs, shells, ells, config)
+        r_ref = outer_plan[0][5] if outer_plan else 1.0
+        outer_n = outer_plan[0][0] if outer_plan else 1
+        self.outer_shell_color = (
+            atom_cloud.SHELL_RGB[outer_n] if outer_n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1])
         self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(
             r_ref, atom_cloud.PIXELS_PER_BOHR)
 
@@ -305,7 +415,10 @@ class AtomViewApp:
     def _blit(self, scale):
         def overlays(draw):
             draw_orbit_marker(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle,
-                               marker_text=slater.element_symbol(self.z))
+                               marker_text=slater.element_symbol(self.z),
+                               outline_color=self.preset.outer_shell_color)
+            draw_equator(draw, self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle,
+                         self.preset.outer_shell_color)
             # Scale (px per Bohr radius, THIS frame -- varies with zoom
             # breathing/excursions) -> px per picometer, so the bar always
             # reflects the camera's current zoom, not just the resting one.
@@ -313,12 +426,21 @@ class AtomViewApp:
             draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
         blit_to_canvas(self, overlays)
 
-    def _blit_dissection(self, scale, label):
-        """Like _blit(), but for dissection frames: no bounding-sphere/rotation
-        marker (the cutaway edge is a much stronger rotation cue already).
-        Draws the current shell's label plus a "Z=n" note next to the nucleus.
+    def _blit_dissection(self, scale, equator_r_ref, equator_color, label):
+        """Like _blit(), but for dissection frames: the rotating spoke/text
+        part of draw_orbit_marker() is skipped (it uses its own fixed
+        depth-gradient color, unrelated to the shell-matched color used
+        here, and the equator ring is already a stronger rotation cue) --
+        just its bounding-circle outline (draw_bounding_circle()), alongside
+        the equator, both in `equator_color` -- see draw_equator()'s
+        docstring -- so the reference sphere's silhouette stays visible even
+        when the active subshell's dimming makes the actual points hard to
+        see. Also draws the current shell's label and a "Z=n" note next to
+        the nucleus.
         """
         def overlays(draw):
+            draw_bounding_circle(draw, equator_r_ref, scale, outline_color=equator_color)
+            draw_equator(draw, equator_r_ref, scale, self.angle, self.tilt_angle, self.roll_angle, equator_color)
             draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
             draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
             if label:
@@ -327,14 +449,22 @@ class AtomViewApp:
         blit_to_canvas(self, overlays)
 
     def _dissect_tumble(self):
-        """Advance yaw/tilt/roll by one normal-viewing step -- called every
-        rendered frame throughout the WHOLE dissection sequence (ease legs and
-        holds alike) so the cloud reads as continuously rotating, never
-        paused, at the same speed as normal viewing.
+        """Advance roll only -- called every rendered frame throughout the
+        WHOLE dissection sequence (ease legs and holds alike) so the cloud
+        keeps visibly, continuously spinning without ever pausing, but
+        without yaw/tilt carrying the clip plane across new material.
+        rotate_yaw_tilt_roll() computes rz (the clip's depth) from yaw and
+        tilt only -- roll never changes it -- so freezing yaw/tilt for the
+        whole sequence keeps exactly the same half of the cloud excluded
+        throughout, camera-space clip plane and cloud rotating together as
+        one rigid unit ("rotate casually but still inside this plane")
+        instead of the clip sweeping through fresh material as the object
+        tumbles underneath it.
         """
-        advance_rotation(self)
+        self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
-    def _dissect_ease(self, scale0, scale1, clip0, clip1, active_subshell, frames, label=None):
+    def _dissect_ease(self, scale0, scale1, clip0, clip1, active_subshell, equator_r_ref, equator_color,
+                       frames, label=None):
         """One eased leg of the dissection sequence: scale and clip move
         linearly from their *0 to *1 values over `frames` frames (pass the
         same value twice to hold one constant) while the cloud keeps tumbling.
@@ -348,12 +478,12 @@ class AtomViewApp:
             clip = clip0 + (clip1 - clip0) * t
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
-            self._blit_dissection(scale, label)
+            self._blit_dissection(scale, equator_r_ref, equator_color, label)
             self.root.update()
             time.sleep(DISSECT_FRAME_DELAY_S)
             self._dissect_tumble()
 
-    def _dissect_hold(self, scale, clip, active_subshell, seconds, label):
+    def _dissect_hold(self, scale, clip, active_subshell, equator_r_ref, equator_color, seconds, label):
         """Real-time (not frame-count) pause on one subshell, still tumbling
         every rendered frame -- scale/clip/active_subshell stay fixed, so the
         subshell's label stays legible for a fixed wall-clock duration
@@ -363,7 +493,7 @@ class AtomViewApp:
         while time.time() < deadline:
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
-            self._blit_dissection(scale, label)
+            self._blit_dissection(scale, equator_r_ref, equator_color, label)
             self.root.update()
             time.sleep(DISSECT_FRAME_DELAY_S)
             self._dissect_tumble()
@@ -380,33 +510,47 @@ class AtomViewApp:
 
         start_scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
 
+        outer_color = self.preset.outer_shell_color
+
         # Phase 1: open the cut (nothing hidden -> z>0 hidden) at the resting
-        # scale, no subshell singled out yet.
+        # scale, no subshell singled out yet. Equator sized to the whole
+        # atom's own outer reference (self.preset.r_ref), same sphere the
+        # normal view's equator uses, and colored to match (outer_color).
         self._dissect_ease(start_scale, start_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
-                            active_subshell=None, frames=DISSECT_ORIENT_FRAMES)
+                            active_subshell=None, equator_r_ref=self.preset.r_ref, equator_color=outer_color,
+                            frames=DISSECT_ORIENT_FRAMES)
 
         # Phase 2: outermost subshell to innermost -- zoom to each subshell's
         # own extent (target_scale), highlight it, hold with its label shown.
+        # Equator sized to that subshell's own r_ref, the same radius its
+        # zoom target was calibrated to, and colored to match that subshell's
+        # own SHELL_RGB entry -- same color the highlighted points use --
+        # rather than the outer shell's, so the ring tracks the zoom.
         prev_scale = start_scale
         for n, ell, letter, subshell_str, electron_count, r_ref in plan:
             target_scale = DISSECT_TARGET_PX / max(r_ref, 1e-6)
             label = "%s: n=%d, l=%d (%s shell) -- %d electron%s" % (
                 subshell_str, n, ell, letter, electron_count, "" if electron_count == 1 else "s")
+            shell_color = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
 
             self._dissect_ease(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                                active_subshell=(n, ell), frames=DISSECT_ZOOM_FRAMES, label=label)
-            self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, (n, ell), DISSECT_HOLD_SECONDS, label)
+                                active_subshell=(n, ell), equator_r_ref=r_ref, equator_color=shell_color,
+                                frames=DISSECT_ZOOM_FRAMES, label=label)
+            self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, (n, ell), r_ref, shell_color,
+                                DISSECT_HOLD_SECONDS, label)
             prev_scale = target_scale
 
         # Phase 3: zoom back out to the resting scale, still cut open but
         # with no subshell singled out.
         end_scale = self._effective_base_scale()
         self._dissect_ease(prev_scale, end_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                            active_subshell=None, frames=DISSECT_ZOOM_FRAMES)
+                            active_subshell=None, equator_r_ref=self.preset.r_ref, equator_color=outer_color,
+                            frames=DISSECT_ZOOM_FRAMES)
 
         # Phase 4: close the cut back up.
         self._dissect_ease(end_scale, end_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
-                            active_subshell=None, frames=DISSECT_CLOSE_FRAMES)
+                            active_subshell=None, equator_r_ref=self.preset.r_ref, equator_color=outer_color,
+                            frames=DISSECT_CLOSE_FRAMES)
 
     def _tick(self):
         if self._pending_dissect:
