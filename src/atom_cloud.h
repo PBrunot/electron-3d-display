@@ -6,10 +6,10 @@
 // specifically. Points carry (n, ell) so a caller can color by shell/subshell itself --
 // see colorizeAtomPoints() below (M4). Simplification vs the MicroPython version: no psi
 // sign recomputation for anisotropic (Hund's-rule) groups -- that only feeds
-// pc/atom_view_pc.py's PC-only shell-dissection view (phase coloring for one exploded
-// shell at a time), which this project has no on-device equivalent of (same "not worth
-// the effort for dev/debug" call atom_view.py's module docstring already makes about that
-// feature) and so nothing here would ever consume it.
+// pc/atom_view_pc.py's PC-only shell-dissection view's phase coloring (one exploded shell
+// at a time). This project DOES now have an on-device dissection view (atom_view.cpp,
+// Down-tilt gesture, built on subshellDissectionPlan() below), but a deliberately simpler
+// one -- shell color only, no phase/sign -- so nothing here consumes per-point sign either.
 #pragma once
 
 #include <cstdint>
@@ -116,15 +116,36 @@ constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward 
  * which points get brightened by colorizeAtomPoints(), NOT the whole cloud's own p90
  * (dominated by core electrons for any atom past helium, since points are split strictly
  * proportional to electron count). Port of atom_cloud.outer_subshell_r_ref(), simplified:
- * only the single outermost entry of subshell_dissection_plan() is needed here (there is
- * no on-device shell-dissection view to consume the rest of that sorted per-subshell
- * list), so this returns just that one entry instead of building/sorting the full plan.
+ * only the single outermost entry of subshellDissectionPlan() below is needed for scale
+ * calibration, so this returns just that one entry instead of building/sorting the full
+ * plan -- callers that DO need the full sorted list (atom_view.cpp's dissection view) call
+ * subshellDissectionPlan() directly instead.
  */
 struct OuterSubshell {
     int n = 0, ell = 0;
     orb_real_t rRef = orb_real_t(1);
 };
 OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const ElectronConfig& config);
+
+/** One subshell's identity and p90 radius, as produced by subshellDissectionPlan() below. */
+struct DissectionEntry {
+    int n, ell;
+    orb_real_t rRef;
+};
+
+/**
+ * Every occupied subshell's (n, ell) and p90 radius (same measure outerSubshellRRef() uses),
+ * sorted descending by radius -- outermost first, innermost last. Port of
+ * atom_cloud.subshell_dissection_plan(), device-path subset: p90 radius only, no phase/sign
+ * recomputation (this project's on-device dissection has no phase coloring, same "not worth
+ * the effort" call this file's header comment already makes about that). Used by
+ * atom_view.cpp's on-device shell-by-shell dissection (Down-tilt gesture).
+ *
+ * @param out  [out] Must hold at least kMaxConfigSubshells entries.
+ * @return     Number of entries written (== config.count, minus any subshell with zero
+ *             matched points in this specific cloud).
+ */
+int subshellDissectionPlan(const AtomPoint* points, int count, const ElectronConfig& config, DissectionEntry* out);
 
 /**
  * Pack point i's shell color (shellBaseRgb(points[i].n)) into outColors[i], brightened

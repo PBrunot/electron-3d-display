@@ -132,6 +132,43 @@ OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const Electr
     return best;
 }
 
+int subshellDissectionPlan(const AtomPoint* points, int count, const ElectronConfig& config, DissectionEntry* out) {
+    static orb_real_t radii[kAtomMaxPoints];
+
+    int written = 0;
+    for (int s = 0; s < config.count; s++) {
+        int n = config.subshells[s].n, ell = config.subshells[s].ell;
+        int matchCount = 0;
+        for (int i = 0; i < count; i++) {
+            if (points[i].n == n && points[i].ell == ell) {
+                orb_real_t x = points[i].x, y = points[i].y, z = points[i].z;
+                radii[matchCount++] = std::sqrt(x * x + y * y + z * z);
+            }
+        }
+        if (matchCount == 0)
+            continue;
+        std::sort(radii, radii + matchCount);
+        int idx = int(orb_real_t(0.90) * orb_real_t(matchCount - 1));
+        if (idx >= matchCount)
+            idx = matchCount - 1;
+        orb_real_t rRef = radii[idx] > orb_real_t(1e-6) ? radii[idx] : orb_real_t(1);
+        out[written++] = {n, ell, rRef};
+    }
+
+    // Small array (<= kMaxConfigSubshells, at most ~20 entries) -- insertion sort descending
+    // by radius is simplest and plenty fast here, no need for std::sort + a comparator.
+    for (int i = 1; i < written; i++) {
+        DissectionEntry key = out[i];
+        int j = i - 1;
+        while (j >= 0 && out[j].rRef < key.rRef) {
+            out[j + 1] = out[j];
+            j--;
+        }
+        out[j + 1] = key;
+    }
+    return written;
+}
+
 static uint8_t brightenChannel(uint8_t c, orb_real_t factor) {
     return uint8_t(orb_real_t(c) + (orb_real_t(255) - orb_real_t(c)) * factor);
 }

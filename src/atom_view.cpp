@@ -58,18 +58,147 @@ void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig
     }
 }
 
-void runAtomView(Display& display) {
+// --- On-device shell dissection (Down tilt-hold) -- see atom_view.h's header comment ---
+//
+// Runs as ONE self-contained blocking sequence once triggered (matching
+// pc/atom_view_pc.py's own D-key behavior) -- NOT one dissect step per Down-hold. A single
+// Down-hold peels through every occupied subshell automatically (eased zoom + a real-time
+// hold on each, continuously tumbling throughout) and returns to the full atom at the end,
+// with no further gesture needed mid-sequence.
+
+namespace {
+DissectionEntry dissectPlan[kMaxConfigSubshells];
+int dissectPlanCount = 0;
+
+// Matches pc/atom_view_pc.py's DISSECT_SHADE_GRAY exactly -- the one dissection-view
+// constant this device-path simplification still shares with the PC version.
+constexpr uint16_t kDissectDimColor = Display::packColor565(70, 70, 70);
+
+// Matches pc/atom_view_pc.py's DISSECT_HOLD_SECONDS=2 -- real-time (esp_timer), not a
+// frame count, so the hold duration is the same regardless of the achieved render FPS.
+constexpr int64_t kDissectHoldUs = 2 * 1000 * 1000;
+
+void refreshDissectPlan(const AtomPresetState& preset) {
+    dissectPlanCount = subshellDissectionPlan(preset.points, kAtomViewNumPoints, preset.config, dissectPlan);
+}
+
+int rankInPlan(int n, int ell) {
+    for (int i = 0; i < dissectPlanCount; i++)
+        if (dissectPlan[i].n == n && dissectPlan[i].ell == ell)
+            return i;
+    return -1; // every point's subshell is in `config`, so this shouldn't happen for a real cloud
+}
+
+/**
+ * Compact `points`/`colors` IN PLACE down to the subset visible at dissect level `level`
+ * (1..dissectPlanCount), operating on (and shrinking) whatever `count` entries are
+ * currently valid -- deliberately NOT a second kAtomViewNumPoints-sized pair of buffers:
+ * on real hardware, two full extra 3000-point AtomPoint/color arrays (~66KB of .bss) left
+ * too little contiguous internal DMA-capable RAM for Display::Display()'s 112.5KB frame
+ * buffer allocation, which aborted at boot. Point order doesn't matter for rendering, so
+ * compacting the SAME array in place is safe -- the sequence rebuilds the full cloud fresh
+ * (preset.load()) at the end anyway, undoing the compaction.
+ *
+ * Subshells outer of dissectPlan[level-1] are dropped (peeled away); dissectPlan[level-1]
+ * itself (the newly-revealed outermost remaining shell) draws at full shell color; every
+ * deeper shell draws flat gray (kDissectDimColor). Returns the count remaining.
+ */
+int compactDissectLevelInPlace(AtomPoint* points, uint16_t* colors, int count, int level) {
+    int keepRank = level - 1;
+    int written = 0;
+    for (int i = 0; i < count; i++) {
+        int rank = rankInPlan(points[i].n, points[i].ell);
+        if (rank < keepRank)
+            continue;
+        points[written] = points[i];
+        if (rank == keepRank) {
+            const uint8_t* base = shellBaseRgb(points[written].n);
+            colors[written] = Display::packColor565(base[0], base[1], base[2]);
+        } else {
+            colors[written] = kDissectDimColor;
+        }
+        written++;
+    }
+    return written;
+}
+
+/** Render one frame at a fixed `scale` -- shared by the eased leg (via flyOver()) and the
+ * real-time hold below, which isn't eased so doesn't go through flyOver(). */
+void renderDissectFrame(Display& display, const AtomPoint* points, const uint16_t* colors, int count,
+                         uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, const CameraState& camera,
+                         orb_real_t scale, const char* label) {
+    display.waitForFlushDone();
+    renderScene(display.getFrameBuf(), points, colors, count, protonColor, camera, scale);
+    drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, label, textColor, kFontLarge);
+    drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
+    display.presentFrame();
+}
+
+/**
+ * Automatically peel through every occupied subshell, outer to inner: for each level, ease
+ * the camera in (flyOver()) to frame that subshell (scaleForAtom(active.rRef)) with its
+ * label, hold for kDissectHoldUs while continuing to tumble, then move to the next level.
+ * Ends by rebuilding the full cloud fresh (preset.load()) and easing back out to
+ * preset.baseScale. Blocking -- no tilt polling during the sequence, matching
+ * pc/atom_view_pc.py's own one-shot blocking sequence (no abort gesture defined here).
+ */
+void runDissectionSequence(Display& display, AtomPresetState& preset, CameraState& camera, uint16_t protonColor,
+                            uint16_t textColor, uint16_t scaleBarColor) {
+    orb_real_t scale = preset.baseScale;
+    int count = kAtomViewNumPoints;
+
+    for (int level = 1; level <= dissectPlanCount; level++) {
+        DissectionEntry active = dissectPlan[level - 1];
+        count = compactDissectLevelInPlace(preset.points, preset.colors, count, level);
+        AtomScale s = scaleForAtom(active.rRef);
+
+        char label[40];
+        std::snprintf(label, sizeof(label), "Shell %d%c (%d/%d)", active.n, subshellLabelChar(active.ell), level,
+                      dissectPlanCount);
+        auto title = [&](uint16_t* fb, int x, int y, uint16_t color) { drawText(fb, x, y, label, color, kFontLarge); };
+
+        ESP_LOGI(kAtomViewTag, "dissecting shell %d%c (%d pts, level %d/%d)", active.n, subshellLabelChar(active.ell),
+                 count, level, dissectPlanCount);
+
+        flyOver(display, preset.points, preset.colors, count, title, protonColor, textColor, scaleBarColor, &camera,
+                scale, s.baseScale, kSwitchTransitionFrames);
+        scale = s.baseScale;
+
+        int64_t holdStartUs = esp_timer_get_time();
+        while (esp_timer_get_time() - holdStartUs < kDissectHoldUs) {
+            renderDissectFrame(display, preset.points, preset.colors, count, protonColor, textColor, scaleBarColor,
+                                camera, scale, label);
+            stepCamera(&camera);
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    }
+
+    // Rebuild the full cloud fresh (undoes every level's in-place compaction above) and
+    // ease back out to it.
+    preset.load(preset.z);
+    auto fullTitle = [&](uint16_t* fb, int x, int y, uint16_t color) {
+        drawAtomTitle(fb, x, y, preset.z, preset.config, color, kFontLarge);
+    };
+    flyOver(display, preset.points, preset.colors, kAtomViewNumPoints, fullTitle, protonColor, textColor,
+            scaleBarColor, &camera, scale, preset.baseScale, kSwitchTransitionFrames);
+}
+} // namespace
+
+void runAtomView(Display& display, TiltGestureDetector& tilt) {
     ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxZ);
 
     static AtomPresetState preset;
-    preset.load(kAtomViewDefaultZ);
+    if (preset.z == 0) // first-ever call this boot -- later calls (after a menu round-trip)
+        preset.load(kAtomViewDefaultZ); // keep whatever element was last showing
+    refreshDissectPlan(preset);
 
     constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
     constexpr uint16_t kTextColor = Display::kColorWhite;
-    constexpr uint16_t kScaleBarColor = Display::packColor565(210, 210, 210);
+    constexpr uint16_t kScaleBarColor = Display::kColorWhite;
+    constexpr uint16_t kArrowColor = Display::packColor565(255, 210, 60);
 
-    // preset has static storage duration, so it's odr-usable without capturing --
-    // GCC's -Werror rejects capturing a static local as a meaningless no-op capture.
+    // preset has static storage duration, so it's odr-usable without capturing -- see
+    // orbital_view.cpp's drawTitle for the same pattern.
     auto drawTitle = [](uint16_t* frameBuf, int x, int y, uint16_t color) {
         drawAtomTitle(frameBuf, x, y, preset.z, preset.config, color, kFontLarge);
     };
@@ -86,6 +215,44 @@ void runAtomView(Display& display) {
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
 
     while (true) {
+        TiltEvent tiltEv = tilt.poll();
+        if (tiltEv.phase == TiltPhase::kConfirmed) {
+            if (tiltEv.direction == TiltDirection::kUp) {
+                ESP_LOGI(kAtomViewTag, "tilt UP confirmed -- returning to menu");
+                return;
+            }
+            if (tiltEv.direction == TiltDirection::kRight || tiltEv.direction == TiltDirection::kLeft) {
+                int delta = tiltEv.direction == TiltDirection::kRight ? 1 : -1;
+                int newZ = preset.z + delta;
+                if (newZ < 1)
+                    newZ = kMaxZ;
+                else if (newZ > kMaxZ)
+                    newZ = 1;
+                ESP_LOGI(kAtomViewTag, "tilt %s confirmed -- switching element Z %d -> %d",
+                         tiltDirectionName(tiltEv.direction), preset.z, newZ);
+                orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
+                preset.load(newZ);
+                refreshDissectPlan(preset);
+                flyOver(display, preset.points, preset.colors, kAtomViewNumPoints, drawTitle, kProtonColor,
+                        kTextColor, kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames);
+                zoomAngle = orb_real_t(0);
+                zoomExcursionCountdown = nextZoomExcursionCountdown();
+                continue;
+            }
+            if (tiltEv.direction == TiltDirection::kDown) {
+                if (dissectPlanCount > 0) {
+                    ESP_LOGI(kAtomViewTag, "tilt DOWN confirmed -- starting automatic dissection (%d shells)",
+                             dissectPlanCount);
+                    runDissectionSequence(display, preset, camera, kProtonColor, kTextColor, kScaleBarColor);
+                } else {
+                    ESP_LOGI(kAtomViewTag, "tilt DOWN confirmed -- no subshells to dissect");
+                }
+                zoomAngle = orb_real_t(0);
+                zoomExcursionCountdown = nextZoomExcursionCountdown();
+                continue;
+            }
+        }
+
         // Random zoom excursion: pause breathing, fly to a random scale and back, same as
         // orbital_view.cpp's steady-state loop. This iteration's render already happened
         // inside flyOver(), so skip the normal render/FPS bookkeeping below.
@@ -110,6 +277,8 @@ void runAtomView(Display& display) {
         drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, preset.config, kTextColor,
                       kFontLarge);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+        if (tiltEv.phase != TiltPhase::kIdle)
+            drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kArrowColor);
         display.presentFrame();
 
         frameCount++;

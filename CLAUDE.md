@@ -207,6 +207,22 @@ build_flags =
     -D LOAD_GLCD=1
 ```
 
+**Nota (2026-08-17): il progetto è da tempo passato a `framework = espidf`**
+(vedi `platformio.ini` reale in root, non lo snippet Arduino sopra, che resta
+solo come cronaca della decisione iniziale). `platformio.ini` reale è pinnato
+a `platform = espressif32@7.0.1`, che risolve a **ESP-IDF 6.0.1** (confermato
+da `version.cmake` nel package `framework-espidf` realmente usato).
+
+**Gotcha ambiente WSL/Windows verificato**: questa macchina ha DUE install
+PlatformIO separate — quella WSL (`~/.platformio`, contiene un
+`framework-espidf` vecchio/stale, IDF 5.2.2) e quella Windows
+(`/mnt/c/Users/pasca/.platformio`, quella REALMENTE usata per le build:
+`.pio/build/*/CMakeCache.txt` punta a path `D:/GitHub/...`). Controllare
+sempre la versione IDF risolta sotto `/mnt/c/Users/pasca/.platformio/packages/
+framework-espidf/version.txt` (o `tools/cmake/version.cmake`), MAI sotto
+`~/.platformio` — quest'ultima è irrilevante per le build di questo progetto
+e dà una versione IDF sbagliata se interrogata per errore.
+
 Board definition minima da creare in `boards/WS-ESP32-S3-LCD-1-3.json`
 (basata su quella verificata nel progetto community, adattare se necessario):
 
