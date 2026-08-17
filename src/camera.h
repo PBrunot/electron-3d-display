@@ -96,7 +96,7 @@ void renderPointsUniform(uint16_t* frameBuf, const PointT* points, int count, ui
     for (int i = 0; i < count; i++) {
         int sx, sy;
         if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
-            frameBuf[sy * kDisplayWidth + sx] = color;
+            frameBuf[sy * Display::kDisplayWidth + sx] = color;
     }
 }
 
@@ -120,7 +120,7 @@ void renderPointsColored(uint16_t* frameBuf, const PointT* points, const uint16_
             continue;
         int sx, sy;
         if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
-            frameBuf[sy * kDisplayWidth + sx] = colors[i];
+            frameBuf[sy * Display::kDisplayWidth + sx] = colors[i];
     }
 }
 
@@ -134,7 +134,7 @@ void renderPointsColored(uint16_t* frameBuf, const PointT* points, const uint16_
 template <typename PointT>
 void renderScene(uint16_t* frameBuf, const PointT* points, const uint16_t* colors, int count, uint16_t protonColor,
                   const CameraState& camera, orb_real_t scale, uint32_t frameSalt = 0, uint32_t buzzThreshold = 0) {
-    std::memset(frameBuf, 0, kDisplayWidth * kDisplayHeight * sizeof(uint16_t));
+    std::memset(frameBuf, 0, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
     RotationTrig trig = computeRotationTrig(camera);
     renderPointsColored(frameBuf, points, colors, count, trig, scale, frameSalt, buzzThreshold);
     drawProtonMarker(frameBuf, protonColor);
@@ -192,11 +192,12 @@ void flyOver(Display& display, const PointT* points, const uint16_t* colors, int
         orb_real_t t = frames > 1 ? orb_real_t(i) / orb_real_t(frames - 1) : orb_real_t(1);
         orb_real_t scale = startScale + (endScale - startScale) * t;
 
-        renderScene(display.frameBuf, points, colors, count, protonColor, *camera, scale, uint32_t(i),
+        display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
+        renderScene(display.getFrameBuf(), points, colors, count, protonColor, *camera, scale, uint32_t(i),
                     buzzThreshold);
-        drawTitle(display.frameBuf, kTitleTextX, kTitleTextY, textColor);
-        drawScaleBar(display.frameBuf, scale / kPmPerBohr, "pm", scaleBarColor, textColor);
-        presentFrame(display);
+        drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
+        drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
+        display.presentFrame();
 
         stepCamera(camera);
     }

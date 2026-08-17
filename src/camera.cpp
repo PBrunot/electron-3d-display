@@ -31,9 +31,9 @@ bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig& 
     orb_real_t rx3 = rx1 * t.cosRoll - ry2 * t.sinRoll;
     orb_real_t ry3 = rx1 * t.sinRoll + ry2 * t.cosRoll;
 
-    int sx = kDisplayWidth / 2 + int(std::lround(rx3 * scale));
-    int sy = kDisplayHeight / 2 - int(std::lround(ry3 * scale));
-    if (sx < 0 || sx >= kDisplayWidth || sy < 0 || sy >= kDisplayHeight)
+    int sx = Display::kDisplayWidth / 2 + int(std::lround(rx3 * scale));
+    int sy = Display::kDisplayHeight / 2 - int(std::lround(ry3 * scale));
+    if (sx < 0 || sx >= Display::kDisplayWidth || sy < 0 || sy >= Display::kDisplayHeight)
         return false;
     *outSx = sx;
     *outSy = sy;
@@ -41,11 +41,11 @@ bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig& 
 }
 
 void drawProtonMarker(uint16_t* frameBuf, uint16_t color) {
-    int x0 = kDisplayWidth / 2 - kProtonMarkerSize / 2;
-    int y0 = kDisplayHeight / 2 - kProtonMarkerSize / 2;
+    int x0 = Display::kDisplayWidth / 2 - kProtonMarkerSize / 2;
+    int y0 = Display::kDisplayHeight / 2 - kProtonMarkerSize / 2;
     for (int y = y0; y < y0 + kProtonMarkerSize; y++)
         for (int x = x0; x < x0 + kProtonMarkerSize; x++)
-            frameBuf[y * kDisplayWidth + x] = color;
+            frameBuf[y * Display::kDisplayWidth + x] = color;
 }
 
 orb_real_t randomUnit() {

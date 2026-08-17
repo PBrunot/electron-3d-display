@@ -14,7 +14,7 @@ constexpr int kFontAdvanceX = 6; // glyph width + 1px spacing
 constexpr int kFontAdvanceY = 8; // glyph height + 1px spacing
 
 /**
- * Blit one glyph at (x, y) top-left, in `color`, into a kDisplayWidth*kDisplayHeight
+ * Blit one glyph at (x, y) top-left, in `color`, into a Display::kDisplayWidth*kDisplayHeight
  * RGB565 buffer. Per-pixel bounds-checked, safe to call with a glyph partially or fully
  * off-screen. Background is left untouched (no fill) -- caller clears the frame first,
  * matching every other draw function in this project. Unmapped characters (see

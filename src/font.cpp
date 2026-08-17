@@ -267,16 +267,16 @@ void drawChar(uint16_t* frameBuf, int x, int y, char c, uint16_t color) {
     Glyph g = glyphFor(c);
     for (int row = 0; row < kFontGlyphHeight; row++) {
         int py = y + row;
-        if (py < 0 || py >= kDisplayHeight)
+        if (py < 0 || py >= Display::kDisplayHeight)
             continue;
         uint8_t bits = g.rows[row];
         for (int col = 0; col < kFontGlyphWidth; col++) {
             if (!(bits & (uint8_t(1) << (kFontGlyphWidth - 1 - col))))
                 continue;
             int px = x + col;
-            if (px < 0 || px >= kDisplayWidth)
+            if (px < 0 || px >= Display::kDisplayWidth)
                 continue;
-            frameBuf[py * kDisplayWidth + px] = color;
+            frameBuf[py * Display::kDisplayWidth + px] = color;
         }
     }
 }
