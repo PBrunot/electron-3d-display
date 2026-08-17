@@ -92,13 +92,22 @@ void drawProtonMarker(uint16_t* frameBuf, uint16_t color);
 // layer that only partially overwrote it -- the translucent point-cloud look. Expressed as a /256
 // fixed-point fraction (Display::blendColor565()'s alphaQ8) rather than pc/viewer_common.py's float
 // ELECTRON_ALPHA=0.8, to keep every per-pixel color op in this project integer-only.
-constexpr uint16_t kElectronAlphaQ8 = 205; // 0.8 * 256, rounded
+// Raised from pc/viewer_common.py's ELECTRON_ALPHA=0.8 (205/256): during rotation a given point
+// rarely lands on the exact same pixel two frames running, so it gets essentially one blend
+// toward full brightness before the persistence fade below starts pulling that pixel back down --
+// the cloud reads visibly dimmer in motion than in a static single-frame render. A stronger alpha
+// makes each individual hit closer to full brightness, which is where the perceived dimming
+// during animation/rotation actually comes from (not a rendering bug -- see kPersistenceKeepQ8).
+constexpr uint16_t kElectronAlphaQ8 = 235; // ~0.92 * 256
 
 // Each frame fades the previous buffer toward black (Display::fadeColor565()) instead of hard-
 // clearing it, so points leave a brief trailing glow and skipped "buzz" points fade out instead of
 // vanishing outright. Port of pc/viewer_common.py's PERSISTENCE_DECAY -- that constant's name is
 // actually the fraction KEPT per frame (not removed), kept here under a less confusing name.
-constexpr uint16_t kPersistenceKeepQ8 = 100; // 100/256 kept per frame (~0.39), matches PERSISTENCE_DECAY
+// Raised from pc/viewer_common.py's 100/256 (~0.39): slower decay keeps a hit pixel's glow alive
+// longer between re-hits as points sweep across the screen during rotation, filling in the gaps
+// that otherwise read as fading -- same motivation as kElectronAlphaQ8 above, tuned together.
+constexpr uint16_t kPersistenceKeepQ8 = 150; // 150/256 kept per frame (~0.59)
 
 /** Fade every pixel of `frameBuf` toward black by kPersistenceKeepQ8 -- see the constant's comment.
  * Not a template (doesn't depend on PointT), so its body lives in camera.cpp. */
@@ -208,6 +217,14 @@ orb_real_t randomUniform(orb_real_t lo, orb_real_t hi);
 
 /** Random frame countdown until the next zoom excursion (see kZoomExcursion* above). */
 int nextZoomExcursionCountdown();
+
+/**
+ * Uniform random int in [0, count), guaranteed != current -- used by AtomView/OrbitalView's
+ * idle-timeout auto-advance (see each view's kIdleJumpUs) to pick a genuinely different
+ * element/orbital preset rather than risking a no-op "jump" back to the same one. count must
+ * be >= 2 (undefined otherwise -- there'd be nothing else to jump to).
+ */
+int randomIndexExcluding(int current, int count);
 
 /**
  * Ease the projection scale from startScale to endScale over `frames` frames, rendering +

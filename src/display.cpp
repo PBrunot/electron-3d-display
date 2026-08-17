@@ -41,6 +41,8 @@ Display::~Display()
 {
     if (frameBuf != nullptr)
         heap_caps_free(frameBuf);
+    if (presentBuf != nullptr)
+        heap_caps_free(presentBuf);
     if (panel != nullptr)
         ESP_ERROR_CHECK(esp_lcd_panel_del(panel));
 }
@@ -92,7 +94,10 @@ Display::Display()
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
-    //ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
+    // X-mirror only: through the prism, text reads correctly this way. Enabling Y-mirror too
+    // (esp_lcd_panel_mirror(panel_handle, true, true)) broke the image on this unit -- the
+    // resulting upside-down scene is instead flipped in software, in presentFrame().
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
     uint16_t *frame_buf =
@@ -119,7 +124,27 @@ auto Display::getFrameBuf() -> uint16_t *
 
 void Display::presentFrame()
 {
-    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(this->panel, 0, 0, Display::kDisplayWidth, Display::kDisplayHeight, this->frameBuf));
+    if (presentBuf == nullptr)
+    {
+        presentBuf =
+            (uint16_t *)heap_caps_malloc(kDisplayWidth * kDisplayHeight * sizeof(uint16_t), MALLOC_CAP_DMA);
+        if (presentBuf == NULL)
+        {
+            ESP_LOGE(kDisplayTag, "failed to allocate present buffer");
+            abort();
+        }
+    }
+    // Software Y-flip: copy frameBuf's rows into presentBuf in reverse order (row 0 <-> row
+    // kDisplayHeight-1, etc). Safe to overwrite presentBuf here -- callers wait on the
+    // previous frame's DMA (waitForFlushDone()) before rendering into frameBuf again, and
+    // that wait always happens before this presentFrame() call in the same loop iteration.
+    for (int y = 0; y < kDisplayHeight; ++y)
+    {
+        std::memcpy(presentBuf + y * kDisplayWidth, frameBuf + (kDisplayHeight - 1 - y) * kDisplayWidth,
+                    kDisplayWidth * sizeof(uint16_t));
+    }
+    ESP_ERROR_CHECK(
+        esp_lcd_panel_draw_bitmap(this->panel, 0, 0, Display::kDisplayWidth, Display::kDisplayHeight, presentBuf));
 }
 
 auto Display::waitForFlushDone() -> bool

@@ -109,6 +109,19 @@ public:
 private:
     esp_lcd_panel_handle_t panel;
     uint16_t *frameBuf; // DMA-capable, Display::kDisplayWidth*kDisplayHeight RGB565 pixels
+
+    // Row-flipped copy of frameBuf, DMA source for presentFrame(). Panel Y-mirror was tried
+    // via esp_lcd_panel_mirror(panel, true, true) but combining it with the needed X-mirror
+    // produced a broken image on this unit (see CLAUDE.md's mirror notes) -- only X-mirror is
+    // set in hardware (see the constructor's esp_lcd_panel_mirror call), and Y is flipped here
+    // in software instead. Kept separate from frameBuf (rather than flipping frameBuf in
+    // place) because callers persist frameBuf across frames for fading/trails (see
+    // camera.h's fadeFrameBuffer()) -- flipping it in place would double-flip on the next
+    // frame's draw calls, which all address frameBuf in normal (non-flipped) row order.
+    // Lazily allocated on first presentFrame() so the test-seam two-arg constructor (which
+    // doesn't set up a DMA-capable frameBuf either) doesn't need to know about it.
+    uint16_t *presentBuf = nullptr;
+
     static constexpr auto kDisplayTag = "display";
 
     // Given by onColorTransDone() (an ISR callback -- see esp_lcd_panel_io_spi_config_t's

@@ -164,7 +164,7 @@ int subshellDissectionPlan(const AtomPoint* points, int count, const ElectronCon
         if (idx >= matchCount)
             idx = matchCount - 1;
         orb_real_t rRef = radii[idx] > orb_real_t(1e-6) ? radii[idx] : orb_real_t(1);
-        out[written++] = {n, ell, rRef};
+        out[written++] = {n, ell, rRef, config.subshells[s].occ};
     }
 
     // Small array (<= kMaxConfigSubshells, at most ~20 entries) -- insertion sort descending

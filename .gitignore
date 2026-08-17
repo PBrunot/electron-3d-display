@@ -21,3 +21,4 @@ pio_full_build.log
 pio_run1.log
 /build
 /tools/font_gen/__pycache__
+/tools/equation_gen/__pycache__

@@ -67,7 +67,7 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
             if (raw.phase == TiltPhase::kHolding)
             {
                 char progress[24];
-                std::snprintf(progress, sizeof(progress), "%.1fs / 3.0s", double(raw.holdMs) / 1000.0);
+                std::snprintf(progress, sizeof(progress), "%.1fs / 1.0s", double(raw.holdMs) / 1000.0);
                 drawCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, progress, kChooserArrowColor,
                              kFontLarge);
             }
@@ -110,10 +110,15 @@ static void drawChooserScreen(uint16_t *frameBuf)
 {
     clearScreen(frameBuf);
 
+    // "the choose screen font is much too small - use the biggest font size" (feedback,
+    // 2026-08-17) -- kFontLarge throughout, matching calibrateDirections()'s own screens
+    // (same earlier feedback: "kSmallFont read as too small on the panel"). Spacing widened
+    // to kCalibLineSpacing to match too -- kFontLarge is taller than kFontSmall, so the old
+    // 16px gap between the two menu lines would now overlap.
     const char *title = "electron-3d-display";
     drawCentered(frameBuf, 90, title, kChooserTextColor, kFontLarge);
-    drawCentered(frameBuf, 120, "Tilt UP: Orbitals", kChooserTextColor, kFontSmall);
-    drawCentered(frameBuf, 136, "Tilt DOWN: Elements", kChooserTextColor, kFontSmall);
+    drawCentered(frameBuf, 120, "Tilt UP: Orbitals", kChooserTextColor, kFontLarge);
+    drawCentered(frameBuf, 120 + kCalibLineSpacing, "Tilt DOWN: Elements", kChooserTextColor, kFontLarge);
 }
 
 void runChooser(Display &display, TiltGestureDetector &tilt)

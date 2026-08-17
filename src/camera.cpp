@@ -66,3 +66,9 @@ int nextZoomExcursionCountdown() {
     uint32_t span = uint32_t(kZoomExcursionMaxIntervalFrames - kZoomExcursionMinIntervalFrames + 1);
     return kZoomExcursionMinIntervalFrames + int(esp_random() % span);
 }
+
+int randomIndexExcluding(int current, int count) {
+    // offset in [1, count-1] so current+offset (mod count) can never land back on current.
+    int offset = 1 + int(esp_random() % uint32_t(count - 1));
+    return (current + offset) % count;
+}

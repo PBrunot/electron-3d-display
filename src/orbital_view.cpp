@@ -1,8 +1,10 @@
 #include "orbital_view.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
+#include "equation_bitmap.h"
 #include "esp_attr.h" // EXT_RAM_BSS_ATTR
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -13,6 +15,66 @@
 #include "overlay.h"
 
 static const char *kOrbitalViewTag = "orbital_view";
+
+// "if no activity, ... same for orbitals" (feedback, 2026-08-17) -- idle threshold for
+// OrbitalView's random auto-advance, see runOrbitalView()'s lastActivityUs tracking below.
+// Same value as atom_view.cpp's kIdleJumpUs, kept as a separate constant per file since
+// nothing else needs to share it.
+constexpr int64_t kIdleJumpUs = 60'000'000;
+
+// --- Orbital-switch quantum-number reveal (Right/Left tilt-hold, and the idle jump) ----
+//
+// "numbers reveal, but in background I want equations -- schroedinger and the decomposed
+// psi_real used by our calculation in gray" (feedback, 2026-08-17). The equation image is
+// pre-rendered offline (tools/equation_gen/render_equations.py) and blitted as a static
+// backdrop -- see equation_bitmap.h's header comment for why an image instead of new font
+// glyphs. n/l/m reveal progressively on top of it, one stage per short real-time hold.
+namespace {
+constexpr int kOrbitalIntroEqX = (Display::kDisplayWidth - kEquationBitmapWidth) / 2;
+constexpr int kOrbitalIntroEqY = 140;
+// Dim on purpose -- background decoration, not the star of the animation (matches
+// atom_view.cpp's kDissectDimColor, same intent: legible but clearly secondary).
+constexpr uint16_t kOrbitalIntroEqColor = Display::packColor565(70, 70, 70);
+// Scale 2, not 3 (kDissectBigScale's size elsewhere) -- the final stage ("n=X l=Y m=Z",
+// m can be negative/2-digit-wide for this library's presets) overflows the 240px width at
+// scale 3 (measured up to 282px for "n=3 l=2 m=-2"); scale 2's worst case (188px) leaves
+// comfortable margin, and using one fixed scale for all three stages (rather than picking
+// per-stage like atom_view.cpp's pickNameScale()) keeps the reveal's size steady instead of
+// jumping bigger->smaller when the longest stage appears.
+constexpr int kOrbitalIntroNumberScale = 2;
+constexpr int kOrbitalIntroNumberY = 50;
+constexpr uint32_t kOrbitalIntroStageHoldMs = 550;
+
+void renderOrbitalIntroStage(Display &display, const char *text) {
+    display.waitForFlushDone();
+    uint16_t *frameBuf = display.getFrameBuf();
+    std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
+    drawEquationBackdrop(frameBuf, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
+    int width = textWidthScaled(text, kFontLarge, kOrbitalIntroNumberScale);
+    int x = (Display::kDisplayWidth - width) / 2;
+    drawTextScaled(frameBuf, x, kOrbitalIntroNumberY, text, Display::kColorWhite, kFontLarge,
+                   kOrbitalIntroNumberScale);
+    display.presentFrame();
+}
+
+/** Reveal "n=X", then "n=X l=Y", then "n=X l=Y m=Z" (each held kOrbitalIntroStageHoldMs),
+ * over the dim equation backdrop -- shown before switching to a new orbital preset, same
+ * spot in the flow as atom_view.cpp's scrollElementIntro() before its flyOver(). */
+void scrollOrbitalIntro(Display &display, int n, int ell, int m) {
+    char stage[24];
+    std::snprintf(stage, sizeof(stage), "n=%d", n);
+    renderOrbitalIntroStage(display, stage);
+    vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs));
+
+    std::snprintf(stage, sizeof(stage), "n=%d l=%d", n, ell);
+    renderOrbitalIntroStage(display, stage);
+    vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs));
+
+    std::snprintf(stage, sizeof(stage), "n=%d l=%d m=%d", n, ell, m);
+    renderOrbitalIntroStage(display, stage);
+    vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs));
+}
+} // namespace
 
 void OrbitalPresetState::load(int index)
 {
@@ -116,10 +178,30 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     int cullFrameCount = 0;
     uint32_t buzzFrame = 0;
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
+    int64_t lastActivityUs = esp_timer_get_time();
+
+    // Shared by the manual Right/Left switch and the idle random jump below -- was only
+    // written once (for Right/Left) before the idle timer needed the identical sequence
+    // with a random target instead of an adjacent one.
+    auto switchToPreset = [&](int newIndex) {
+        ESP_LOGI(kOrbitalViewTag, "switching preset %d -> %d", presetIndex, newIndex);
+        const OrbitalDescriptor &newD = kOrbitalLibrary[newIndex];
+        orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
+        scrollOrbitalIntro(display, newD.n, newD.ell, newD.m);
+        presetIndex = newIndex;
+        preset.load(presetIndex);
+        flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
+                kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames, kBuzzThreshold);
+        zoomAngle = orb_real_t(0);
+        zoomExcursionCountdown = nextZoomExcursionCountdown();
+    };
 
     while (true)
     {
         TiltEvent tiltEv = tilt.poll();
+        if (tiltEv.phase == TiltPhase::kConfirmed || tiltEv.phase == TiltPhase::kConfirmedLong)
+            lastActivityUs = esp_timer_get_time();
+
         if (tiltEv.phase == TiltPhase::kConfirmed)
         {
             if (tiltEv.direction == TiltDirection::kUp)
@@ -131,20 +213,23 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
             {
                 int delta = tiltEv.direction == TiltDirection::kRight ? 1 : -1;
                 int newIndex = (presetIndex + delta + kOrbitalLibraryCount) % kOrbitalLibraryCount;
-                ESP_LOGI(kOrbitalViewTag, "tilt %s confirmed -- switching preset %d -> %d",
-                         tiltDirectionName(tiltEv.direction), presetIndex, newIndex);
-                orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
-                presetIndex = newIndex;
-                preset.load(presetIndex);
-                flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
-                        kTextColor, kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames,
-                        kBuzzThreshold);
-                zoomAngle = orb_real_t(0);
-                zoomExcursionCountdown = nextZoomExcursionCountdown();
+                ESP_LOGI(kOrbitalViewTag, "tilt %s confirmed", tiltDirectionName(tiltEv.direction));
+                switchToPreset(newIndex);
                 continue;
             }
             if (tiltEv.direction == TiltDirection::kDown)
                 ESP_LOGI(kOrbitalViewTag, "tilt DOWN confirmed -- no action in orbital view");
+        }
+
+        // Idle auto-advance -- see atom_view.cpp's identical kIdleJumpUs comment; reuses
+        // switchToPreset()'s exact animation with a random (not adjacent) target.
+        if (esp_timer_get_time() - lastActivityUs > kIdleJumpUs)
+        {
+            int newIndex = randomIndexExcluding(presetIndex, kOrbitalLibraryCount);
+            ESP_LOGI(kOrbitalViewTag, "idle 60s+ -- jumping to random preset %d", newIndex);
+            switchToPreset(newIndex);
+            lastActivityUs = esp_timer_get_time();
+            continue;
         }
 
         zoomExcursionCountdown--;
