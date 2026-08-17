@@ -1,9 +1,10 @@
-// Exactly one of the three #define toggles below may be active at a time; with none
+// Exactly one of the four #define toggles below may be active at a time; with none
 // defined, app_main() boots the orbital viewer (the real default).
 
 // #define ATOM_VALIDATION_TEST
 // #define ATOM_VIEW_TEST
-// #define ATOM_VIEW
+#define ATOM_VIEW
+// #define COLOR_TEST
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,6 +22,10 @@
 #include "atom_view.h"
 #endif
 
+#ifdef COLOR_TEST
+#include "color_test.h"
+#endif
+
 extern "C" void app_main(void) {
 #ifdef ATOM_VALIDATION_TEST
     while (1) {
@@ -33,6 +38,9 @@ extern "C" void app_main(void) {
 #elif defined(ATOM_VIEW)
     Display display{};
     runAtomView(display);
+#elif defined(COLOR_TEST)
+    Display display{};
+    runColorTest(display);
 #else
     Display display{};
     runOrbitalView(display);

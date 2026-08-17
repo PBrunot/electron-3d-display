@@ -98,8 +98,17 @@ constexpr uint8_t kAtomShellRgb[9][3] = {
 /** kAtomShellRgb[n], clamped to the fallback entry for n outside [1, 7]. */
 const uint8_t* shellBaseRgb(int n);
 
-constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.92); // lerp toward white
-constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);       // scale toward black
+// atom_cloud.py's own OUTER_SHELL_BRIGHTEN=0.92 pushes almost to pure white, tuned for a
+// renderer that either draws the point outright with no discount (its "device path"
+// comment) or discounts it via PC's own ELECTRON_ALPHA blend -- either way, a single hit
+// already reads as near-white there. Kept lower here (0.6, closer to that same docstring's
+// other quoted figure of 0.55, "read as only a modest change") since this renderer ALSO
+// alpha-blends (camera.h's kElectronAlphaQ8) and the valence subshell typically covers a
+// much larger on-screen area than the dimmed core -- 0.92 read as "the atom is just white"
+// rather than "the valence shell stands out from a colored core" once actually seen on
+// this panel.
+constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.6); // lerp toward white
+constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward black
 
 /**
  * Which subshell (n, ell) has the largest measured p90 radius in THIS specific point
@@ -124,27 +133,19 @@ OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const Electr
  */
 void colorizeAtomPoints(const AtomPoint* points, int count, const OuterSubshell& outer, uint16_t* outColors);
 
-// --- Scale calibration (M4) ---
-//
-// Rubidium (Z=37) is the reference element: the largest atom this model produces within
-// the Clementi-Raimondi-covered range (Z<=54) -- see micropython/atom_cloud.py's
-// calibration comment for the full derivation (why Rb specifically, why 0.6 of canvas
-// center, and the known Z>=55 Slater-fallback caveat, all unchanged here).
-constexpr int kAtomCalibrationZ = 37;
-constexpr orb_real_t kAtomCalibrationRadiusFraction = orb_real_t(0.6);
-constexpr int kAtomCalibrationPoints = 2000;
 constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py's SEED
 
-/**
- * The single pixels-per-Bohr-radius conversion factor scaleForAtom() needs, calibrated so
- * `referenceZ`'s outermost subshell reaches `radiusFraction` of `canvasCenter` at rest --
- * see the calibration comment above for why a FRACTION of the caller's own canvas center,
- * not a fixed pixel count (this module has no canvas of its own). Call once (e.g. lazily
- * on first use) and cache the result -- this builds and discards a whole reference point
- * cloud, not free. Port of atom_cloud.pixels_per_bohr_for_canvas().
- */
-orb_real_t pixelsPerBohrForCanvas(orb_real_t canvasCenter, orb_real_t radiusFraction = kAtomCalibrationRadiusFraction,
-                                   int referenceZ = kAtomCalibrationZ);
+// --- Scale (M4, revised) ---
+//
+// Deviation from atom_cloud.py: that model deliberately uses ONE fixed pixels-per-Bohr-
+// radius, calibrated against Rubidium (Z=37), so switching elements shows the real
+// periodic size trend (noble gases small and tight, alkali metals big and diffuse).
+// Abandoned here per explicit user decision after seeing it on this panel: a 240px screen
+// with no zoom control yet (that lands in M5) makes most elements read as "just far away"
+// under that scheme. Every element now renormalizes to the SAME on-screen target radius
+// instead, exactly like orbital_presets.h's scaleFromRadii() already does for hydrogen
+// presets -- consistent, always-legible size at the cost of the periodic size trend.
+constexpr orb_real_t kAtomTargetPx = orb_real_t(75); // p90 outer-subshell radius, in pixels, at rest
 
 constexpr orb_real_t kAtomZoomAmplitudeFraction = orb_real_t(0.4); // matches cloud_common.ZOOM_AMPLITUDE_FRACTION
 
@@ -153,13 +154,9 @@ struct AtomScale {
 };
 
 /**
- * Like orbital_presets.h's scaleFromRadii(), but with a FIXED baseScale (pixelsPerBohr,
- * the same for every element) instead of one renormalized per-cloud to a constant
- * target_px -- switching Z is partly meant to SHOW the periodic size trend (noble gases
- * small and tight, alkali metals big and diffuse), so it must not be erased the way
- * orbital_presets.h's hydrogen-preset scaling deliberately erases size differences.
- * `rRef` must be outerSubshellRRef()'s result, not the whole cloud's p90 -- see that
- * function's docstring. Port of atom_cloud.scale_for_atom().
+ * Like orbital_presets.h's scaleFromRadii(): baseScale = kAtomTargetPx / rRef, so every
+ * element's outer subshell reaches the same on-screen radius regardless of its actual
+ * physical size. `rRef` must be outerSubshellRRef()'s result, not the whole cloud's p90 --
+ * see that function's docstring.
  */
-AtomScale scaleForAtom(orb_real_t rRef, orb_real_t pixelsPerBohr,
-                        orb_real_t amplitudeFraction = kAtomZoomAmplitudeFraction);
+AtomScale scaleForAtom(orb_real_t rRef, orb_real_t amplitudeFraction = kAtomZoomAmplitudeFraction);

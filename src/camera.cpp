@@ -48,6 +48,12 @@ void drawProtonMarker(uint16_t* frameBuf, uint16_t color) {
             frameBuf[y * Display::kDisplayWidth + x] = color;
 }
 
+void fadeFrameBuffer(uint16_t* frameBuf) {
+    int total = Display::kDisplayWidth * Display::kDisplayHeight;
+    for (int i = 0; i < total; i++)
+        frameBuf[i] = Display::fadeColor565(frameBuf[i], kPersistenceKeepQ8);
+}
+
 orb_real_t randomUnit() {
     return orb_real_t(esp_random()) / orb_real_t(4294967296.0); // 2^32
 }

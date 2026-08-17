@@ -1,5 +1,7 @@
 #include "display.h"
 
+#include <cstring>
+
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_heap_caps.h"
@@ -97,6 +99,11 @@ Display::Display()
         ESP_LOGE(kDisplayTag, "failed to allocate frame buffer");
         abort();
     }
+    // heap_caps_malloc() does not zero memory, and callers now fade toward black each frame
+    // (see camera.h's fadeFrameBuffer()) rather than hard-clearing it -- without this, the
+    // very first frame would fade whatever garbage happened to be in this memory instead of
+    // starting from black, a brief noise flash at boot.
+    std::memset(frame_buf, 0, kDisplayWidth * kDisplayHeight * sizeof(uint16_t));
 
     this->panel = panel_handle;
     this->frameBuf = frame_buf;
@@ -112,4 +119,32 @@ void Display::presentFrame() {
 
 auto Display::waitForFlushDone() -> bool {
     return s_flushDone == nullptr || xSemaphoreTake(s_flushDone, portMAX_DELAY) == pdTRUE;
+}
+
+void Display::unpackColor565(uint16_t c, uint8_t* r, uint8_t* g, uint8_t* b) {
+    uint8_t r5 = (c >> 11) & 0x1F;
+    uint8_t bField6 = (c >> 5) & 0x3F; // carries the physical BLUE value, see packColor565()
+    uint8_t gField5 = c & 0x1F;        // carries the physical GREEN value, see packColor565()
+    *r = uint8_t((r5 << 3) | (r5 >> 2));
+    *b = uint8_t((bField6 << 2) | (bField6 >> 4));
+    *g = uint8_t((gField5 << 3) | (gField5 >> 2));
+}
+
+uint16_t Display::blendColor565(uint16_t base, uint16_t target, uint16_t alphaQ8) {
+    uint8_t br, bg, bb, tr, tg, tb;
+    unpackColor565(base, &br, &bg, &bb);
+    unpackColor565(target, &tr, &tg, &tb);
+    uint8_t r = uint8_t(int(br) + (((int(tr) - int(br)) * int(alphaQ8)) >> 8));
+    uint8_t g = uint8_t(int(bg) + (((int(tg) - int(bg)) * int(alphaQ8)) >> 8));
+    uint8_t b = uint8_t(int(bb) + (((int(tb) - int(bb)) * int(alphaQ8)) >> 8));
+    return packColor565(r, g, b);
+}
+
+uint16_t Display::fadeColor565(uint16_t c, uint16_t keepQ8) {
+    uint8_t r, g, b;
+    unpackColor565(c, &r, &g, &b);
+    r = uint8_t((int(r) * int(keepQ8)) >> 8);
+    g = uint8_t((int(g) * int(keepQ8)) >> 8);
+    b = uint8_t((int(b) * int(keepQ8)) >> 8);
+    return packColor565(r, g, b);
 }
