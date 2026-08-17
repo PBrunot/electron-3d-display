@@ -1,14 +1,19 @@
 // Exactly one of the four #define toggles below may be active at a time; with none
-// defined, app_main() boots the orbital viewer (the real default).
+// defined, app_main() boots the runtime chooser menu (the real default, see chooser.h) --
+// tilt UP launches the orbital viewer, tilt DOWN the element viewer, matching
+// micropython/chooser.py's role. ATOM_VIEW is currently active below for direct testing --
+// comment it out to reach the chooser instead.
 
 // #define ATOM_VALIDATION_TEST
 // #define ATOM_VIEW_TEST
 #define ATOM_VIEW
 // #define COLOR_TEST
 
+#include "chooser.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "orbital_view.h"
+#include "imu.h"
+#include "tilt_gesture.h"
 
 #ifdef ATOM_VALIDATION_TEST
 #include "atom_validation_test.h"
@@ -39,12 +44,19 @@ extern "C" void app_main(void)
     runAtomViewTest(display);
 #elif defined(ATOM_VIEW)
     Display display{};
-    runAtomView(display);
+    Qmi8658 imu{};
+    TiltGestureDetector tilt{imu};
+    tilt.calibrate();
+    calibrateDirections(display, tilt);
+    runAtomView(display, tilt);
 #elif defined(COLOR_TEST)
     Display display{};
     runColorTest(display);
 #else
     Display display{};
-    runOrbitalView(display);
+    Qmi8658 imu{};
+    TiltGestureDetector tilt{imu};
+    tilt.calibrate();
+    runChooser(display, tilt);
 #endif
 }

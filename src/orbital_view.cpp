@@ -58,16 +58,22 @@ void OrbitalPresetState::resamplePoints(int count)
     }
 }
 
-void runOrbitalView(Display &display)
+void runOrbitalView(Display &display, TiltGestureDetector &tilt)
 {
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
     static OrbitalPresetState preset;
-    preset.load(kOrbitalDefaultPresetIndex);
+    static int presetIndex = -1;
+    if (presetIndex < 0) // first-ever call this boot -- later calls (after a menu round-trip)
+    {                    // keep whatever preset was last showing
+        presetIndex = kOrbitalDefaultPresetIndex;
+        preset.load(presetIndex);
+    }
 
     constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
     constexpr uint16_t kTextColor = Display::kColorWhite;
-    constexpr uint16_t kScaleBarColor = Display::packColor565(210, 210, 210);
+    constexpr uint16_t kScaleBarColor = Display::kColorWhite;
+    constexpr uint16_t kArrowColor = Display::packColor565(255, 210, 60);
     constexpr uint32_t kBuzzThreshold = uint32_t(kOrbitalBuzzFraction * orb_real_t(65536));
 
     // preset has static storage duration, so it's odr-usable without capturing --
@@ -97,6 +103,34 @@ void runOrbitalView(Display &display)
 
     while (true)
     {
+        TiltEvent tiltEv = tilt.poll();
+        if (tiltEv.phase == TiltPhase::kConfirmed)
+        {
+            if (tiltEv.direction == TiltDirection::kUp)
+            {
+                ESP_LOGI(kOrbitalViewTag, "tilt UP confirmed -- returning to menu");
+                return;
+            }
+            if (tiltEv.direction == TiltDirection::kRight || tiltEv.direction == TiltDirection::kLeft)
+            {
+                int delta = tiltEv.direction == TiltDirection::kRight ? 1 : -1;
+                int newIndex = (presetIndex + delta + kOrbitalLibraryCount) % kOrbitalLibraryCount;
+                ESP_LOGI(kOrbitalViewTag, "tilt %s confirmed -- switching preset %d -> %d",
+                         tiltDirectionName(tiltEv.direction), presetIndex, newIndex);
+                orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
+                presetIndex = newIndex;
+                preset.load(presetIndex);
+                flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
+                        kTextColor, kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames,
+                        kBuzzThreshold);
+                zoomAngle = orb_real_t(0);
+                zoomExcursionCountdown = nextZoomExcursionCountdown();
+                continue;
+            }
+            if (tiltEv.direction == TiltDirection::kDown)
+                ESP_LOGI(kOrbitalViewTag, "tilt DOWN confirmed -- no action in orbital view");
+        }
+
         zoomExcursionCountdown--;
         if (zoomExcursionCountdown <= 0)
         {
@@ -128,6 +162,8 @@ void runOrbitalView(Display &display)
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
         drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontLarge);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+        if (tiltEv.phase != TiltPhase::kIdle)
+            drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kArrowColor);
         display.presentFrame();
 
         frameCount++;

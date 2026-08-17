@@ -10,9 +10,22 @@
 // an alternate entry point like atom_view_test.h's M1/M2 placeholder, but this is the real
 // parity build. No point-turnover here (unlike orbital_view.h) -- atom_cloud's cloud is a
 // mixture of several subshells built once and stays static, matching
-// atom_cloud.py's module docstring on that tradeoff. Nudge-driven Z switching lands in M5
-// -- for now runAtomView() always shows kAtomViewDefaultZ (carbon) and never returns (the
-// menu it would return to doesn't exist yet either, that's M6).
+// atom_cloud.py's module docstring on that tradeoff.
+//
+// Tilt-gesture-driven controls (see tilt_gesture.h): Right/Left tilt-hold steps the
+// element Z up/down (wrapping 1..kMaxZ); Up tilt-hold returns to chooser.h's menu (this
+// function then returns); Down tilt-hold triggers the on-device shell dissection sequence
+// (runDissectionSequence(), file-local to atom_view.cpp, built on atom_cloud.h's
+// subshellDissectionPlan()) -- a simplified device-path port of pc/atom_view_pc.py's
+// shell-dissection sequence (D key): ONE Down-hold automatically peels through every
+// occupied subshell outer to inner (no further gesture needed mid-sequence, matching the
+// PC version's own one-shot blocking sequence), easing the camera in to frame each newly-
+// revealed outermost remaining shell and holding briefly before moving to the next, then
+// easing back to the full atom at the end. Two deliberate simplifications vs the PC
+// version: whole shells are DROPPED as they're peeled away (rather than a camera-space
+// half-clip cutaway -- no per-frame clip-plane test needed, and arguably clearer on a
+// 240x240 panel: a whole shell vanishes instead of being sliced in half), and there's no
+// phase/sign coloring (matches atom_cloud.h's existing on-device simplification).
 #pragma once
 
 #include <cstdint>
@@ -21,6 +34,7 @@
 #include "camera.h"
 #include "display.h"
 #include "font.h"
+#include "tilt_gesture.h"
 
 constexpr int kAtomViewNumPoints = 3000; // matches atom_view.py's N_POINTS (device budget)
 static_assert(kAtomViewNumPoints <= kAtomMaxPoints,
@@ -56,7 +70,7 @@ void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig
                     const Font& font);
 
 /**
- * Run the atom viewer, forever (see this file's header comment on why it never returns
- * yet).
+ * Run the atom viewer until an Up tilt-hold confirms (see this file's header comment), at
+ * which point this returns so the caller (chooser.h) can show the menu again.
  */
-void runAtomView(Display& display);
+void runAtomView(Display& display, TiltGestureDetector& tilt);
