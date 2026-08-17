@@ -14,3 +14,14 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # of only at compile time. 16KB is a generous margin above the ~5-6KB peak estimated
 # from that call chain.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# Performance tuning found via menuconfig (see boards/ST7789VW_ESP32S3.pdf review):
+# stock idf.py defaults were leaving CPU clock, build optimization, PSRAM speed, and
+# FreeRTOS tick rate all below what the ESP32-S3 and this board's octal PSRAM support.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_SPIRAM_SPEED_80M=y
+# Was 100Hz (10ms tick), which silently turned every per-frame vTaskDelay(pdMS_TO_TICKS(1))
+# in the render loops (e.g. atom_view.cpp) into a 10ms sleep -- a third of the frame
+# budget at 30 FPS. 500Hz (2ms tick) shrinks that to 2ms; still not literally 1ms.
+CONFIG_FREERTOS_HZ=500

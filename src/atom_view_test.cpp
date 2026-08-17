@@ -68,9 +68,21 @@ void runAtomViewTest(Display& display) {
     int framesSinceReport = 0;
     char fpsText[16] = "FPS: --";
 
+    // Per-phase profiling: split each frame into (a) time blocked in waitForFlushDone()
+    // waiting on the PREVIOUS frame's SPI DMA to finish, and (b) CPU render time (memset +
+    // rotate/project/rasterize + text). presentFrame() itself just queues DMA and returns,
+    // so it's folded into (b) rather than tracked separately. Summed and averaged over the
+    // same window as the FPS report so we can see which phase actually dominates the ~28ms
+    // budget instead of guessing from config changes alone.
+    int64_t waitUsAccum = 0;
+    int64_t renderUsAccum = 0;
+
     CameraState camera;
     while (1) {
+        int64_t tBeforeWait = esp_timer_get_time();
         display.waitForFlushDone(); // wait for the previous frame's DMA to finish before overwriting the buffer
+        int64_t tAfterWait = esp_timer_get_time();
+
         std::memset(display.getFrameBuf(), 0, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
 
         RotationTrig trig = computeRotationTrig(camera);
@@ -82,7 +94,11 @@ void runAtomViewTest(Display& display) {
         drawScaleBar(display.getFrameBuf(), kScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
         display.presentFrame();
+        int64_t tAfterPresent = esp_timer_get_time();
         stepCamera(&camera);
+
+        waitUsAccum += tAfterWait - tBeforeWait;
+        renderUsAccum += tAfterPresent - tAfterWait;
 
         framesSinceReport++;
         if (framesSinceReport >= kFpsReportEveryNFrames) {
@@ -92,8 +108,13 @@ void runAtomViewTest(Display& display) {
             std::snprintf(fpsText, sizeof(fpsText), "FPS: %.1f", fps);
             ESP_LOGI(kAtomViewTestTag, "FPS: %.1f (%d frames / %.3fs, %d points/frame)", fps, framesSinceReport,
                      elapsedS, kNumPoints);
+            ESP_LOGI(kAtomViewTestTag, "  avg wait(prev DMA)=%.2fms avg render(CPU)=%.2fms",
+                     double(waitUsAccum) / framesSinceReport / 1000.0,
+                     double(renderUsAccum) / framesSinceReport / 1000.0);
             reportWindowStartUs = nowUs;
             framesSinceReport = 0;
+            waitUsAccum = 0;
+            renderUsAccum = 0;
         }
 
         vTaskDelay(pdMS_TO_TICKS(1));

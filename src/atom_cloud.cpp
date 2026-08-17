@@ -65,7 +65,9 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint* out, int count, uint32_t se
     DrawingGroup groups[kMaxDrawingGroups];
     int groupCount = drawingGroups(config, groups);
 
-    int weights[kMaxDrawingGroups];
+    int weights[kMaxDrawingGroups] = {}; // zero-init: only [0, groupCount) is ever read, but
+                                          // GCC's -Wmaybe-uninitialized can't prove that across
+                                          // the splitCounts() call boundary otherwise
     for (int i = 0; i < groupCount; i++)
         weights[i] = groups[i].weight;
     int counts[kMaxDrawingGroups];
