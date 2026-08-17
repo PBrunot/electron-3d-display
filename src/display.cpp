@@ -27,16 +27,18 @@
 // for pixel glitches/noise), not assumed safe just because it's the next divisor.
 #define LCD_PIXEL_CLOCK_HZ (80 * 1000 * 1000)
 
-auto Display::onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* userCtx) -> bool {
-    Display* self = static_cast<Display*>(userCtx);
+auto Display::onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *, void *userCtx) -> bool
+{
+    Display *self = static_cast<Display *>(userCtx);
     BaseType_t highPriorityTaskWoken = pdFALSE;
     xSemaphoreGiveFromISR(self->s_flushDone, &highPriorityTaskWoken);
     return highPriorityTaskWoken == pdTRUE;
 }
 
-Display::Display(esp_lcd_panel_handle_t panel, uint16_t* frameBuf) : panel(panel), frameBuf(frameBuf) {}
+Display::Display(esp_lcd_panel_handle_t panel, uint16_t *frameBuf) : panel(panel), frameBuf(frameBuf) {}
 
-Display::~Display() {
+Display::~Display()
+{
     if (frameBuf != nullptr)
         heap_caps_free(frameBuf);
     if (panel != nullptr)
@@ -93,9 +95,10 @@ Display::Display()
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
-    uint16_t* frame_buf =
-        (uint16_t*)heap_caps_malloc(kDisplayWidth * kDisplayHeight * sizeof(uint16_t), MALLOC_CAP_DMA);
-    if (frame_buf == NULL) {
+    uint16_t *frame_buf =
+        (uint16_t *)heap_caps_malloc(kDisplayWidth * kDisplayHeight * sizeof(uint16_t), MALLOC_CAP_DMA);
+    if (frame_buf == NULL)
+    {
         ESP_LOGE(kDisplayTag, "failed to allocate frame buffer");
         abort();
     }
@@ -109,19 +112,23 @@ Display::Display()
     this->frameBuf = frame_buf;
 }
 
-auto Display::getFrameBuf() -> uint16_t* {
+auto Display::getFrameBuf() -> uint16_t *
+{
     return frameBuf;
 }
 
-void Display::presentFrame() {
+void Display::presentFrame()
+{
     ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(this->panel, 0, 0, Display::kDisplayWidth, Display::kDisplayHeight, this->frameBuf));
 }
 
-auto Display::waitForFlushDone() -> bool {
+auto Display::waitForFlushDone() -> bool
+{
     return s_flushDone == nullptr || xSemaphoreTake(s_flushDone, portMAX_DELAY) == pdTRUE;
 }
 
-void Display::unpackColor565(uint16_t c, uint8_t* r, uint8_t* g, uint8_t* b) {
+void Display::unpackColor565(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)
+{
     uint8_t r5 = (c >> 11) & 0x1F;
     uint8_t bField6 = (c >> 5) & 0x3F; // carries the physical BLUE value, see packColor565()
     uint8_t gField5 = c & 0x1F;        // carries the physical GREEN value, see packColor565()
@@ -130,7 +137,8 @@ void Display::unpackColor565(uint16_t c, uint8_t* r, uint8_t* g, uint8_t* b) {
     *g = uint8_t((gField5 << 3) | (gField5 >> 2));
 }
 
-uint16_t Display::blendColor565(uint16_t base, uint16_t target, uint16_t alphaQ8) {
+uint16_t Display::blendColor565(uint16_t base, uint16_t target, uint16_t alphaQ8)
+{
     uint8_t br, bg, bb, tr, tg, tb;
     unpackColor565(base, &br, &bg, &bb);
     unpackColor565(target, &tr, &tg, &tb);
@@ -140,7 +148,8 @@ uint16_t Display::blendColor565(uint16_t base, uint16_t target, uint16_t alphaQ8
     return packColor565(r, g, b);
 }
 
-uint16_t Display::fadeColor565(uint16_t c, uint16_t keepQ8) {
+uint16_t Display::fadeColor565(uint16_t c, uint16_t keepQ8)
+{
     uint8_t r, g, b;
     unpackColor565(c, &r, &g, &b);
     r = uint8_t((int(r) * int(keepQ8)) >> 8);

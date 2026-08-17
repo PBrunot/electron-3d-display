@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
-#include "display.h"          // packColor565
-#include "orbital_library.h"  // findOrbitalSampler
+#include "display.h"         // packColor565
+#include "orbital_library.h" // findOrbitalSampler
 
 constexpr int kOrbitalColorMinLevel = 60; // keeps the dimmest points visible instead of fading to black
 
@@ -15,24 +15,28 @@ constexpr int kOrbitalColorMinLevel = 60; // keeps the dimmest points visible in
 static constexpr uint8_t kPhasePositiveRgb[3] = {255, 120, 40};
 static constexpr uint8_t kPhaseNegativeRgb[3] = {40, 120, 255};
 
-uint16_t orbitalLevelToColor565(int level, int sign) {
-    const uint8_t* base = sign >= 0 ? kPhasePositiveRgb : kPhaseNegativeRgb;
+uint16_t orbitalLevelToColor565(int level, int sign)
+{
+    const uint8_t *base = sign >= 0 ? kPhasePositiveRgb : kPhaseNegativeRgb;
     return Display::packColor565(uint8_t(base[0] * level / 255), uint8_t(base[1] * level / 255),
-                         uint8_t(base[2] * level / 255));
+                                 uint8_t(base[2] * level / 255));
 }
 
-void computeOrbitalLevels(const orb_real_t* psi2, int count, uint8_t* outLevels, orb_real_t* outPsi2Sorted) {
+void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels, orb_real_t *outPsi2Sorted)
+{
     // Static, not stack-local: this project avoids large stack arrays after
     // pointcloud.h's buildRadialSamplerRuntime() already hit a real task stack overflow
     // with a much smaller (~4KB) local array.
     static int order[kOrbitalMaxPoints];
     for (int i = 0; i < count; i++)
         order[i] = i;
-    std::sort(order, order + count, [psi2](int a, int b) { return psi2[a] < psi2[b]; });
+    std::sort(order, order + count, [psi2](int a, int b)
+              { return psi2[a] < psi2[b]; });
 
     int span = kOrbitalColorMaxLevel - kOrbitalColorMinLevel;
     int denom = count > 1 ? count - 1 : 1;
-    for (int rank = 0; rank < count; rank++) {
+    for (int rank = 0; rank < count; rank++)
+    {
         int i = order[rank];
         outPsi2Sorted[rank] = psi2[i];
         outLevels[i] = uint8_t(kOrbitalColorMinLevel + (rank * span) / denom);
@@ -42,9 +46,11 @@ void computeOrbitalLevels(const orb_real_t* psi2, int count, uint8_t* outLevels,
 /** Index where `value` would insert into ascending `sortedValues` -- manual binary search
  * (bisect_rank() in cloud_common.py; not the <algorithm> equivalent, to keep this a
  * standalone, easily-portable primitive matching every other port's version). */
-static int bisectRank(const orb_real_t* sortedValues, int count, orb_real_t value) {
+static int bisectRank(const orb_real_t *sortedValues, int count, orb_real_t value)
+{
     int lo = 0, hi = count;
-    while (lo < hi) {
+    while (lo < hi)
+    {
         int mid = (lo + hi) / 2;
         if (sortedValues[mid] < value)
             lo = mid + 1;
@@ -54,7 +60,8 @@ static int bisectRank(const orb_real_t* sortedValues, int count, orb_real_t valu
     return lo;
 }
 
-ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState* state, OrbitalPoint* points) {
+ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState *state, OrbitalPoint *points)
+{
     int idx = state->cursor;
     state->cursor = (idx + 1 < state->count) ? idx + 1 : 0;
 
@@ -83,7 +90,8 @@ ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState* state, Orbit
 static constexpr orb_real_t kOrbitalP90TargetPx = orb_real_t(100);
 static constexpr orb_real_t kOrbitalZoomAmplitudeFraction = orb_real_t(0.4);
 
-OrbitalScale scaleFromRadii(const OrbitalPoint* points, int count) {
+OrbitalScale scaleFromRadii(const OrbitalPoint *points, int count)
+{
     static orb_real_t radii[kOrbitalMaxPoints]; // static scratch, see computeOrbitalLevels()'s comment
     for (int i = 0; i < count; i++)
         radii[i] = std::sqrt(points[i].x * points[i].x + points[i].y * points[i].y + points[i].z * points[i].z);
@@ -97,15 +105,17 @@ OrbitalScale scaleFromRadii(const OrbitalPoint* points, int count) {
     return OrbitalScale{baseScale, baseScale * kOrbitalZoomAmplitudeFraction, rRef};
 }
 
-void buildOrbitalPointCloud(int n, int ell, int m, OrbitalPoint* outPoints, orb_real_t* outPsi2, int8_t* outSigns,
-                             int count, uint32_t seed, XorShift32* outRng, orb_real_t* outRadialCoeff,
-                             orb_real_t* outLegendreCoeff) {
-    const OrbitalSampler* sampler = findOrbitalSampler(n, ell, m);
+void buildOrbitalPointCloud(int n, int ell, int m, OrbitalPoint *outPoints, orb_real_t *outPsi2, int8_t *outSigns,
+                            int count, uint32_t seed, XorShift32 *outRng, orb_real_t *outRadialCoeff,
+                            orb_real_t *outLegendreCoeff)
+{
+    const OrbitalSampler *sampler = findOrbitalSampler(n, ell, m);
     XorShift32 rng(seed);
     laguerreCoeffs(n, ell, outRadialCoeff);
     legendreCoeffs(ell, m, outLegendreCoeff);
 
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
+    {
         OrbitalPoint p = sampleOrbitalPoint(sampler, &rng);
         outPoints[i] = p;
 

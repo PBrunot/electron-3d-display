@@ -24,7 +24,8 @@ constexpr uint32_t kOrbitalViewSeed = 12345; // fixed for a reproducible-looking
  * alive for resamplePoints()), their encoded colors, and the OrbitalResampleState to keep
  * resampling from the same distribution later. Port of orbital_view.py's PresetState.
  */
-struct OrbitalPresetState {
+struct OrbitalPresetState
+{
     OrbitalPoint points[kOrbitalViewNumPoints];
     uint16_t colors[kOrbitalViewNumPoints];
     OrbitalResampleState resample;
@@ -41,6 +42,6 @@ struct OrbitalPresetState {
 
 /**
  * Run the orbital viewer, forever (see this file's header comment on why it never
- * returns yet). 
+ * returns yet).
  */
-void runOrbitalView(Display& display);
+void runOrbitalView(Display &display);

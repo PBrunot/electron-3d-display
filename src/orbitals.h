@@ -62,7 +62,7 @@ constexpr orb_real_t kOrbitalPi = orb_real_t(3.14159265358979323846);
  *               Entries with index > ell-|m| or of the wrong parity are
  *               zeroed but otherwise unused by computePLM().
  */
-constexpr void legendreCoeffs(int ell, int m, orb_real_t* coeff);
+constexpr void legendreCoeffs(int ell, int m, orb_real_t *coeff);
 
 /**
  * Evaluate the associated Legendre polynomial P_l^m(theta) from
@@ -77,7 +77,8 @@ constexpr void legendreCoeffs(int ell, int m, orb_real_t* coeff);
  * @return       P_l^m(theta), normalized so its magnitude peaks at 1 over
  *               theta in [0, pi/2).
  */
-constexpr orb_real_t computePLM(orb_real_t theta, int ell, int m, const orb_real_t* coeff) {
+constexpr orb_real_t computePLM(orb_real_t theta, int ell, int m, const orb_real_t *coeff)
+{
     orb_real_t u = std::cos(theta);
     int absM = m < 0 ? -m : m;
     orb_real_t sum = orb_real_t(0);
@@ -92,7 +93,8 @@ constexpr orb_real_t computePLM(orb_real_t theta, int ell, int m, const orb_real
     return sum * std::pow(std::sin(theta), orb_real_t(absM));
 }
 
-constexpr void legendreCoeffs(int ell, int m, orb_real_t* coeff) {
+constexpr void legendreCoeffs(int ell, int m, orb_real_t *coeff)
+{
     for (int i = 0; i <= ell; i++)
         coeff[i] = orb_real_t(0);
 
@@ -100,12 +102,14 @@ constexpr void legendreCoeffs(int ell, int m, orb_real_t* coeff) {
     int ellEll1 = ell * (ell + 1);
     coeff[0] = orb_real_t(1 - 2 * (ell % 2));
 
-    for (int iM = ell; iM > absM; iM--) {
+    for (int iM = ell; iM > absM; iM--)
+    {
         orb_real_t denominator = std::sqrt(orb_real_t(ellEll1 - iM * (iM - 1)));
         int kStart = (ell - iM) % 2;
         if (kStart == 1)
             coeff[0] = orb_real_t(0);
-        for (int k = kStart; k <= (ell - iM); k += 2) {
+        for (int k = kStart; k <= (ell - iM); k += 2)
+        {
             if (k > 0)
                 coeff[k - 1] += orb_real_t(k) * coeff[k] / denominator;
             coeff[k + 1] = -orb_real_t(k + 2 * iM) * coeff[k] / denominator;
@@ -117,7 +121,8 @@ constexpr void legendreCoeffs(int ell, int m, orb_real_t* coeff) {
     // in quantum-physics.js exactly (same step count/bound), so the two
     // implementations converge to the same normalization constant.
     orb_real_t maxValue = orb_real_t(0);
-    for (orb_real_t theta = orb_real_t(0); theta < kOrbitalPi / 2; theta += kOrbitalPi / 100) {
+    for (orb_real_t theta = orb_real_t(0); theta < kOrbitalPi / 2; theta += kOrbitalPi / 100)
+    {
         orb_real_t value = computePLM(theta, ell, m, coeff);
         maxValue = std::max(maxValue, std::abs(value));
     }
@@ -136,10 +141,12 @@ constexpr void legendreCoeffs(int ell, int m, orb_real_t* coeff) {
  * @param n      Number of samples (table resolution). Defaults to
  *               kOrbitalTableSize.
  */
-constexpr void buildLegendreTable(int ell, int m, orb_real_t* table, int n = kOrbitalTableSize) {
+constexpr void buildLegendreTable(int ell, int m, orb_real_t *table, int n = kOrbitalTableSize)
+{
     orb_real_t coeff[kOrbitalEllMax + 1] = {};
     legendreCoeffs(ell, m, coeff);
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++)
+    {
         orb_real_t theta = kOrbitalPi * orb_real_t(i) / orb_real_t(n - 1);
         table[i] = computePLM(theta, ell, m, coeff);
     }
@@ -157,7 +164,8 @@ constexpr void buildLegendreTable(int ell, int m, orb_real_t* table, int n = kOr
  * @param coeff  [out] Coefficient array, must hold at least n-ell entries
  *               (entries beyond that, up to kOrbitalNMax, are zeroed).
  */
-constexpr void laguerreCoeffs(int n, int ell, orb_real_t* coeff) {
+constexpr void laguerreCoeffs(int n, int ell, orb_real_t *coeff)
+{
     for (int k = 0; k < kOrbitalNMax; k++)
         coeff[k] = orb_real_t(0);
 
@@ -168,7 +176,8 @@ constexpr void laguerreCoeffs(int n, int ell, orb_real_t* coeff) {
     int degree = nClamped - ellClamped;
 
     coeff[0] = orb_real_t(1);
-    for (int k = 0; k + 1 < degree; k++) {
+    for (int k = 0; k + 1 < degree; k++)
+    {
         orb_real_t kk = orb_real_t(k);
         coeff[k + 1] = -orb_real_t(2) * (orb_real_t(1) - (orb_real_t(ellClamped) + kk + orb_real_t(1)) / orb_real_t(nClamped)) /
                        (kk + orb_real_t(1)) / orb_real_t(2 * ellClamped + k + 2) * coeff[k];
@@ -188,10 +197,12 @@ constexpr void laguerreCoeffs(int n, int ell, orb_real_t* coeff) {
  * @return       R_{n,ell}(r) (unnormalized in the standard QM sense -- same
  *               internal normalization convention as the JS reference).
  */
-constexpr orb_real_t hydrogenRadialFunction(orb_real_t r, int n, int ell, const orb_real_t* coeff) {
+constexpr orb_real_t hydrogenRadialFunction(orb_real_t r, int n, int ell, const orb_real_t *coeff)
+{
     orb_real_t result = coeff[0];
     orb_real_t p = orb_real_t(1);
-    for (int k = 1; k < n - ell; k++) {
+    for (int k = 1; k < n - ell; k++)
+    {
         p = p * r;
         result += p * coeff[k];
     }
@@ -213,13 +224,15 @@ constexpr orb_real_t hydrogenRadialFunction(orb_real_t r, int n, int ell, const 
  *                   kOrbitalTableSize.
  * @param maxROut    [out, optional] If non-null, receives maxR = 6*n*n.
  */
-constexpr void buildRadialTable(int n, int ell, orb_real_t* table, int tableSize = kOrbitalTableSize,
-                                 orb_real_t* maxROut = nullptr) {
+constexpr void buildRadialTable(int n, int ell, orb_real_t *table, int tableSize = kOrbitalTableSize,
+                                orb_real_t *maxROut = nullptr)
+{
     orb_real_t coeff[kOrbitalNMax] = {};
     laguerreCoeffs(n, ell, coeff);
     orb_real_t maxR = orb_real_t(6 * n * n);
     orb_real_t deltaR = maxR / orb_real_t(tableSize - 1);
-    for (int i = 0; i < tableSize; i++) {
+    for (int i = 0; i < tableSize; i++)
+    {
         orb_real_t r = orb_real_t(i) * deltaR;
         table[i] = hydrogenRadialFunction(r, n, ell, coeff);
     }
@@ -237,7 +250,8 @@ constexpr void buildRadialTable(int n, int ell, orb_real_t* table, int tableSize
  * @param n      Number of entries in table.
  * @return       Linearly interpolated value at position x.
  */
-constexpr orb_real_t getValueFromLookupTable(orb_real_t x, const orb_real_t* table, int n) {
+constexpr orb_real_t getValueFromLookupTable(orb_real_t x, const orb_real_t *table, int n)
+{
     orb_real_t iFloat = x * orb_real_t(n - 1);
     iFloat = std::max(orb_real_t(0), iFloat);
     int i = int(iFloat); // truncation toward zero == floor() here since iFloat >= 0
@@ -272,7 +286,8 @@ constexpr orb_real_t getValueFromLookupTable(orb_real_t x, const orb_real_t* tab
  *                         whose square is proportional to probability density.
  */
 constexpr orb_real_t psiReal(orb_real_t r, orb_real_t theta, orb_real_t phi, int n, int ell, int m,
-                              const orb_real_t* radialCoeff, const orb_real_t* legendreCoeffArr) {
+                             const orb_real_t *radialCoeff, const orb_real_t *legendreCoeffArr)
+{
     orb_real_t R = hydrogenRadialFunction(r, n, ell, radialCoeff);
     orb_real_t P = computePLM(theta, ell, m, legendreCoeffArr);
     orb_real_t azimuthal = (m >= 0) ? std::cos(orb_real_t(m) * phi) : std::sin(orb_real_t(-m) * phi);

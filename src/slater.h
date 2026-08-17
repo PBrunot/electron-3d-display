@@ -23,11 +23,13 @@
 constexpr int kMaxZ = 118;
 constexpr int kMaxConfigSubshells = 20; // max observed across Z=1..118 is 19 (see slater_data.h gen)
 
-struct SubshellOcc {
+struct SubshellOcc
+{
     int n, ell, occ;
 };
 
-struct ElectronConfig {
+struct ElectronConfig
+{
     SubshellOcc subshells[kMaxConfigSubshells];
     int count = 0;
 };
@@ -39,12 +41,36 @@ struct ElectronConfig {
 // rather than re-sorted here, to avoid depending on a runtime sort for a
 // fixed, tiny, well-known sequence.
 constexpr int kAufbauOrder[26][2] = {
-    {1, 0}, {2, 0}, {2, 1}, {3, 0}, {3, 1}, {4, 0}, {3, 2}, {4, 1}, {5, 0}, {4, 2},
-    {5, 1}, {6, 0}, {4, 3}, {5, 2}, {6, 1}, {7, 0}, {5, 3}, {6, 2}, {7, 1}, {8, 0},
-    {6, 3}, {7, 2}, {8, 1}, {7, 3}, {8, 2}, {8, 3},
+    {1, 0},
+    {2, 0},
+    {2, 1},
+    {3, 0},
+    {3, 1},
+    {4, 0},
+    {3, 2},
+    {4, 1},
+    {5, 0},
+    {4, 2},
+    {5, 1},
+    {6, 0},
+    {4, 3},
+    {5, 2},
+    {6, 1},
+    {7, 0},
+    {5, 3},
+    {6, 2},
+    {7, 1},
+    {8, 0},
+    {6, 3},
+    {7, 2},
+    {8, 1},
+    {7, 3},
+    {8, 2},
+    {8, 3},
 };
 
-constexpr int subshellCapacity(int ell) {
+constexpr int subshellCapacity(int ell)
+{
     return 2 * (2 * ell + 1);
 }
 
@@ -59,15 +85,20 @@ constexpr int subshellCapacity(int ell) {
  *           n-then-ell chemistry order for the exceptions (matching the
  *           source table).
  */
-inline ElectronConfig electronConfiguration(int z) {
+inline ElectronConfig electronConfiguration(int z)
+{
     ElectronConfig config{};
 
-    for (int i = 0; i < kExceptionZsCount; i++) {
-        if (kExceptionZs[i] == z) {
-            for (int j = 0; j < kConfigExceptionsCount; j++) {
-                if (kConfigExceptions[j].z == z) {
+    for (int i = 0; i < kExceptionZsCount; i++)
+    {
+        if (kExceptionZs[i] == z)
+        {
+            for (int j = 0; j < kConfigExceptionsCount; j++)
+            {
+                if (kConfigExceptions[j].z == z)
+                {
                     config.subshells[config.count++] = {kConfigExceptions[j].n, kConfigExceptions[j].ell,
-                                                          kConfigExceptions[j].occ};
+                                                        kConfigExceptions[j].occ};
                 }
             }
             return config;
@@ -75,7 +106,8 @@ inline ElectronConfig electronConfiguration(int z) {
     }
 
     int remaining = z;
-    for (int i = 0; i < 26 && remaining > 0; i++) {
+    for (int i = 0; i < 26 && remaining > 0; i++)
+    {
         int n = kAufbauOrder[i][0];
         int ell = kAufbauOrder[i][1];
         int occ = remaining < subshellCapacity(ell) ? remaining : subshellCapacity(ell);
@@ -85,7 +117,8 @@ inline ElectronConfig electronConfiguration(int z) {
     return config;
 }
 
-inline char subshellLabelChar(int ell) {
+inline char subshellLabelChar(int ell)
+{
     static const char kLabels[] = "spdf";
     return (ell >= 0 && ell <= 3) ? kLabels[ell] : '?';
 }
@@ -98,7 +131,8 @@ inline char subshellLabelChar(int ell) {
  * tuple: (n, ell<=1?0:ell) packed as n*10 + (ell<=1?0:ell), safe since
  * ell<=3 and n<=8 here.
  */
-constexpr int slaterGroupRank(int n, int ell) {
+constexpr int slaterGroupRank(int n, int ell)
+{
     return n * 10 + (ell <= 1 ? 0 : ell);
 }
 
@@ -108,23 +142,29 @@ constexpr int slaterGroupRank(int n, int ell) {
  * `z`. Port of slater.slater_z_eff() -- see that function's docstring for
  * the shielding-constant rules.
  */
-inline orb_real_t slaterZEff(int z, const ElectronConfig& config, int n, int ell) {
+inline orb_real_t slaterZEff(int z, const ElectronConfig &config, int n, int ell)
+{
     int targetGroup = slaterGroupRank(n, ell);
     int sameGroupTotal = 0;
     orb_real_t shield = orb_real_t(0);
 
-    for (int i = 0; i < config.count; i++) {
+    for (int i = 0; i < config.count; i++)
+    {
         int cn = config.subshells[i].n, cell = config.subshells[i].ell, occ = config.subshells[i].occ;
-        if (slaterGroupRank(cn, cell) == targetGroup) {
+        if (slaterGroupRank(cn, cell) == targetGroup)
+        {
             sameGroupTotal += occ;
             continue;
         }
-        if (ell <= 1) {
+        if (ell <= 1)
+        {
             if (cn == n - 1)
                 shield += orb_real_t(0.85) * orb_real_t(occ);
             else if (cn < n - 1)
                 shield += orb_real_t(1.00) * orb_real_t(occ);
-        } else {
+        }
+        else
+        {
             if (cn < n || (cn == n && cell < ell))
                 shield += orb_real_t(1.00) * orb_real_t(occ);
         }
@@ -144,9 +184,10 @@ inline orb_real_t slaterZEff(int z, const ElectronConfig& config, int n, int ell
  * (1930)): 1,2,3,3.7,4.0,4.2 for n=1..6; n>=7 reuses 4.2. Port of
  * slater.n_star().
  */
-inline orb_real_t nStar(int n) {
-    static const orb_real_t kNStar[] = {orb_real_t(1), orb_real_t(2),   orb_real_t(3),
-                                         orb_real_t(3.7), orb_real_t(4.0), orb_real_t(4.2)};
+inline orb_real_t nStar(int n)
+{
+    static const orb_real_t kNStar[] = {orb_real_t(1), orb_real_t(2), orb_real_t(3),
+                                        orb_real_t(3.7), orb_real_t(4.0), orb_real_t(4.2)};
     if (n <= 0)
         return kNStar[0];
     if (n <= 6)
@@ -161,9 +202,12 @@ inline orb_real_t nStar(int n) {
  * @return  true and *outZeff set if the table covers (z, n, ell); false
  *          otherwise (caller should fall back to slaterZEff()).
  */
-inline bool zEffCr(int z, int n, int ell, orb_real_t* outZeff) {
-    for (int i = 0; i < kCrZEffCount; i++) {
-        if (kCrZEff[i].z == z && kCrZEff[i].n == n && kCrZEff[i].ell == ell) {
+inline bool zEffCr(int z, int n, int ell, orb_real_t *outZeff)
+{
+    for (int i = 0; i < kCrZEffCount; i++)
+    {
+        if (kCrZEff[i].z == z && kCrZEff[i].n == n && kCrZEff[i].ell == ell)
+        {
             *outZeff = orb_real_t(kCrZEff[i].zeff);
             return true;
         }
@@ -178,14 +222,16 @@ inline bool zEffCr(int z, int n, int ell, orb_real_t* outZeff) {
  * used as-is), else Slater's Z_eff rescaled by n/n* (see that function's
  * docstring for why).
  */
-inline orb_real_t zEffRadial(int z, const ElectronConfig& config, int n, int ell) {
+inline orb_real_t zEffRadial(int z, const ElectronConfig &config, int n, int ell)
+{
     orb_real_t cr;
     if (zEffCr(z, n, ell, &cr))
         return cr;
     return slaterZEff(z, config, n, ell) * orb_real_t(n) / nStar(n);
 }
 
-struct MOcc {
+struct MOcc
+{
     int m, occ;
 };
 
@@ -199,27 +245,32 @@ struct MOcc {
  *               {1,2}; must hold at least 2*ell+1 entries.
  * @return       Number of entries written to out (only occupied m's).
  */
-inline int hundFillM(int ell, int occ, MOcc* out) {
+inline int hundFillM(int ell, int occ, MOcc *out)
+{
     int slots = 2 * ell + 1;
     int occM[2 * kOrbitalEllMax + 1] = {};
 
     int remaining = occ;
     int i = 0;
-    while (remaining > 0 && i < slots) {
+    while (remaining > 0 && i < slots)
+    {
         occM[i] = 1;
         remaining--;
         i++;
     }
     i = 0;
-    while (remaining > 0) {
+    while (remaining > 0)
+    {
         occM[i] = 2;
         remaining--;
         i++;
     }
 
     int count = 0;
-    for (int k = 0; k < slots; k++) {
-        if (occM[k] > 0) {
+    for (int k = 0; k < slots; k++)
+    {
+        if (occM[k] > 0)
+        {
             out[count].m = k - ell;
             out[count].occ = occM[k];
             count++;
@@ -228,6 +279,10 @@ inline int hundFillM(int ell, int occ, MOcc* out) {
     return count;
 }
 
-inline const char* elementSymbol(int z) {
+/// @brief return the element symbol for atomic number z (1-based, 1=H, 2=He, ..., 118=Og)
+/// @param z Atomic number, 1 <= z <= kMaxZ
+/// @return char pointer to the element symbol string (e.g. "H", "He", "Li", ..., "Og")
+inline const char *elementSymbol(int z)
+{
     return kElementSymbols[z - 1];
 }

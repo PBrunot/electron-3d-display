@@ -2,7 +2,7 @@
   "files.associations": {
     "*.ino": "cpp"
   },
-  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.intelliSenseEngine": "default",
   "platformio-ide.useBuiltinPIOCore": true,
-  "idf.currentSetup": "C:\\Users\\pasca\\esp\\v5.2.2\\esp-idf"
+  "editor.formatOnSave": true,
 }

@@ -7,7 +7,8 @@
 
 #include <cmath>
 
-uint32_t XorShift32::next() {
+uint32_t XorShift32::next()
+{
     uint32_t x = state;
     x ^= x << 13;
     x ^= x >> 17;
@@ -16,11 +17,13 @@ uint32_t XorShift32::next() {
     return x;
 }
 
-orb_real_t XorShift32::uniform01() {
+orb_real_t XorShift32::uniform01()
+{
     return orb_real_t(next()) / orb_real_t(4294967296.0); // 2^32
 }
 
-OrbitalPoint sampleOrbitalPoint(const OrbitalSampler* sampler, XorShift32* rng) {
+OrbitalPoint sampleOrbitalPoint(const OrbitalSampler *sampler, XorShift32 *rng)
+{
     orb_real_t r = getValueFromLookupTable(rng->uniform01(), sampler->invRTable, kOrbitalTableSize);
     orb_real_t theta = getValueFromLookupTable(rng->uniform01(), sampler->invThetaTable, kOrbitalTableSize);
     orb_real_t phi = getValueFromLookupTable(rng->uniform01(), sampler->invPhiTable, kOrbitalTableSize);

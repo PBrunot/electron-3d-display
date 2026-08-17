@@ -11,10 +11,11 @@
 #include "orbital_library.h"
 #include "overlay.h"
 
-static const char* kOrbitalViewTag = "orbital_view";
+static const char *kOrbitalViewTag = "orbital_view";
 
-void OrbitalPresetState::load(int index) {
-    const OrbitalDescriptor& d = kOrbitalLibrary[index];
+void OrbitalPresetState::load(int index)
+{
+    const OrbitalDescriptor &d = kOrbitalLibrary[index];
     ESP_LOGI(kOrbitalViewTag, "loading preset %d (%s, n=%d l=%d m=%d)...", index, d.label, d.n, d.ell, d.m);
     int64_t startUs = esp_timer_get_time();
 
@@ -25,7 +26,7 @@ void OrbitalPresetState::load(int index) {
     static uint8_t levels[kOrbitalViewNumPoints];
 
     buildOrbitalPointCloud(d.n, d.ell, d.m, points, psi2, signs, kOrbitalViewNumPoints, kOrbitalViewSeed,
-                            &resample.rng, resample.radialCoeff, resample.legendreCoeff);
+                           &resample.rng, resample.radialCoeff, resample.legendreCoeff);
     resample.sampler = findOrbitalSampler(d.n, d.ell, d.m);
     resample.n = d.n;
     resample.ell = d.ell;
@@ -47,15 +48,18 @@ void OrbitalPresetState::load(int index) {
     ESP_LOGI(kOrbitalViewTag, "%s loaded in %lldms, scale=%.1f", d.label, buildMs, double(baseScale));
 }
 
-void OrbitalPresetState::resamplePoints(int count) {
-    for (int i = 0; i < count; i++) {
+void OrbitalPresetState::resamplePoints(int count)
+{
+    for (int i = 0; i < count; i++)
+    {
         ResampledOrbitalPoint r = resampleOneOrbitalPoint(&resample, points);
         int level = r.level > kOrbitalColorMaxLevel ? kOrbitalColorMaxLevel : r.level;
         colors[r.index] = orbitalLevelToColor565(level, r.sign);
     }
 }
 
-void runOrbitalView(Display& display) {
+void runOrbitalView(Display &display)
+{
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
     static OrbitalPresetState preset;
@@ -68,7 +72,8 @@ void runOrbitalView(Display& display) {
 
     // preset has static storage duration, so it's odr-usable without capturing --
     // GCC's -Werror rejects capturing a static local as a meaningless no-op capture.
-    auto drawTitle = [](uint16_t* frameBuf, int x, int y, uint16_t color) {
+    auto drawTitle = [](uint16_t *frameBuf, int x, int y, uint16_t color)
+    {
         drawText(frameBuf, x, y, preset.title, color);
     };
 
@@ -91,9 +96,11 @@ void runOrbitalView(Display& display) {
     uint32_t buzzFrame = 0;
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
 
-    while (true) {
+    while (true)
+    {
         zoomExcursionCountdown--;
-        if (zoomExcursionCountdown <= 0) {
+        if (zoomExcursionCountdown <= 0)
+        {
             orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
@@ -109,7 +116,8 @@ void runOrbitalView(Display& display) {
         }
 
         cullFrameCount++;
-        if (cullFrameCount >= kOrbitalCullRefreshFrames) {
+        if (cullFrameCount >= kOrbitalCullRefreshFrames)
+        {
             preset.resamplePoints(cullCount);
             cullFrameCount = 0;
         }
@@ -125,7 +133,8 @@ void runOrbitalView(Display& display) {
         display.presentFrame();
 
         frameCount++;
-        if (frameCount >= kFpsUpdateInterval) {
+        if (frameCount >= kFpsUpdateInterval)
+        {
             int64_t nowUs = esp_timer_get_time();
             double elapsedS = double(nowUs - fpsWindowStartUs) / 1e6;
             double fps = elapsedS > 0 ? double(frameCount) / elapsedS : 0.0;

@@ -23,12 +23,12 @@ constexpr orb_real_t kPmPerBohr = orb_real_t(52.9177210903);
  * Picks the largest "nice round length" (1/2/5 x a power of ten, see overlay.cpp's
  * kScaleBarCandidates) that still fits under the bar's max on-screen length.
  */
-void drawScaleBar(uint16_t* frameBuf, orb_real_t pixelsPerUnit, const char* unitLabel, uint16_t barColor,
-                   uint16_t textColor);
+void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unitLabel, uint16_t barColor,
+                  uint16_t textColor);
 
 // Overlay text layout, matching device_render_common.py's TITLE_TEXT_POS/LOADING_TEXT_POS
 // and orbital_view.py/atom_view.py's FPS_TEXT_POS.
 constexpr int kTitleTextX = 2, kTitleTextY = 12;
 constexpr int kFpsTextX = 2, kFpsTextY = 2;
 constexpr int kLoadingTextX = 2, kLoadingTextY = 22;
-constexpr const char* kLoadingText = "Loading...";
+constexpr const char *kLoadingText = "Loading...";

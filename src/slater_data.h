@@ -5,7 +5,13 @@
 
 #include <cstdint>
 
-struct CrZEffEntry { uint8_t z; uint8_t n; uint8_t ell; float zeff; };
+struct CrZEffEntry
+{
+    uint8_t z;
+    uint8_t n;
+    uint8_t ell;
+    float zeff;
+};
 
 constexpr CrZEffEntry kCrZEff[] = {
     {1, 1, 0, 1.0f},
@@ -386,7 +392,13 @@ constexpr CrZEffEntry kCrZEff[] = {
 };
 constexpr int kCrZEffCount = sizeof(kCrZEff) / sizeof(kCrZEff[0]);
 
-struct ConfigExceptionEntry { uint8_t z; uint8_t n; uint8_t ell; uint8_t occ; };
+struct ConfigExceptionEntry
+{
+    uint8_t z;
+    uint8_t n;
+    uint8_t ell;
+    uint8_t occ;
+};
 
 constexpr ConfigExceptionEntry kConfigExceptions[] = {
     {24, 1, 0, 2},
@@ -661,18 +673,123 @@ constexpr int kConfigExceptionsCount = sizeof(kConfigExceptions) / sizeof(kConfi
 constexpr int kExceptionZs[] = {24, 29, 41, 42, 44, 45, 46, 47, 57, 58, 64, 78, 79, 89, 90, 91, 92, 93, 96, 103};
 constexpr int kExceptionZsCount = sizeof(kExceptionZs) / sizeof(kExceptionZs[0]);
 
-constexpr const char* kElementSymbols[118] = {
-    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
-    "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca",
-    "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
-    "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr",
-    "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn",
-    "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd",
-    "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb",
-    "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
-    "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th",
-    "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm",
-    "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds",
-    "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
+constexpr const char *kElementSymbols[118] = {
+    "H",
+    "He",
+    "Li",
+    "Be",
+    "B",
+    "C",
+    "N",
+    "O",
+    "F",
+    "Ne",
+    "Na",
+    "Mg",
+    "Al",
+    "Si",
+    "P",
+    "S",
+    "Cl",
+    "Ar",
+    "K",
+    "Ca",
+    "Sc",
+    "Ti",
+    "V",
+    "Cr",
+    "Mn",
+    "Fe",
+    "Co",
+    "Ni",
+    "Cu",
+    "Zn",
+    "Ga",
+    "Ge",
+    "As",
+    "Se",
+    "Br",
+    "Kr",
+    "Rb",
+    "Sr",
+    "Y",
+    "Zr",
+    "Nb",
+    "Mo",
+    "Tc",
+    "Ru",
+    "Rh",
+    "Pd",
+    "Ag",
+    "Cd",
+    "In",
+    "Sn",
+    "Sb",
+    "Te",
+    "I",
+    "Xe",
+    "Cs",
+    "Ba",
+    "La",
+    "Ce",
+    "Pr",
+    "Nd",
+    "Pm",
+    "Sm",
+    "Eu",
+    "Gd",
+    "Tb",
+    "Dy",
+    "Ho",
+    "Er",
+    "Tm",
+    "Yb",
+    "Lu",
+    "Hf",
+    "Ta",
+    "W",
+    "Re",
+    "Os",
+    "Ir",
+    "Pt",
+    "Au",
+    "Hg",
+    "Tl",
+    "Pb",
+    "Bi",
+    "Po",
+    "At",
+    "Rn",
+    "Fr",
+    "Ra",
+    "Ac",
+    "Th",
+    "Pa",
+    "U",
+    "Np",
+    "Pu",
+    "Am",
+    "Cm",
+    "Bk",
+    "Cf",
+    "Es",
+    "Fm",
+    "Md",
+    "No",
+    "Lr",
+    "Rf",
+    "Db",
+    "Sg",
+    "Bh",
+    "Hs",
+    "Mt",
+    "Ds",
+    "Rg",
+    "Cn",
+    "Nh",
+    "Fl",
+    "Mc",
+    "Lv",
+    "Ts",
+    "Og",
 };
-
