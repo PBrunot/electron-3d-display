@@ -20,11 +20,15 @@ struct OrbitalDescriptor
 {
     int n, ell, m;
     const char *label;
-    // Per-preset bright phase-color pair (positive lobe, negative lobe) --
-    // each orbital gets its own vivid pair so consecutive orbitals are
-    // distinguishable at a glance ("bright color pairs", 2026-08-17).
-    // Index-matched to micropython/cloud_common.py's ORBITAL_PHASE_COLORS;
-    // keep the two in lockstep.
+    // Phase-color pair (positive lobe, negative lobe) -- sign of psi_real
+    // determines the color, and EVERY orbital uses the same classic vibrant
+    // orange/blue pair ("all orbitals should be colored according to sign
+    // of psi_Real with the classical blue/orange vibrant colors",
+    // 2026-08-17). Superseded the older per-preset scheme (each orbital had
+    // its own distinguishing hue) since that broke the sign-color
+    // association a viewer would otherwise learn to read at a glance across
+    // the whole library. Index-matched to micropython/cloud_common.py's
+    // ORBITAL_PHASE_COLORS; keep the two in lockstep.
     uint8_t posRgb[3];
     uint8_t negRgb[3];
 };
@@ -36,22 +40,22 @@ struct OrbitalDescriptor
 // being a 5d_z2 orbital by its own quantum numbers; corrected here and there in lockstep
 // (5dz2/5d_z2).
 constexpr OrbitalDescriptor kOrbitalLibrary[] = {
-    {1, 0, 0, "1s",      {255, 90, 90},  {140, 40, 60}},    // 0
-    {2, 0, 0, "2s",      {255, 170, 60}, {200, 90, 20}},    // 1
-    {2, 1, 1, "2px",     {255, 210, 60}, {220, 140, 0}},    // 2
-    {2, 1, -1, "2py",    {120, 255, 120}, {20, 140, 60}},   // 3
-    {2, 1, 0, "2pz",     {255, 120, 40}, {40, 120, 255}},   // 4 -- DEFAULT_PRESET_INDEX, classic orange/blue
-    {3, 0, 0, "3s",      {60, 220, 255}, {0, 110, 200}},    // 5
-    {3, 1, 1, "3px",     {90, 150, 255}, {30, 60, 200}},    // 6
-    {3, 1, -1, "3py",    {180, 120, 255}, {90, 40, 200}},   // 7
-    {3, 1, 0, "3pz",     {255, 120, 220}, {190, 40, 150}},  // 8
-    {3, 2, 0, "3dz2",    {255, 90, 140}, {170, 20, 90}},    // 9
-    {3, 2, 1, "3dxz",    {255, 160, 90}, {200, 90, 30}},    // 10
-    {3, 2, -1, "3dyz",   {160, 255, 90}, {70, 170, 20}},    // 11
-    {3, 2, 2, "3dx2-y2", {90, 255, 200}, {0, 150, 120}},    // 12
-    {3, 2, -2, "3dxy",   {255, 220, 90}, {210, 150, 10}},   // 13
-    {4, 3, 0, "4fz3",    {255, 90, 200}, {160, 20, 140}},   // 14
-    {5, 2, 0, "5dz2",    {140, 200, 255}, {50, 100, 210}},  // 15 -- was "5pz3", corrected
+    {1, 0, 0, "1s",      {255, 120, 40}, {40, 120, 255}},   // 0
+    {2, 0, 0, "2s",      {255, 120, 40}, {40, 120, 255}},   // 1
+    {2, 1, 1, "2px",     {255, 120, 40}, {40, 120, 255}},   // 2
+    {2, 1, -1, "2py",    {255, 120, 40}, {40, 120, 255}},   // 3
+    {2, 1, 0, "2pz",     {255, 120, 40}, {40, 120, 255}},   // 4 -- DEFAULT_PRESET_INDEX
+    {3, 0, 0, "3s",      {255, 120, 40}, {40, 120, 255}},   // 5
+    {3, 1, 1, "3px",     {255, 120, 40}, {40, 120, 255}},   // 6
+    {3, 1, -1, "3py",    {255, 120, 40}, {40, 120, 255}},   // 7
+    {3, 1, 0, "3pz",     {255, 120, 40}, {40, 120, 255}},   // 8
+    {3, 2, 0, "3dz2",    {255, 120, 40}, {40, 120, 255}},   // 9
+    {3, 2, 1, "3dxz",    {255, 120, 40}, {40, 120, 255}},   // 10
+    {3, 2, -1, "3dyz",   {255, 120, 40}, {40, 120, 255}},   // 11
+    {3, 2, 2, "3dx2-y2", {255, 120, 40}, {40, 120, 255}},   // 12
+    {3, 2, -2, "3dxy",   {255, 120, 40}, {40, 120, 255}},   // 13
+    {4, 3, 0, "4fz3",    {255, 120, 40}, {40, 120, 255}},   // 14
+    {5, 2, 0, "5dz2",    {255, 120, 40}, {40, 120, 255}},   // 15 -- was "5pz3", corrected
 };
 constexpr int kOrbitalLibraryCount = sizeof(kOrbitalLibrary) / sizeof(kOrbitalLibrary[0]);
 constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz, matches cloud_common.DEFAULT_PRESET_INDEX
