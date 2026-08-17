@@ -56,19 +56,19 @@ void drawScaleBar(uint16_t* frameBuf, orb_real_t pixelsPerUnit, const char* unit
         barPx = 1;
 
     int x0 = kScaleBarMarginX;
-    int y = kDisplayHeight - kScaleBarMarginY;
+    int y = Display::kDisplayHeight - kScaleBarMarginY;
     int x1 = x0 + barPx;
 
     for (int x = x0; x <= x1; x++)
-        if (x >= 0 && x < kDisplayWidth)
-            frameBuf[y * kDisplayWidth + x] = barColor;
+        if (x >= 0 && x < Display::kDisplayWidth)
+            frameBuf[y * Display::kDisplayWidth + x] = barColor;
     for (int ty = y - kScaleBarTickPx; ty <= y + kScaleBarTickPx; ty++) {
-        if (ty < 0 || ty >= kDisplayHeight)
+        if (ty < 0 || ty >= Display::kDisplayHeight)
             continue;
-        if (x0 >= 0 && x0 < kDisplayWidth)
-            frameBuf[ty * kDisplayWidth + x0] = barColor;
-        if (x1 >= 0 && x1 < kDisplayWidth)
-            frameBuf[ty * kDisplayWidth + x1] = barColor;
+        if (x0 >= 0 && x0 < Display::kDisplayWidth)
+            frameBuf[ty * Display::kDisplayWidth + x0] = barColor;
+        if (x1 >= 0 && x1 < Display::kDisplayWidth)
+            frameBuf[ty * Display::kDisplayWidth + x1] = barColor;
     }
 
     char text[32];

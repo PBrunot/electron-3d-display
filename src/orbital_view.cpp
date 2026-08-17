@@ -56,19 +56,17 @@ void OrbitalPresetState::resamplePoints(int count) {
 }
 
 void runOrbitalView(Display* display) {
-    Display ownedDisplay;
-    if (display == nullptr) {
-        ownedDisplay = initDisplay();
-        display = &ownedDisplay;
-    }
+    Display ownedDisplay{};
+    
+    display = &ownedDisplay;
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
     static OrbitalPresetState preset;
     preset.load(kOrbitalDefaultPresetIndex);
 
-    constexpr uint16_t kProtonColor = packColor565(255, 0, 0);
-    constexpr uint16_t kTextColor = kColorWhite;
-    constexpr uint16_t kScaleBarColor = packColor565(210, 210, 210);
+    constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
+    constexpr uint16_t kTextColor = Display::kColorWhite;
+    constexpr uint16_t kScaleBarColor = Display::packColor565(210, 210, 210);
     constexpr uint32_t kBuzzThreshold = uint32_t(kOrbitalBuzzFraction * orb_real_t(65536));
 
     // preset has static storage duration, so it's odr-usable without capturing --
@@ -120,13 +118,14 @@ void runOrbitalView(Display* display) {
         }
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
-        renderScene(display->frameBuf, preset.points, preset.colors, kOrbitalViewNumPoints, kProtonColor, camera,
+        display->waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
+        renderScene(display->getFrameBuf(), preset.points, preset.colors, kOrbitalViewNumPoints, kProtonColor, camera,
                     scale, buzzFrame, kBuzzThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
-        drawText(display->frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor);
-        drawText(display->frameBuf, kFpsTextX, kFpsTextY, fpsText, kTextColor);
-        drawScaleBar(display->frameBuf, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
-        presentFrame(*display);
+        drawText(display->getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor);
+        drawText(display->getFrameBuf(), kFpsTextX, kFpsTextY, fpsText, kTextColor);
+        drawScaleBar(display->getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+        display->presentFrame();
 
         frameCount++;
         if (frameCount >= kFpsUpdateInterval) {

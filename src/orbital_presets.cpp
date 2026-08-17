@@ -17,7 +17,7 @@ static constexpr uint8_t kPhaseNegativeRgb[3] = {40, 120, 255};
 
 uint16_t orbitalLevelToColor565(int level, int sign) {
     const uint8_t* base = sign >= 0 ? kPhasePositiveRgb : kPhaseNegativeRgb;
-    return packColor565(uint8_t(base[0] * level / 255), uint8_t(base[1] * level / 255),
+    return Display::packColor565(uint8_t(base[0] * level / 255), uint8_t(base[1] * level / 255),
                          uint8_t(base[2] * level / 255));
 }
 

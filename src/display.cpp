@@ -6,23 +6,6 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-
-static const char* kDisplayTag = "display";
-
-// Given by onColorTransDone() (an ISR callback -- see esp_lcd_panel_io_spi_config_t's
-// on_color_trans_done, fired exactly once per presentFrame() call, on its true last DMA
-// chunk) and taken by presentFrame() itself, so presentFrame() only returns once the
-// previous transfer has genuinely finished, not just been queued -- see display.h's
-// presentFrame() doc comment for why this matters.
-static SemaphoreHandle_t s_flushDone = nullptr;
-
-static bool onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void*) {
-    BaseType_t highPriorityTaskWoken = pdFALSE;
-    xSemaphoreGiveFromISR(s_flushDone, &highPriorityTaskWoken);
-    return highPriorityTaskWoken == pdTRUE;
-}
 
 #define LCD_HOST SPI2_HOST
 #define PIN_MOSI gpio_num_t(41)
@@ -34,8 +17,25 @@ static bool onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_d
 
 #define LCD_PIXEL_CLOCK_HZ (40 * 1000 * 1000)
 
-Display initDisplay() {
-    s_flushDone = xSemaphoreCreateBinary();
+auto Display::onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* userCtx) -> bool {
+    Display* self = static_cast<Display*>(userCtx);
+    BaseType_t highPriorityTaskWoken = pdFALSE;
+    xSemaphoreGiveFromISR(self->s_flushDone, &highPriorityTaskWoken);
+    return highPriorityTaskWoken == pdTRUE;
+}
+
+Display::Display(esp_lcd_panel_handle_t panel, uint16_t* frameBuf) : panel(panel), frameBuf(frameBuf) {}
+
+Display::~Display() {
+    if (frameBuf != nullptr)
+        heap_caps_free(frameBuf);
+    if (panel != nullptr)
+        ESP_ERROR_CHECK(esp_lcd_panel_del(panel));
+}
+
+Display::Display()
+{
+    this->s_flushDone = xSemaphoreCreateBinary();
 
     gpio_config_t bl_cfg = {};
     bl_cfg.mode = GPIO_MODE_OUTPUT;
@@ -49,7 +49,7 @@ Display initDisplay() {
     buscfg.miso_io_num = -1;
     buscfg.quadwp_io_num = -1;
     buscfg.quadhd_io_num = -1;
-    buscfg.max_transfer_sz = kDisplayWidth * kDisplayHeight * sizeof(uint16_t);
+    buscfg.max_transfer_sz = Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t);
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
     esp_lcd_panel_io_handle_t io_handle = NULL;
@@ -61,7 +61,8 @@ Display initDisplay() {
     io_config.trans_queue_depth = 10;
     io_config.lcd_cmd_bits = 8;
     io_config.lcd_param_bits = 8;
-    io_config.on_color_trans_done = onColorTransDone;
+    io_config.on_color_trans_done = &Display::onColorTransDone;
+    io_config.user_ctx = this;
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
 
     esp_lcd_panel_handle_t panel_handle = NULL;
@@ -84,10 +85,18 @@ Display initDisplay() {
         abort();
     }
 
-    return Display{panel_handle, frame_buf};
+    this->panel = panel_handle;
+    this->frameBuf = frame_buf;
 }
 
-void presentFrame(const Display& d) {
-    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(d.panel, 0, 0, kDisplayWidth, kDisplayHeight, d.frameBuf));
-    xSemaphoreTake(s_flushDone, portMAX_DELAY);
+auto Display::getFrameBuf() -> uint16_t* {
+    return frameBuf;
+}
+
+void Display::presentFrame() {
+    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(this->panel, 0, 0, Display::kDisplayWidth, Display::kDisplayHeight, this->frameBuf));
+}
+
+auto Display::waitForFlushDone() -> bool {
+    return xSemaphoreTake(s_flushDone, portMAX_DELAY) == pdTRUE;
 }
