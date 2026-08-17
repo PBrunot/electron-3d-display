@@ -39,22 +39,20 @@
 #include "font.h"
 #include "tilt_gesture.h"
 
-constexpr int kAtomViewNumPoints = 3000; // matches atom_view.py's N_POINTS (device budget)
-static_assert(kAtomViewNumPoints <= kAtomMaxPoints,
-              "kAtomViewNumPoints exceeds atom_cloud.h's static scratch bound");
 constexpr int kAtomViewDefaultZ = 6; // carbon, matches atom_view.py's DEFAULT_Z -- every
-                                      // element now renormalizes to the same on-screen
-                                      // radius (see atom_cloud.h's kAtomTargetPx), so
-                                      // there's no size-based reason left to deviate
+                                     // element now renormalizes to the same on-screen
+                                     // radius (see atom_cloud.h's kAtomTargetPx), so
+                                     // there's no size-based reason left to deviate
 
 /**
  * Everything one loaded element needs to render: point coordinates, their shell-colored
  * (brightened/dimmed) encoded colors, and the electron configuration used (for the
  * title). Port of atom_view.py's AtomPresetState.
  */
-struct AtomPresetState {
-    AtomPoint points[kAtomViewNumPoints];
-    uint16_t colors[kAtomViewNumPoints];
+struct AtomPresetState
+{
+    AtomPoint points[kAtomNumPoints];
+    uint16_t colors[kAtomNumPoints];
     ElectronConfig config;
     int z = 0;
     orb_real_t baseScale, zoomAmplitude;
@@ -72,10 +70,10 @@ struct AtomPresetState {
  * for the main screen; still available via the title-callback lambda diff if a future
  * screen wants it back.
  */
-void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, uint16_t textColor, const Font& font);
+void drawAtomTitle(uint16_t *frameBuf, int x, int y, int z, uint16_t textColor, const Font &font);
 
 /**
  * Run the atom viewer until an Up tilt-hold confirms (see this file's header comment), at
  * which point this returns so the caller (chooser.h) can show the menu again.
  */
-void runAtomView(Display& display, TiltGestureDetector& tilt);
+void runAtomView(Display &display, TiltGestureDetector &tilt);

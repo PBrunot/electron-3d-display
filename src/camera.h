@@ -48,21 +48,23 @@ constexpr orb_real_t kCameraRollStart = orb_real_t(2.1);
 constexpr orb_real_t kTwoPi = orb_real_t(2) * kOrbitalPi;
 
 /** Running yaw/tilt/roll angles for the tumble animation. */
-struct CameraState {
+struct CameraState
+{
     orb_real_t yaw = orb_real_t(0);
     orb_real_t tilt = kCameraTiltStart;
     orb_real_t roll = kCameraRollStart;
 };
 
 /** Advance all three angles by one frame's step, wrapping into [0, 2*pi). */
-void stepCamera(CameraState* cam);
+void stepCamera(CameraState *cam);
 
 /** Precomputed sin/cos for one frame's rotation -- reused for every point that frame. */
-struct RotationTrig {
+struct RotationTrig
+{
     orb_real_t cosYaw, sinYaw, cosTilt, sinTilt, cosRoll, sinRoll;
 };
 
-RotationTrig computeRotationTrig(const CameraState& cam);
+RotationTrig computeRotationTrig(const CameraState &cam);
 
 /**
  * Rotate (yaw, then tilt, then roll) and orthographically project one point about the
@@ -74,15 +76,15 @@ RotationTrig computeRotationTrig(const CameraState& cam);
  * device_render_common.py's render_points() docstring for the measured size of that bias
  * under plain int() truncation.
  */
-bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig& t, orb_real_t scale, int* outSx,
-                   int* outSy);
+bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig &t, orb_real_t scale, int *outSx,
+                  int *outSy);
 
 constexpr int kProtonMarkerSize = 3;
 
 /** Draw the small proton marker centered on screen, matching device_render_common.py's PROTON_SIZE.
  * Drawn fully opaque (Display::packColor565() overwrite, no blending) -- the nucleus is one literal
  * particle, not a probability cloud, matching pc/viewer_common.py's draw_nucleus(). */
-void drawProtonMarker(uint16_t* frameBuf, uint16_t color);
+void drawProtonMarker(uint16_t *frameBuf, uint16_t color);
 
 // --- Transparency + persistence (port of pc/viewer_common.py's ELECTRON_ALPHA/PERSISTENCE_DECAY) ---
 //
@@ -92,13 +94,16 @@ void drawProtonMarker(uint16_t* frameBuf, uint16_t color);
 // layer that only partially overwrote it -- the translucent point-cloud look. Expressed as a /256
 // fixed-point fraction (Display::blendColor565()'s alphaQ8) rather than pc/viewer_common.py's float
 // ELECTRON_ALPHA=0.8, to keep every per-pixel color op in this project integer-only.
-// Raised from pc/viewer_common.py's ELECTRON_ALPHA=0.8 (205/256): during rotation a given point
-// rarely lands on the exact same pixel two frames running, so it gets essentially one blend
-// toward full brightness before the persistence fade below starts pulling that pixel back down --
-// the cloud reads visibly dimmer in motion than in a static single-frame render. A stronger alpha
-// makes each individual hit closer to full brightness, which is where the perceived dimming
-// during animation/rotation actually comes from (not a rendering bug -- see kPersistenceKeepQ8).
-constexpr uint16_t kElectronAlphaQ8 = 235; // ~0.92 * 256
+// Raised to fully opaque (256 = target color outright, no blend-through of whatever was there
+// before) -- "limit color blending (make the electrons as bright but less transparent)"
+// (feedback, 2026-08-17): with two points of DIFFERENT colors landing on the same/adjacent
+// pixels across frames (e.g. an orbital's orange and blue lobes, or a fading persistence trail
+// underneath a fresh hit of the other color), partial blending mixed them into muddy
+// intermediate hues instead of the intended two flat colors. Full opacity shows each hit's
+// exact intended color/brightness immediately -- no multi-hit convergence needed for that
+// anymore, since per-point brightness already comes from the level encoded into the point's own
+// color (see orbital_presets.cpp's orbitalLevelToColor565()/atom_cloud.cpp's shell brighten/dim).
+constexpr uint16_t kElectronAlphaQ8 = 256; // 256/256 = fully opaque
 
 // Each frame fades the previous buffer toward black (Display::fadeColor565()) instead of hard-
 // clearing it, so points leave a brief trailing glow and skipped "buzz" points fade out instead of
@@ -111,7 +116,20 @@ constexpr uint16_t kPersistenceKeepQ8 = 150; // 150/256 kept per frame (~0.59)
 
 /** Fade every pixel of `frameBuf` toward black by kPersistenceKeepQ8 -- see the constant's comment.
  * Not a template (doesn't depend on PointT), so its body lives in camera.cpp. */
-void fadeFrameBuffer(uint16_t* frameBuf);
+void fadeFrameBuffer(uint16_t *frameBuf);
+
+// --- Hidden-points "buzz" flicker (feeds renderPointsColored()'s buzzThreshold param below) ---
+//
+// Each frame, a cheap per-point/per-frame hash decides whether a point is skipped entirely --
+// a different pseudo-random subset every frame, at roughly this fraction of the total point
+// count -- so the cloud reads as a "buzzing"/flickering probability cloud rather than a static
+// fixed set of dots ("add a percentage of hidden points (default 25%) that will not be drawn
+// at every frame... to convey a buzzing feeling about the electron cloud", 2026-08-17). Shared
+// by both orbital_view.cpp and atom_view.cpp so the effect reads the same across both cloud
+// types. 0 disables it outright: renderPointsColored()'s unsigned hash is never < 0, so every
+// point always draws -- exactly the pre-buzz behavior.
+constexpr orb_real_t kHiddenPointsFraction = orb_real_t(0.25);
+constexpr uint32_t kHiddenPointsThreshold = uint32_t(kHiddenPointsFraction * orb_real_t(65536));
 
 /**
  * Render `count` points from `points` (any type with public x/y/z orb_real_t members --
@@ -122,11 +140,14 @@ void fadeFrameBuffer(uint16_t* frameBuf);
  * renderPointsColored()/renderScene() below.
  */
 template <typename PointT>
-void renderPointsUniform(uint16_t* frameBuf, const PointT* points, int count, uint16_t color, const RotationTrig& t,
-                          orb_real_t scale) {
-    for (int i = 0; i < count; i++) {
+void renderPointsUniform(uint16_t *frameBuf, const PointT *points, int count, uint16_t color, const RotationTrig &t,
+                         orb_real_t scale)
+{
+    for (int i = 0; i < count; i++)
+    {
         int sx, sy;
-        if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy)) {
+        if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
+        {
             int idx = sy * Display::kDisplayWidth + sx;
             frameBuf[idx] = Display::blendColor565(frameBuf[idx], color, kElectronAlphaQ8);
         }
@@ -144,15 +165,18 @@ void renderPointsUniform(uint16_t* frameBuf, const PointT* points, int count, ui
  * index and a per-frame salt.
  */
 template <typename PointT>
-void renderPointsColored(uint16_t* frameBuf, const PointT* points, const uint16_t* colors, int count,
-                          const RotationTrig& t, orb_real_t scale, uint32_t frameSalt = 0,
-                          uint32_t buzzThreshold = 0) {
-    for (int i = 0; i < count; i++) {
+void renderPointsColored(uint16_t *frameBuf, const PointT *points, const uint16_t *colors, int count,
+                         const RotationTrig &t, orb_real_t scale, uint32_t frameSalt = 0,
+                         uint32_t buzzThreshold = 0)
+{
+    for (int i = 0; i < count; i++)
+    {
         uint32_t hv = ((uint32_t(i) * 668265261u + frameSalt * 374761393u) >> 16) & 0xFFFFu;
         if (hv < buzzThreshold)
             continue;
         int sx, sy;
-        if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy)) {
+        if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
+        {
             int idx = sy * Display::kDisplayWidth + sx;
             frameBuf[idx] = Display::blendColor565(frameBuf[idx], colors[i], kElectronAlphaQ8);
         }
@@ -169,8 +193,9 @@ void renderPointsColored(uint16_t* frameBuf, const PointT* points, const uint16_
  * on top).
  */
 template <typename PointT>
-void renderScene(uint16_t* frameBuf, const PointT* points, const uint16_t* colors, int count, uint16_t protonColor,
-                  const CameraState& camera, orb_real_t scale, uint32_t frameSalt = 0, uint32_t buzzThreshold = 0) {
+void renderScene(uint16_t *frameBuf, const PointT *points, const uint16_t *colors, int count, uint16_t protonColor,
+                 const CameraState &camera, orb_real_t scale, uint32_t frameSalt = 0, uint32_t buzzThreshold = 0)
+{
     fadeFrameBuffer(frameBuf);
     drawProtonMarker(frameBuf, protonColor);
     RotationTrig trig = computeRotationTrig(camera);
@@ -205,7 +230,7 @@ constexpr orb_real_t kZoomExcursionScaleMaxFactor = orb_real_t(12.0);
 // frames to read as a deliberate dive-through rather than a jarring flash.
 constexpr int kZoomExcursionEaseFrames = 45;
 constexpr orb_real_t kZoomAngleStep = orb_real_t(0.016); // breathing zoom's angular speed,
-                                                          // independent phase from kCameraAngleStep
+                                                         // independent phase from kCameraAngleStep
 
 /** Uniform random float in [0, 1), via the hardware RNG (esp_random()) -- used only for
  * animation timing/targets (zoom excursions, chooser backdrops), NOT for anything that
@@ -234,15 +259,18 @@ int randomIndexExcluding(int current, int count);
  * title for orbital_view (M3), a per-shell-colored multi-segment one for atom_view (M4);
  * templated instead of a fixed function pointer so both fit without an indirection cost
  * on this per-point-cheap-but-still-hot path. `buzzThreshold` (see renderPointsColored())
- * defaults to 0 (no flicker) -- orbital_view passes its BUZZ_FRACTION-derived threshold
- * explicitly so buzz stays active through transitions too; atom_view's static cloud has no
- * use for it and leaves it at the default. Port of device_render_common.py's fly_over().
+ * defaults to 0 (no flicker) -- both orbital_view.cpp's and atom_view.cpp's own local
+ * flyOver-equivalents (proton-marker-redraw variants of this one, see their own docstrings)
+ * pass kHiddenPointsThreshold explicitly so buzz stays active through transitions too. Port
+ * of device_render_common.py's fly_over().
  */
 template <typename PointT, typename TitleDrawFn>
-void flyOver(Display& display, const PointT* points, const uint16_t* colors, int count, TitleDrawFn drawTitle,
-             uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, CameraState* camera,
-             orb_real_t startScale, orb_real_t endScale, int frames, uint32_t buzzThreshold = 0) {
-    for (int i = 0; i < frames; i++) {
+void flyOver(Display &display, const PointT *points, const uint16_t *colors, int count, TitleDrawFn drawTitle,
+             uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, CameraState *camera,
+             orb_real_t startScale, orb_real_t endScale, int frames, uint32_t buzzThreshold = 0)
+{
+    for (int i = 0; i < frames; i++)
+    {
         orb_real_t t = frames > 1 ? orb_real_t(i) / orb_real_t(frames - 1) : orb_real_t(1);
         orb_real_t scale = startScale + (endScale - startScale) * t;
 

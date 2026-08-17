@@ -154,32 +154,32 @@ void OrbitalPresetState::load(int index)
     // buildOrbitalPointCloud()'s docstring. EXT_RAM_BSS_ATTR (PSRAM, see this file's
     // `preset` below for why): CPU-only access, no DMA involved, so PSRAM's slightly
     // higher access latency is a non-issue here.
-    static EXT_RAM_BSS_ATTR orb_real_t psi2[kOrbitalViewNumPoints];
-    static EXT_RAM_BSS_ATTR int8_t signs[kOrbitalViewNumPoints];
-    static EXT_RAM_BSS_ATTR uint8_t levels[kOrbitalViewNumPoints];
+    static EXT_RAM_BSS_ATTR orb_real_t psi2[kOrbitalNumPoints];
+    static EXT_RAM_BSS_ATTR int8_t signs[kOrbitalNumPoints];
+    static EXT_RAM_BSS_ATTR uint8_t levels[kOrbitalNumPoints];
 
-    buildOrbitalPointCloud(d.n, d.ell, d.m, points, psi2, signs, kOrbitalViewNumPoints, kOrbitalViewSeed,
+    buildOrbitalPointCloud(d.n, d.ell, d.m, points, psi2, signs, kOrbitalNumPoints, kOrbitalViewSeed,
                            &resample.rng, resample.radialCoeff, resample.legendreCoeff);
     resample.sampler = findOrbitalSampler(d.n, d.ell, d.m);
     resample.n = d.n;
     resample.ell = d.ell;
     resample.m = d.m;
-    resample.count = kOrbitalViewNumPoints;
+    resample.count = kOrbitalNumPoints;
     resample.cursor = 0;
 
-    computeOrbitalLevels(psi2, kOrbitalViewNumPoints, levels, resample.psi2Sorted);
+    computeOrbitalLevels(psi2, kOrbitalNumPoints, levels, resample.psi2Sorted);
     posRgb[0] = d.posRgb[0];
     posRgb[1] = d.posRgb[1];
     posRgb[2] = d.posRgb[2];
     negRgb[0] = d.negRgb[0];
     negRgb[1] = d.negRgb[1];
     negRgb[2] = d.negRgb[2];
-    for (int i = 0; i < kOrbitalViewNumPoints; i++)
+    for (int i = 0; i < kOrbitalNumPoints; i++)
         colors[i] = orbitalLevelToColor565(levels[i], signs[i], d.posRgb, d.negRgb);
 
     std::snprintf(title, sizeof(title), "%s (n=%d l=%d m=%d)", d.label, d.n, d.ell, d.m);
 
-    OrbitalScale scale = scaleFromRadii(points, kOrbitalViewNumPoints);
+    OrbitalScale scale = scaleFromRadii(points, kOrbitalNumPoints);
     baseScale = scale.baseScale;
     zoomAmplitude = scale.zoomAmplitude;
 
@@ -226,7 +226,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     constexpr uint16_t kTextColor = Display::kColorWhite;
     constexpr uint16_t kScaleBarColor = Display::kColorWhite;
     constexpr uint16_t kArrowColor = Display::packColor565(255, 210, 60);
-    constexpr uint32_t kBuzzThreshold = uint32_t(kOrbitalBuzzFraction * orb_real_t(65536));
+    constexpr uint32_t kBuzzThreshold = kHiddenPointsThreshold; // see camera.h's comment
 
     // preset has static storage duration, so it's odr-usable without capturing --
     // GCC's -Werror rejects capturing a static local as a meaningless no-op capture.
@@ -238,7 +238,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     CameraState camera;
     orb_real_t zoomAngle = orb_real_t(0);
 
-    orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
+    orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor, kTextColor,
             kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale,
             kOrbitalIntroFrames, kBuzzThreshold);
 
@@ -246,7 +246,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     int frameCount = 0;
     int64_t fpsWindowStartUs = esp_timer_get_time();
 
-    int cullCount = int(orb_real_t(kOrbitalViewNumPoints) * kOrbitalCullFraction);
+    int cullCount = int(orb_real_t(kOrbitalNumPoints) * kOrbitalCullFraction);
     if (cullCount < 1)
         cullCount = 1;
     int cullFrameCount = 0;
@@ -264,7 +264,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         scrollOrbitalIntro(display, newD.n, newD.ell, newD.m);
         presetIndex = newIndex;
         preset.load(presetIndex);
-        orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
+        orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor, kTextColor,
                 kScaleBarColor, &camera, currentScale, preset.baseScale, kOrbitalSwitchTransitionFrames,
                 kBuzzThreshold);
         zoomAngle = orb_real_t(0);
@@ -324,10 +324,10 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
             orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
-            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
+            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor,
                     kTextColor, kScaleBarColor, &camera, currentScale, targetScale, kOrbitalZoomExcursionEaseFrames,
                     kBuzzThreshold);
-            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
+            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor,
                     kTextColor, kScaleBarColor, &camera, targetScale, preset.baseScale,
                     kOrbitalZoomExcursionEaseFrames, kBuzzThreshold);
             zoomAngle = orb_real_t(0);
@@ -347,7 +347,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-        renderScene(display.getFrameBuf(), preset.points, preset.colors, kOrbitalViewNumPoints, kProtonColor, camera,
+        renderScene(display.getFrameBuf(), preset.points, preset.colors, kOrbitalNumPoints, kProtonColor, camera,
                     scale, buzzFrame, kBuzzThreshold);
         // Redraw bigger, on top of the cloud -- see orbitalFlyOver()'s docstring above for
         // why (renderScene() alone draws the small shared marker BEFORE the points, so a

@@ -19,15 +19,17 @@
 #include "slater.h"
 
 /** One sampled point of a multi-electron atom's point cloud. */
-struct AtomPoint {
+struct AtomPoint
+{
     orb_real_t x, y, z;
     int n, ell; // which subshell this point came from (e.g. for shell-based coloring)
 };
 
-constexpr int kMaxDrawingGroups = 40; // see atom_cloud.h's comment: at most ~1 partial subshell (<=7 groups) + up to ~19 full ones, in Madelung order; generous margin for the hardcoded exceptions too.
-constexpr int kAtomMaxPoints = 4096; // static scratch bound for outerSubshellRRef()'s per-subshell radius sort
+constexpr int kMaxDrawingGroups = 25; // see atom_cloud.h's comment: at most ~1 partial subshell (<=7 groups) + up to ~19 full ones, in Madelung order; generous margin for the hardcoded exceptions too.
+constexpr int kAtomNumPoints = 8000;  // atom point-cloud size: sizes AtomPresetState's point/color arrays (atom_view.h) and outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp)
 
-struct DrawingGroup {
+struct DrawingGroup
+{
     int n, ell, m; // m == kIsotropicM means "full subshell, sample isotropically"
     int weight;    // electron count this group represents
 };
@@ -43,7 +45,7 @@ constexpr int kIsotropicM = -999;
  *
  * @return  Number of groups written to out (must hold at least kMaxDrawingGroups).
  */
-int drawingGroups(const ElectronConfig& config, DrawingGroup* out);
+int drawingGroups(const ElectronConfig &config, DrawingGroup *out);
 
 /**
  * Divide `total` points across `count` groups proportional to `weights`, largest-
@@ -52,7 +54,7 @@ int drawingGroups(const ElectronConfig& config, DrawingGroup* out);
  *
  * @param outCounts  [out] Must hold at least `count` entries.
  */
-void splitCounts(const int* weights, int count, int total, int* outCounts);
+void splitCounts(const int *weights, int count, int total, int *outCounts);
 
 /**
  * Sample `count` points approximating atomic number z's total electron density. Port of
@@ -66,7 +68,7 @@ void splitCounts(const int* weights, int count, int total, int* outCounts);
  * @return        The electron configuration used (config.count subshells), for
  *                caller-side logging/title display.
  */
-ElectronConfig buildAtomPointCloud(int z, AtomPoint* out, int count, uint32_t seed);
+ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t seed);
 
 // --- Shell coloring (M4) ---
 //
@@ -96,7 +98,7 @@ constexpr uint8_t kAtomShellRgb[9][3] = {
 };
 
 /** kAtomShellRgb[n], clamped to the fallback entry for n outside [1, 7]. */
-const uint8_t* shellBaseRgb(int n);
+const uint8_t *shellBaseRgb(int n);
 
 // atom_cloud.py's own OUTER_SHELL_BRIGHTEN=0.92 pushes almost to pure white, tuned for a
 // renderer that either draws the point outright with no discount (its "device path"
@@ -121,15 +123,17 @@ constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward 
  * plan -- callers that DO need the full sorted list (atom_view.cpp's dissection view) call
  * subshellDissectionPlan() directly instead.
  */
-struct OuterSubshell {
+struct OuterSubshell
+{
     int n = 0, ell = 0;
     orb_real_t rRef = orb_real_t(1);
 };
-OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const ElectronConfig& config);
+OuterSubshell outerSubshellRRef(const AtomPoint *points, int count, const ElectronConfig &config);
 
 /** One subshell's identity, p90 radius, and electron occupancy, as produced by
  * subshellDissectionPlan() below. */
-struct DissectionEntry {
+struct DissectionEntry
+{
     int n, ell;
     orb_real_t rRef;
     int occ; // this subshell's own electron count, e.g. 4 for 2p4 -- see ElectronConfig::occ
@@ -147,14 +151,14 @@ struct DissectionEntry {
  * @return     Number of entries written (== config.count, minus any subshell with zero
  *             matched points in this specific cloud).
  */
-int subshellDissectionPlan(const AtomPoint* points, int count, const ElectronConfig& config, DissectionEntry* out);
+int subshellDissectionPlan(const AtomPoint *points, int count, const ElectronConfig &config, DissectionEntry *out);
 
 /**
  * Pack point i's shell color (shellBaseRgb(points[i].n)) into outColors[i], brightened
  * toward white if it belongs to `outer`'s subshell (kAtomOuterShellBrighten) or dimmed
  * toward black otherwise (kAtomInnerShellDim).
  */
-void colorizeAtomPoints(const AtomPoint* points, int count, const OuterSubshell& outer, uint16_t* outColors);
+void colorizeAtomPoints(const AtomPoint *points, int count, const OuterSubshell &outer, uint16_t *outColors);
 
 constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py's SEED
 
@@ -172,7 +176,8 @@ constexpr orb_real_t kAtomTargetPx = orb_real_t(75); // p90 outer-subshell radiu
 
 constexpr orb_real_t kAtomZoomAmplitudeFraction = orb_real_t(0.4); // matches cloud_common.ZOOM_AMPLITUDE_FRACTION
 
-struct AtomScale {
+struct AtomScale
+{
     orb_real_t baseScale, zoomAmplitude, rRef;
 };
 

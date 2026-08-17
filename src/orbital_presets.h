@@ -11,13 +11,13 @@
 #include "orbitals.h"   // orb_real_t
 #include "pointcloud.h" // OrbitalPoint, OrbitalSampler, XorShift32
 
-// Static-scratch bound shared by orbital_presets.cpp's computeOrbitalLevels()/
-// scaleFromRadii(), and the point-budget ceiling orbital_view.h's N_POINTS must stay
-// under -- kept well above the 3000-point device budget cloud_common.N_POINTS already
-// uses, as headroom.
-constexpr int kOrbitalMaxPoints = 4096;
+// Orbital point-cloud size: sizes OrbitalPresetState's point/color arrays (orbital_view.h)
+// and the scratch arrays orbital_presets.cpp's computeOrbitalLevels()/scaleFromRadii() use
+// (order[], radii[]), plus OrbitalResampleState::psi2Sorted below -- matches
+// cloud_common.N_POINTS.
+static constexpr int kOrbitalNumPoints = 10000;
 
-constexpr int kOrbitalColorMaxLevel = 255; // callers must clamp a resampled point's level to this before comparing
+static constexpr int kOrbitalColorMaxLevel = 255; // callers must clamp a resampled point's level to this before comparing
 
 /** Brightness level (0..kOrbitalColorMaxLevel) + wavefunction sign + this preset's
  * phase-color pair (positive/negative, see orbital_library.h's OrbitalDescriptor) ->
@@ -42,8 +42,8 @@ void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels,
 // Point-turnover: fraction of the cloud resampled every kOrbitalCullRefreshFrames frames.
 constexpr orb_real_t kOrbitalCullFraction = orb_real_t(0.01);
 constexpr int kOrbitalCullRefreshFrames = 3;
-// Per-frame flicker fraction (see camera.h's renderPointsColored()'s buzzThreshold param).
-constexpr orb_real_t kOrbitalBuzzFraction = orb_real_t(0.40);
+// Per-frame "buzz" flicker fraction now lives in camera.h's kHiddenPointsFraction, shared
+// with atom_view.cpp -- see that constant's comment.
 
 /**
  * What resampleOneOrbitalPoint() needs to keep drawing from the same orbital's
@@ -64,7 +64,7 @@ struct OrbitalResampleState
     orb_real_t radialCoeff[kOrbitalNMax];
     orb_real_t legendreCoeff[kOrbitalEllMax + 1];
     int n, ell, m;
-    orb_real_t psi2Sorted[kOrbitalMaxPoints]; // frozen reference, first `count` entries valid
+    orb_real_t psi2Sorted[kOrbitalNumPoints]; // frozen reference, first `count` entries valid
     int count;
     int cursor = 0;
 };
