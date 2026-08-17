@@ -35,9 +35,7 @@ static constexpr orb_real_t kScale = orb_real_t(10);
 
 static constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
 
-void runAtomViewTest() {
-    Display display{};
-
+void runAtomViewTest(Display& display) {
     // Sample the point cloud ONCE (builds every occupied subshell's radial table as it
     // goes); only the rotation/projection below runs every frame (matches CLAUDE.md §5:
     // generate points once per orbital/atom, then just rotate/reproject -- not per-frame

@@ -15,3 +15,5 @@ examples/js-calculations/Quantum physics online.html
 /micropython/__pycache__
 /pc/__pycache__
 /web/py/__pycache__
+pio_full_build.log
+pio_run1.log

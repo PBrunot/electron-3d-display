@@ -4,5 +4,6 @@
 // Superseded for real parity by atom_view.h/.cpp (M4, not started yet) -- do not add
 // shell-coloring/calibration work here, extend M4's file instead.
 #pragma once
+#include "display.h"
 
-void runAtomViewTest();
+void runAtomViewTest(Display& display);

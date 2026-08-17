@@ -36,6 +36,11 @@ Display::~Display() {
 Display::Display()
 {
     this->s_flushDone = xSemaphoreCreateBinary();
+    // Give it once up front: no frame is in flight yet, so waitForFlushDone() must not
+    // block before the very first presentFrame() -- xSemaphoreCreateBinary() otherwise
+    // starts empty (never given), which deadlocks any loop that waits before its first
+    // present (e.g. flyOver()'s and the atom-view test loop's very first iteration).
+    xSemaphoreGive(this->s_flushDone);
 
     gpio_config_t bl_cfg = {};
     bl_cfg.mode = GPIO_MODE_OUTPUT;
@@ -98,5 +103,5 @@ void Display::presentFrame() {
 }
 
 auto Display::waitForFlushDone() -> bool {
-    return xSemaphoreTake(s_flushDone, portMAX_DELAY) == pdTRUE;
+    return s_flushDone == nullptr || xSemaphoreTake(s_flushDone, portMAX_DELAY) == pdTRUE;
 }
