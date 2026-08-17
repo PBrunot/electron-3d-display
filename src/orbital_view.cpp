@@ -55,10 +55,7 @@ void OrbitalPresetState::resamplePoints(int count) {
     }
 }
 
-void runOrbitalView(Display* display) {
-    Display ownedDisplay{};
-    
-    display = &ownedDisplay;
+void runOrbitalView(Display& display) {
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
     static OrbitalPresetState preset;
@@ -78,7 +75,7 @@ void runOrbitalView(Display* display) {
     CameraState camera;
     orb_real_t zoomAngle = orb_real_t(0);
 
-    flyOver(*display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
+    flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
             kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, kIntroFrames,
             kBuzzThreshold);
 
@@ -100,10 +97,10 @@ void runOrbitalView(Display* display) {
             orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
-            flyOver(*display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
+            flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
                     kTextColor, kScaleBarColor, &camera, currentScale, targetScale, kZoomExcursionEaseFrames,
                     kBuzzThreshold);
-            flyOver(*display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
+            flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
                     kTextColor, kScaleBarColor, &camera, targetScale, preset.baseScale, kZoomExcursionEaseFrames,
                     kBuzzThreshold);
             zoomAngle = orb_real_t(0);
@@ -118,14 +115,14 @@ void runOrbitalView(Display* display) {
         }
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
-        display->waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-        renderScene(display->getFrameBuf(), preset.points, preset.colors, kOrbitalViewNumPoints, kProtonColor, camera,
+        display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
+        renderScene(display.getFrameBuf(), preset.points, preset.colors, kOrbitalViewNumPoints, kProtonColor, camera,
                     scale, buzzFrame, kBuzzThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
-        drawText(display->getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor);
-        drawText(display->getFrameBuf(), kFpsTextX, kFpsTextY, fpsText, kTextColor);
-        drawScaleBar(display->getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
-        display->presentFrame();
+        drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor);
+        drawText(display.getFrameBuf(), kFpsTextX, kFpsTextY, fpsText, kTextColor);
+        drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+        display.presentFrame();
 
         frameCount++;
         if (frameCount >= kFpsUpdateInterval) {

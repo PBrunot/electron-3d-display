@@ -41,8 +41,6 @@ struct OrbitalPresetState {
 
 /**
  * Run the orbital viewer, forever (see this file's header comment on why it never
- * returns yet). If `display` is null, brings up its own (standalone use); otherwise reuses
- * the caller's already-initialized one (mirrors orbital_view.py's run(d=None, ...) --
- * avoids re-constructing the SPI bus underneath when M6's chooser hands one in).
+ * returns yet). 
  */
-void runOrbitalView(Display* display = nullptr);
+void runOrbitalView(Display& display);
