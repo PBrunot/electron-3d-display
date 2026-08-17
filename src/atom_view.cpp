@@ -13,7 +13,7 @@
 
 static const char* kAtomViewTag = "atom_view";
 
-void AtomPresetState::load(int zIn, orb_real_t pixelsPerBohr) {
+void AtomPresetState::load(int zIn) {
     ESP_LOGI(kAtomViewTag, "loading Z=%d (%s)...", zIn, elementSymbol(zIn));
     int64_t startUs = esp_timer_get_time();
 
@@ -21,13 +21,15 @@ void AtomPresetState::load(int zIn, orb_real_t pixelsPerBohr) {
     OuterSubshell outer = outerSubshellRRef(points, kAtomViewNumPoints, config);
     colorizeAtomPoints(points, kAtomViewNumPoints, outer, colors);
 
-    AtomScale scale = scaleForAtom(outer.rRef, pixelsPerBohr);
+    AtomScale scale = scaleForAtom(outer.rRef);
     baseScale = scale.baseScale;
     zoomAmplitude = scale.zoomAmplitude;
     z = zIn;
 
     int64_t buildMs = (esp_timer_get_time() - startUs) / 1000;
-    ESP_LOGI(kAtomViewTag, "%s loaded in %lldms, scale=%.1f", elementSymbol(zIn), buildMs, double(baseScale));
+    ESP_LOGI(kAtomViewTag, "%s loaded in %lldms, outer=%d%c, outerRBohr=%.2f, scale=%.1f, outerRPx=%.1f",
+             elementSymbol(zIn), buildMs, outer.n, subshellLabelChar(outer.ell), double(outer.rRef),
+             double(baseScale), double(outer.rRef * baseScale));
 }
 
 void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig& config, uint16_t textColor) {
@@ -58,12 +60,8 @@ void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig
 void runAtomView(Display& display) {
     ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxZ);
 
-    // Computed once (lazily, first call) and reused across elements -- see
-    // pixelsPerBohrForCanvas()'s doc comment.
-    static orb_real_t pixelsPerBohr = pixelsPerBohrForCanvas(orb_real_t(Display::kDisplayWidth) / orb_real_t(2));
-
     static AtomPresetState preset;
-    preset.load(kAtomViewDefaultZ, pixelsPerBohr);
+    preset.load(kAtomViewDefaultZ);
 
     constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
     constexpr uint16_t kTextColor = Display::kColorWhite;

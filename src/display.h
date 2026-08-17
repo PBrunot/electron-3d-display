@@ -68,6 +68,32 @@ class Display {
             return uint16_t(((r >> 3) << 11) | ((b >> 2) << 5) | (g >> 3));
         }
 
+        /** Inverse of packColor565() -- recovers the physical-intent (r, g, b) packColor565()
+        * was called with, each expanded back to 8 bits (5/6-bit field replicated into the low
+        * bits, the usual RGB565-to-24-bit expansion). Needed by blendColor565()/fadeColor565()
+        * below, which must read a pixel already in the frame buffer before combining it with a
+        * new color -- see CLAUDE.md's "scambio G/B" section for why the bit layout isn't the
+        * textbook RGB565 one.
+        */
+        static void unpackColor565(uint16_t c, uint8_t* r, uint8_t* g, uint8_t* b);
+
+        /**
+        * Alpha-blend `target` into `base`, `alphaQ8`/256 of the way (0 = `base` unchanged, 256 =
+        * `target` fully replaces it) -- e.g. CLAUDE.md-independent point rendering wants
+        * overlapping points to converge toward full brightness rather than the last-drawn point
+        * fully overwriting whatever was there (see camera.h's kElectronAlphaQ8 and
+        * pc/viewer_common.py's ELECTRON_ALPHA, which this ports).
+        */
+        static uint16_t blendColor565(uint16_t base, uint16_t target, uint16_t alphaQ8);
+
+        /**
+        * Scale `c`'s channels toward black by `keepQ8`/256 (256 = unchanged, 0 = pure black) --
+        * used to fade the whole frame buffer toward black instead of hard-clearing it (see
+        * camera.h's fadeFrameBuffer()/kPersistenceKeepQ8 and pc/viewer_common.py's
+        * PERSISTENCE_DECAY, which this ports).
+        */
+        static uint16_t fadeColor565(uint16_t c, uint16_t keepQ8);
+
         static constexpr uint16_t kColorBlack = 0x0000;
         static constexpr uint16_t kColorWhite = 0xFFFF;
         static constexpr int kDisplayWidth = 240;

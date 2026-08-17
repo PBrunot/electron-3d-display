@@ -28,9 +28,8 @@ static constexpr int kNumPoints = 5000;
 static constexpr uint32_t kRngSeed = 12345;
 // Orbital-space-units-to-pixels scale. A full atom's outer/valence subshell reaches much
 // further out (in Bohr radii) than a bare 1s cloud does, so this is a rough starting
-// guess, NOT calibrated the way ATOMS.md's pixels_per_bohr_for_canvas() is on the PC
-// side -- almost certainly needs visual tuning once actually seen on the device. Real
-// per-element calibration (scaleForAtom()/pixelsPerBohrForCanvas()) lands in M4.
+// guess -- this legacy M1/M2 placeholder was superseded by atom_view.h/.cpp's
+// scaleForAtom() (M4), which renormalizes every element to the same on-screen radius.
 static constexpr orb_real_t kScale = orb_real_t(10);
 
 static constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);

@@ -158,14 +158,7 @@ void colorizeAtomPoints(const AtomPoint* points, int count, const OuterSubshell&
     }
 }
 
-orb_real_t pixelsPerBohrForCanvas(orb_real_t canvasCenter, orb_real_t radiusFraction, int referenceZ) {
-    static AtomPoint calibPoints[kAtomCalibrationPoints];
-    ElectronConfig config = buildAtomPointCloud(referenceZ, calibPoints, kAtomCalibrationPoints, kAtomCloudSeed);
-    OuterSubshell outer = outerSubshellRRef(calibPoints, kAtomCalibrationPoints, config);
-    orb_real_t targetPx = radiusFraction * canvasCenter;
-    return targetPx / outer.rRef;
-}
-
-AtomScale scaleForAtom(orb_real_t rRef, orb_real_t pixelsPerBohr, orb_real_t amplitudeFraction) {
-    return AtomScale{pixelsPerBohr, pixelsPerBohr * amplitudeFraction, rRef};
+AtomScale scaleForAtom(orb_real_t rRef, orb_real_t amplitudeFraction) {
+    orb_real_t baseScale = kAtomTargetPx / rRef;
+    return AtomScale{baseScale, baseScale * amplitudeFraction, rRef};
 }
