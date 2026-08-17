@@ -131,8 +131,13 @@ void scrollElementIntro(Display& display, const char* nameIt, int z, const char*
     int symbolX = (Display::kDisplayWidth - symbolWidth) / 2;
     int symbolY = (Display::kDisplayHeight - kFontLarge.height * kElementIntroSymbolScale) / 2;
 
-    int nameY = 90;
-    int zY = nameY + kFontLarge.height * nameScale + 6;
+    // "element name in the 2/3 height, Z=xx in the upper 1/3 so that the element name
+    // in background is clearly readable" (feedback, 2026-08-17) -- was name at y=90 with
+    // the Z caption directly underneath; now the name sits at 2/3 of the panel height
+    // (lower, clear of the centered symbol watermark) and the Z caption at 1/3 (upper),
+    // so neither text crowds the other or the watermark.
+    int nameY = Display::kDisplayHeight * 2 / 3;
+    int zY = Display::kDisplayHeight / 3;
     int zX = (Display::kDisplayWidth - textWidth(zLabel, kFontLarge)) / 2;
 
     int nameWidth = textWidthScaled(nameIt, kFontLarge, nameScale);

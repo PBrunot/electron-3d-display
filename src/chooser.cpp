@@ -17,8 +17,6 @@ static const char *kChooserTag = "chooser";
 
 constexpr uint16_t kChooserTextColor = Display::kColorWhite;
 constexpr uint16_t kChooserArrowColor = Display::packColor565(255, 210, 60);
-// "a title in electric blu: ATOM CUBE" (feedback, 2026-08-17).
-constexpr uint16_t kChooserTitleColor = Display::packColor565(0, 150, 255);
 constexpr int kChooserPollDelayMs = 30;
 
 // "no the chooser screen shall have the same fixed splash screen background - no animation
@@ -130,7 +128,7 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
 // so) since at scale 2 the full phrases (measured via font.cpp's kLargeWidths: 226px/286px)
 // don't fit the 240px width -- "DOWN: Elements" alone is already a tight 230px/240px fit.
 constexpr int kChooserOptionScale = 2;
-constexpr int kChooserTitleY = 50, kChooserOption1Y = 105, kChooserOption2Y = 165;
+constexpr int kChooserOption1Y = 105, kChooserOption2Y = 165;
 
 static void drawChooserScreen(uint16_t *frameBuf)
 {
@@ -139,9 +137,10 @@ static void drawChooserScreen(uint16_t *frameBuf)
     // text composites on top of it (plain overwrite, no blending, matching every other draw
     // function in this project). Static -- no per-frame animation, so this is just a memcpy
     // straight out of the generated array every frame (cheap enough not to bother caching).
+    // The image stands clean: no "ATOM CUBE" title text over it ("remove atom cube text
+    // from the splash screen", 2026-08-17) -- just the two menu options.
     std::memcpy(frameBuf, kSplashBitmapData, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
 
-    drawCentered(frameBuf, kChooserTitleY, "ATOM CUBE", kChooserTitleColor, kFontLarge);
     drawCenteredScaled(frameBuf, kChooserOption1Y, "UP: Orbitals", kChooserTextColor, kFontLarge,
                         kChooserOptionScale);
     drawCenteredScaled(frameBuf, kChooserOption2Y, "DOWN: Elements", kChooserTextColor, kFontLarge,

@@ -28,6 +28,7 @@ when the active subshell's dimming makes the actual points hard to see.
 
 import math
 import os
+import random
 import sys
 import time
 
@@ -39,25 +40,31 @@ import atom_cloud
 import cloud_common
 import slater
 
+from PIL import Image, ImageDraw, ImageFont
+
 from viewer_common import (
     CENTER, DISPLAY_SIZE, HEIGHT, WIDTH,
     INTRO_FRAMES, INTRO_START_SCALE_FACTOR,
     SWITCH_START_SCALE_FACTOR, SWITCH_TRANSITION_FRAMES,
     FRAME_DELAY_MS, ZOOM_ANGLE_STEP, ROLL_ANGLE_STEP,
     _TILT_ANGLE_START, _ROLL_ANGLE_START,
-    PROTON_SIZE, ELECTRON_ALPHA,
-    TITLE_POS, SUBTITLE_POS,
+    PROTON_SIZE, ELECTRON_ALPHA, ELECTRON_SIZE,
+    TITLE_POS,
     render_frame, draw_orbit_marker, draw_bounding_circle, draw_scale_bar,
-    draw_nucleus, rotate_yaw_tilt_roll, advance_rotation,
-    fly_over, maybe_zoom_excursion, blit_to_canvas,
+    draw_nucleus, rotate_yaw_tilt_roll, advance_rotation, blend_electron,
+    fly_over, maybe_zoom_excursion, blit_to_canvas, find_unicode_font,
     _next_zoom_excursion_countdown,
     outer_bound_scale, inner_bound_scale, shell_count_frames,
+    _HAS_NUMPY, _preset_np, _blend_points_np, _draw_nucleus_np,
 )
+
+if _HAS_NUMPY:
+    import numpy as np  # noqa: F401 -- used by _render_dissection_frame_np()
 
 import tkinter as tk
 
 # --- Cloud / defaults -------------------------------------------------------
-N_POINTS = 10000
+N_POINTS = 5000
 DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
 
 # Calibrated once for THIS canvas's own CENTER (see
@@ -84,6 +91,11 @@ DISSECT_CLIP_OPEN = 0.0     # clip threshold that hides rotated-z > 0 (the "cut"
 DISSECT_CLIP_CLOSED = 1.0e6  # clip threshold no real point can exceed (nothing hidden)
 DISSECT_ORIENT_FRAMES = 55   # base frames to ease the clip open/closed (see shell_count_frames())
 DISSECT_ZOOM_FRAMES = 55     # base frames to ease camera scale from one stop to the next
+# Port of the device's dissection pacing change (kDissectFlySpeedPmPerSec
+# halved, kDissectFlyMinMs doubled -- "every shell-to-shell hop now takes ~2x
+# as long", 2026-08-17): only the per-shell zoom legs are slowed; the
+# open/close legs keep their own constants (they're a PC-only extra anyway).
+DISSECT_ZOOM_SLOWDOWN = 2.0
 DISSECT_HOLD_SECONDS = 2     # real-time pause on each shell with its label shown
 DISSECT_CLOSE_FRAMES = 100   # base frames to ease the cut shut on the way back to the resting scale
 DISSECT_FRAMES_PER_SHELL = 8  # extra frames added to every eased leg per subshell beyond the first
@@ -96,15 +108,110 @@ DISSECT_FRAMES_PER_SHELL = 8  # extra frames added to every eased leg per subshe
 DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0
 
 # --- Dissection HUD ---------------------------------------------------------
-DISSECT_LABEL_COLOR = (255, 255, 0)
+# Port of src/atom_view.cpp's drawDissectTitle(): a big subshell label
+# ("2p") with a plain-size caption ("Shell 2p (2/5)") underneath, and the
+# electron count as a small "<occ>e-" note in the top-right corner -- was a
+# verbose single line in a subtitle position here (and an inline big-scale
+# " Ne-" superscript on the device before feedback moved it to the corner).
+DISSECT_BIG_FONT_SIZE = 72
+DISSECT_CAPTION_FONT_SIZE = 28
+DISSECT_OCC_FONT_SIZE = 24
+DISSECT_TITLE_COLOR = (255, 255, 255)
+DISSECT_OCC_MARGIN_PX = 8
+
+# --- Element-switch intro (name slide-in + 0.5Hz flash) ---------------------
+# Port of src/atom_view.cpp's scrollElementIntro(): before switching to a new
+# element, slide its Italian name in from the right over a big pale symbol
+# watermark with a "Z=n" caption, hold, then flash the name on/off once at
+# 0.5Hz (1s visible, 1s blank) instead of sliding back out ("element
+# animation should conclude by flashing the element name in the background at
+# 0.5Hz for 2s", 2026-08-17).
+ELEMENT_INTRO_SLIDE_PX = 12     # device kElementIntroPxPerFrame=6 on 240 -> 2x on the 480 buffer
+ELEMENT_INTRO_HOLD_S = 0.5      # device kElementIntroHoldMs
+ELEMENT_INTRO_FLASH_HALF_PERIOD_S = 1.0  # 0.5Hz = 2s period (1s name-visible, 1s blank)
+ELEMENT_INTRO_NAME_MARGIN_PX = 40
+ELEMENT_INTRO_SYMBOL_COLOR = (90, 90, 100)  # device kElementIntroSymbolColor
+ELEMENT_INTRO_SYMBOL_FONT_SIZE = 170
+ELEMENT_INTRO_Z_FONT_SIZE = 28
+
+# --- Dissection intro card --------------------------------------------------
+# Port of src/atom_view.cpp's showElectronConfigIntro(): a static 3-line
+# "Configurazione / elettronica / <nome>" title card over a tiled dim "e-"
+# backdrop, held before the dissection sequence itself starts ("should be
+# configurazione elettronica <nome> -- nice to have a background with e-",
+# 2026-08-17).
+DISSECT_INTRO_LINE1 = "Configurazione"
+DISSECT_INTRO_LINE2 = "elettronica"
+DISSECT_INTRO_WORD_FONT_SIZE = 64   # ~2x the device's kFontLarge-at-scale-2
+DISSECT_INTRO_LINE_GAP_PX = 100     # device kDissectIntroLineGapPx=50 on 240 -> 2x
+DISSECT_INTRO_START_Y = 100
+DISSECT_INTRO_HOLD_S = 0.9          # device kDissectIntroHoldMs=900
+DISSECT_INTRO_COLOR = (255, 210, 60)  # device kAccentColor
+DISSECT_INTRO_BG_COLOR = (55, 55, 55)  # device kDissectIntroBgColor
+DISSECT_INTRO_BG_SPACING = (88, 68)    # device 44/34 on 240 -> 2x
+DISSECT_INTRO_BG_START = 12
+DISSECT_INTRO_BG_FONT_SIZE = 24
+
+# --- Idle auto-advance ------------------------------------------------------
+# Port of the device's atom_view.cpp idle logic (kIdleJumpUs=60s): with no
+# input for 60s, either dissect the CURRENT element (coin flip, at most once
+# per element -- "animation should decide whether to jump to next element or
+# dissect this one (max. once)") or jump to a random different element; both
+# use the exact same animations as manual navigation.
+IDLE_JUMP_SECONDS = 60.0
+IDLE_DISSECT_PROBABILITY = 0.5
+
+# --- Dissection HUD colors (kept for reference; title now drawn via PIL) ----
 Z_NOTE_COLOR = (255, 140, 140)
-# Shown for the WHOLE sequence (unlike the per-subshell `label`, which is
-# None during the open/close/overview legs) -- the one constant cue that
-# something out of the ordinary is happening, distinct in color from both
-# the white title and the yellow subshell label so it reads as "mode", not
-# "shell name".
-DISSECT_BANNER_TEXT = "DISSECTING..."
-DISSECT_BANNER_COLOR = (255, 110, 40)
+
+def _render_dissection_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle, scale, clip_z,
+                                 active_subshell, dim_color):
+    """numpy fast path of render_dissection_frame() -- same two-pass
+    structure and color rules as the Python version below, vectorized:
+    pass 1 draws every point (except the active subshell when one is singled
+    out) in `dim_color` at ELECTRON_ALPHA; pass 2 draws only the active
+    subshell's points in full color (phase colors where a sign is defined,
+    its true SHELL_RGB where signs[i]==0 -- not preset.colors, see the
+    Python path's comment) at ACTIVE_SUBSHELL_ALPHA (opaque). Mutates `buf`
+    via a zero-copy numpy view.
+    """
+    buf_np = np.frombuffer(buf, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3)
+    buf_np[:] = 0  # no persistence in dissection (matches the Python path)
+
+    cy, sy = math.cos(angle), math.sin(angle)
+    cx, sx = math.cos(tilt_angle), math.sin(tilt_angle)
+    cz, sz = math.cos(roll_angle), math.sin(roll_angle)
+    xs, ys, zs = arr['xs'], arr['ys'], arr['zs']
+    signs = arr['signs']
+    n = len(xs)
+
+    if active_subshell is not None:
+        active_sel = (arr['shells'] == active_subshell[0]) & (arr['ells'] == active_subshell[1])
+        # Pass 1: everything except the active subshell, flat dim color.
+        col_dim = np.empty((n, 3), dtype=np.uint8)
+        col_dim[:] = dim_color
+        _blend_points_np(buf_np, xs, ys, zs, col_dim, cy, sy, cx, sx, cz, sz, scale,
+                         clip_rz_max=clip_z, skip_mask=active_sel)
+        # Pass 2: active subshell only, full color (phase or shell), opaque.
+        pos = np.asarray(cloud_common.PHASE_POSITIVE_RGB, dtype=np.uint8)
+        neg = np.asarray(cloud_common.PHASE_NEGATIVE_RGB, dtype=np.uint8)
+        full_colors = np.where(signs[:, None] > 0, pos[None, :],
+                               np.where(signs[:, None] < 0, neg[None, :], arr['shell_colors']))
+        _blend_points_np(buf_np, xs, ys, zs, full_colors, cy, sy, cx, sx, cz, sz, scale,
+                         clip_rz_max=clip_z, skip_mask=~active_sel, alpha=ACTIVE_SUBSHELL_ALPHA)
+    else:
+        # Single pass, full colors: phase where a sign is defined, the
+        # preset's merged colors where signs[i]==0 (see the Python path).
+        zero_colors = arr['colors']
+        pos = np.asarray(cloud_common.PHASE_POSITIVE_RGB, dtype=np.uint8)
+        neg = np.asarray(cloud_common.PHASE_NEGATIVE_RGB, dtype=np.uint8)
+        full_colors = np.where(signs[:, None] > 0, pos[None, :],
+                               np.where(signs[:, None] < 0, neg[None, :], zero_colors))
+        _blend_points_np(buf_np, xs, ys, zs, full_colors, cy, sy, cx, sx, cz, sz, scale,
+                         clip_rz_max=clip_z, alpha=ELECTRON_ALPHA)
+
+    _draw_nucleus_np(buf_np)
+
 
 def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
                              dim_color=DISSECT_SHADE_GRAY):
@@ -126,7 +233,19 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
 
     Rotation matches render_frame() exactly, plus the post-yaw-and-tilt depth
     `rz` (see rotate_yaw_tilt_roll()) which this function's clip needs.
+
+    With numpy installed this takes the vectorized fast path (the same
+    _blend_points_np core as render_frame(), run twice with the two passes'
+    color rules -- see _render_dissection_frame_np); the pure-Python loop
+    below is the no-numpy fallback.
     """
+    if _HAS_NUMPY and ELECTRON_SIZE in (1, 2):
+        arr = _preset_np(preset)
+        if arr is not None:
+            _render_dissection_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle, scale,
+                                        clip_z, active_subshell, dim_color)
+            return
+
     buf[:] = bytes(len(buf))
 
     cos_yaw = math.cos(angle)
@@ -175,11 +294,10 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
                     cr, cg, cb = colors[i]
                 # Alpha-blended (context/dim pass) or opaque (active-subshell
                 # pass, alpha=1.0) -- see orbital_view_pc.ELECTRON_ALPHA's
-                # comment for the blend itself. The nucleus (drawn below,
-                # after both passes) is always fully opaque.
-                buf[idx] = buf[idx] + int((cr - buf[idx]) * alpha)
-                buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * alpha)
-                buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * alpha)
+                # comment for the blend itself. Drawn at ELECTRON_SIZE via the
+                # shared blend_electron(), same as the normal view. The nucleus
+                # (drawn below, after both passes) is always fully opaque.
+                blend_electron(buf, px, py, cr, cg, cb, alpha)
 
     _draw(only_subshell=None, dim=(active_subshell is not None), alpha=ELECTRON_ALPHA)
     if active_subshell is not None:
@@ -247,6 +365,7 @@ class AtomPreset:
         # by how many subshells this element actually has.
         self.inner_r_ref = outer_plan[-1][5] if outer_plan else r_ref
         self.shell_count = len(outer_plan) if outer_plan else 1
+        self._np_cache = None  # numpy fast-path arrays; rebuilt lazily (see viewer_common)
 
         print("atom: %s loaded in %.2fs, scale=%.1f" % (
             slater.element_symbol(z), time.time() - t0, self.base_scale))
@@ -304,6 +423,17 @@ class AtomViewApp:
         self.zoom_factor = 1.0
         self.dissecting = False
         self._pending_dissect = False
+        # "any movement during the dissection should close the dissection and
+        # bring back to the element" (device feedback, 2026-08-17) -- set by
+        # the input handlers below while a dissection runs; the sequence
+        # checks it every frame and returns to normal viewing. Unlike
+        # `aborted` (Escape, exits the whole app), this only aborts the
+        # dissection.
+        self.abort_dissection = False
+        # Idle auto-advance state (see the constants above): clock reset by
+        # every input, plus the once-per-element dissection budget.
+        self.last_activity = time.time()
+        self.idle_dissected_this_element = False
 
         self._bind('<Up>', lambda e: self._request_z(1))
         self._bind('<Down>', lambda e: self._request_z(-1))
@@ -336,6 +466,14 @@ class AtomViewApp:
         self.zoom_angle = 0.0
         self.two_pi = 2 * math.pi
         self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
+
+        # Dissection HUD fonts (big shell label, caption, corner occ note).
+        self._dissect_big_font = find_unicode_font(DISSECT_BIG_FONT_SIZE) or ImageFont.load_default(
+            size=DISSECT_BIG_FONT_SIZE)
+        self._dissect_caption_font = find_unicode_font(DISSECT_CAPTION_FONT_SIZE) or ImageFont.load_default(
+            size=DISSECT_CAPTION_FONT_SIZE)
+        self._dissect_occ_font = find_unicode_font(DISSECT_OCC_FONT_SIZE) or ImageFont.load_default(
+            size=DISSECT_OCC_FONT_SIZE)
 
         fly_over(self, self._effective_base_scale() * INTRO_START_SCALE_FACTOR, self._effective_base_scale(),
                  INTRO_FRAMES)
@@ -380,11 +518,23 @@ class AtomViewApp:
             self.root.destroy()
 
     def _request_z(self, step):
+        self.last_activity = time.time()  # any input resets the idle clock
+        if self.dissecting:
+            # Any movement during a dissection aborts it back to the full
+            # element -- the gesture is consumed by the abort, not queued as
+            # a pending Z change (matching the device's tilt handling).
+            self.abort_dissection = True
+            return
         new_z = self.z + step
         if 1 <= new_z <= slater.MAX_Z:
             self._pending_z = new_z
 
     def _request_dissect(self):
+        self.last_activity = time.time()
+        if self.dissecting:
+            # D during a dissection counts as "movement" too -- abort.
+            self.abort_dissection = True
+            return
         # Ignored while already dissecting -- the blocking sequence pumps the
         # tkinter event loop (root.update()) as it runs, so a repeat keypress
         # mid-sequence would otherwise queue up and immediately restart the
@@ -393,6 +543,11 @@ class AtomViewApp:
             self._pending_dissect = True
 
     def _zoom_by(self, factor):
+        self.last_activity = time.time()
+        if self.dissecting:
+            # Wheel/+- during a dissection aborts it (see _request_z()).
+            self.abort_dissection = True
+            return
         self.zoom_factor = min(ZOOM_FACTOR_MAX, max(ZOOM_FACTOR_MIN, self.zoom_factor * factor))
 
     def _on_mouse_wheel(self, event):
@@ -419,23 +574,31 @@ class AtomViewApp:
             draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
         blit_to_canvas(self, overlays)
 
-    def _blit_dissection(self, scale, r_ref, label):
+    def _blit_dissection(self, scale, r_ref, title):
         """Like _blit(), but for dissection frames: the rotating spoke/text
         part of draw_orbit_marker() is skipped -- just its plain gray
         bounding-circle outline (draw_bounding_circle(), neutral
         BOUNDING_SPHERE_COLOR), so the reference sphere's silhouette stays
         visible even when the active subshell's dimming makes the actual
-        points hard to see. Also draws the current shell's label and a
-        "Z=n" note next to the nucleus.
+        points hard to see. `title` is a (big_label, caption, occ) tuple or
+        None: big_label ("2p") in a large font, `caption` ("Shell 2p (2/5)")
+        plain-size underneath it, and a small "<occ>e-" note in the
+        top-right corner -- the device's drawDissectTitle() layout (the
+        electron count moved to the corner, "distinguish from the orbital
+        name", 2026-08-17). Also draws a "Z=n" note next to the nucleus.
         """
         def overlays(draw):
             draw_bounding_circle(draw, r_ref, scale)
             draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
-            draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
-            banner_x = WIDTH - draw.textlength(DISSECT_BANNER_TEXT) - TITLE_POS[0]
-            draw.text((banner_x, TITLE_POS[1]), DISSECT_BANNER_TEXT, fill=DISSECT_BANNER_COLOR)
-            if label:
-                draw.text(SUBTITLE_POS, label, fill=DISSECT_LABEL_COLOR)
+            if title is not None:
+                big_label, caption, occ = title
+                draw.text(TITLE_POS, big_label, fill=DISSECT_TITLE_COLOR, font=self._dissect_big_font)
+                draw.text((TITLE_POS[0], TITLE_POS[1] + DISSECT_BIG_FONT_SIZE + 6),
+                          caption, fill=DISSECT_TITLE_COLOR, font=self._dissect_caption_font)
+                occ_text = "%de-" % occ
+                occ_x = WIDTH - draw.textlength(occ_text, font=self._dissect_occ_font) - DISSECT_OCC_MARGIN_PX
+                draw.text((occ_x, DISSECT_OCC_MARGIN_PX), occ_text, fill=DISSECT_TITLE_COLOR,
+                          font=self._dissect_occ_font)
             draw.text((CENTER + PROTON_SIZE, CENTER - PROTON_SIZE), "Z=%d" % self.z, fill=Z_NOTE_COLOR)
         blit_to_canvas(self, overlays)
 
@@ -455,13 +618,14 @@ class AtomViewApp:
         self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
     def _dissect_ease(self, scale0, scale1, clip0, clip1, active_subshell, r_ref,
-                       frames, label=None, full_tumble=False):
+                       frames, title=None, full_tumble=False):
         """One eased leg of the dissection sequence: scale and clip move
         linearly from their *0 to *1 values over `frames` frames (pass the
         same value twice to hold one constant) while the cloud keeps tumbling.
         Paced to DISSECT_FRAME_DELAY_S (unlike fly_over(), which has no
         delay and runs as fast as the CPU renders) so the rotation speed here
-        matches normal viewing instead of racing ahead.
+        matches normal viewing instead of racing ahead. `title` is a
+        (big_label, caption, occ) tuple for _blit_dissection(), or None.
 
         full_tumble=True keeps yaw/tilt advancing too (advance_rotation(),
         the same normal-viewing tumble as outside the dissection sequence)
@@ -475,14 +639,14 @@ class AtomViewApp:
         roll-only right at the start/end of the sequence.
         """
         for i in range(frames):
-            if self.aborted:  # see _request_exit()'s docstring
+            if self.aborted or self.abort_dissection:  # see _request_exit()'s docstring
                 return
             t = i / (frames - 1) if frames > 1 else 1.0
             scale = scale0 + (scale1 - scale0) * t
             clip = clip0 + (clip1 - clip0) * t
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
-            self._blit_dissection(scale, r_ref, label)
+            self._blit_dissection(scale, r_ref, title)
             self.root.update()
             time.sleep(DISSECT_FRAME_DELAY_S)
             if full_tumble:
@@ -490,22 +654,195 @@ class AtomViewApp:
             else:
                 self._dissect_tumble()
 
-    def _dissect_hold(self, scale, clip, active_subshell, r_ref, seconds, label):
+    def _dissect_hold(self, scale, clip, active_subshell, r_ref, seconds, title):
         """Real-time (not frame-count) pause on one subshell, still tumbling
         every rendered frame -- scale/clip/active_subshell stay fixed, so the
         subshell's label stays legible for a fixed wall-clock duration
-        regardless of how fast the host renders each frame.
+        regardless of how fast the host renders each frame. `title` is a
+        (big_label, caption, occ) tuple for _blit_dissection().
         """
         deadline = time.time() + seconds
         while time.time() < deadline:
-            if self.aborted:  # see _request_exit()'s docstring
+            if self.aborted or self.abort_dissection:  # see _request_exit()'s docstring
                 return
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
-            self._blit_dissection(scale, r_ref, label)
+            self._blit_dissection(scale, r_ref, title)
             self.root.update()
             time.sleep(DISSECT_FRAME_DELAY_S)
             self._dissect_tumble()
+
+    # --- Blocking helper scenes (element intro, dissection intro) -------------
+
+    def _sleep_responsive(self, seconds):
+        """Real-time sleep that keeps the window responsive and checks
+        `aborted` (Escape) -- the device's vTaskDelay() equivalent, with
+        root.update() so key events still fire during the intro holds.
+        Returns False if aborted mid-sleep.
+        """
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if self.aborted:
+                return False
+            self.root.update()
+            # root.update() can overrun the remaining time -- clamp to >= 0.
+            time.sleep(max(0.0, min(0.05, deadline - time.time())))
+        return True
+
+    @staticmethod
+    def _pick_fit_font(text, max_width, sizes, fallback):
+        """Largest font size from `sizes` whose rendered width of `text`
+        fits within `max_width` (device pickNameScale()'s idea: size the
+        name to fit, biggest first); `fallback` if none fit.
+        """
+        probe = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+        for size in sizes:
+            font = find_unicode_font(size) or ImageFont.load_default(size=size)
+            if probe.textlength(text, font=font) <= max_width:
+                return font
+        return fallback
+
+    def _element_intro(self, new_z):
+        """Slide `name` (the element's Italian name) in from the right over a
+        big, static, pale watermark of `symbol`, pause centered, then flash
+        the name on/off once at 0.5Hz (1s visible, 1s blank) -- the PC
+        counterpart of the device's scrollElementIntro() (name slide-in +
+        hold + flash, shown before switching to a new element).
+
+        Layout matches the device's current version: the name sits at 2/3 of
+        the canvas height (clear of the centered symbol watermark) and the
+        "Z=<z>" caption in the upper 1/3 -- "element name in the 2/3 height,
+        the other text in the upper 1/3 so that the element name in
+        background is clearly readable" (feedback, 2026-08-17).
+        """
+        name = slater.element_name_it(new_z)
+        symbol = slater.element_symbol(new_z)
+        z_label = "Z=%d" % new_z
+        name_font = self._pick_fit_font(
+            name, WIDTH - 2 * ELEMENT_INTRO_NAME_MARGIN_PX,
+            (96, 72, 56, 44, 36, 28),
+            find_unicode_font(48) or ImageFont.load_default(size=48))
+        symbol_font = find_unicode_font(ELEMENT_INTRO_SYMBOL_FONT_SIZE) or ImageFont.load_default(
+            size=ELEMENT_INTRO_SYMBOL_FONT_SIZE)
+        z_font = find_unicode_font(ELEMENT_INTRO_Z_FONT_SIZE) or ImageFont.load_default(
+            size=ELEMENT_INTRO_Z_FONT_SIZE)
+
+        probe = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+        name_width = probe.textlength(name, font=name_font)
+        center_x = (WIDTH - name_width) / 2
+        symbol_y = (HEIGHT - ELEMENT_INTRO_SYMBOL_FONT_SIZE) // 2 - 20
+        name_y = 2 * HEIGHT // 3     # 2/3 height -- the name's focal slot
+        z_y = HEIGHT // 3            # upper 1/3 -- the "Z=xx" caption
+
+        def render_at(x, show_name=True):
+            self.buf[:] = bytes(len(self.buf))  # clear -- device renderAt() fills black first
+            image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
+            draw = ImageDraw.Draw(image)
+            sw = probe.textlength(symbol, font=symbol_font)
+            draw.text(((WIDTH - sw) / 2, symbol_y), symbol, font=symbol_font, fill=ELEMENT_INTRO_SYMBOL_COLOR)
+            if show_name:
+                draw.text((x, name_y), name, font=name_font, fill=(255, 255, 255))
+                zw = probe.textlength(z_label, font=z_font)
+                draw.text(((WIDTH - zw) / 2, z_y), z_label, font=z_font, fill=(255, 255, 255))
+            self.buf[:] = image.tobytes()
+            blit_to_canvas(self, lambda d: None)  # full-screen intro frame, no overlays
+            self.root.update()
+
+        # Slide in from the right edge to centered, then hold.
+        x = WIDTH
+        while x > center_x:
+            if self.aborted:
+                return
+            render_at(x)
+            x -= ELEMENT_INTRO_SLIDE_PX
+        render_at(center_x)  # land exactly centered -- the loop above may step past it
+        if not self._sleep_responsive(ELEMENT_INTRO_HOLD_S):
+            return
+
+        # Flash tail: 0.5Hz = one 1s-blank / 1s-visible cycle (device
+        # kElementIntroFlashHalfPeriodMs).
+        render_at(center_x, show_name=False)
+        if not self._sleep_responsive(ELEMENT_INTRO_FLASH_HALF_PERIOD_S):
+            return
+        render_at(center_x, show_name=True)
+        self._sleep_responsive(ELEMENT_INTRO_FLASH_HALF_PERIOD_S)
+
+    def _dissection_intro(self):
+        """Static 3-line "Configurazione / elettronica / <nome>" title card
+        over a tiled dim "e-" backdrop, held DISSECT_INTRO_HOLD_S before the
+        dissection sequence itself starts -- the PC counterpart of the
+        device's showElectronConfigIntro() (same layout: three accent-colored
+        lines, the element name at the same size as the two fixed words unless
+        too wide, over a dim "e-" grid).
+        """
+        name = slater.element_name_it(self.z)
+        word_font = find_unicode_font(DISSECT_INTRO_WORD_FONT_SIZE) or ImageFont.load_default(
+            size=DISSECT_INTRO_WORD_FONT_SIZE)
+        name_font = self._pick_fit_font(
+            name, WIDTH - 40, (DISSECT_INTRO_WORD_FONT_SIZE, 40, 28),
+            word_font)
+        bg_font = find_unicode_font(DISSECT_INTRO_BG_FONT_SIZE) or ImageFont.load_default(
+            size=DISSECT_INTRO_BG_FONT_SIZE)
+        probe = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+
+        self.buf[:] = bytes(len(self.buf))
+        image = Image.frombuffer('RGB', (WIDTH, HEIGHT), bytes(self.buf), 'raw', 'RGB', 0, 1)
+        draw = ImageDraw.Draw(image)
+
+        # Tiled dim "e-" backdrop (device drawElectronBackdrop(), spacing
+        # doubled for the 480 buffer).
+        for y in range(DISSECT_INTRO_BG_START, HEIGHT, DISSECT_INTRO_BG_SPACING[1]):
+            for x in range(DISSECT_INTRO_BG_START, WIDTH, DISSECT_INTRO_BG_SPACING[0]):
+                draw.text((x, y), "e-", font=bg_font, fill=DISSECT_INTRO_BG_COLOR)
+
+        y1 = DISSECT_INTRO_START_Y
+        y2 = y1 + DISSECT_INTRO_LINE_GAP_PX
+        y3 = y2 + DISSECT_INTRO_LINE_GAP_PX
+        for line, y, font in ((DISSECT_INTRO_LINE1, y1, word_font),
+                              (DISSECT_INTRO_LINE2, y2, word_font),
+                              (name, y3, name_font)):
+            w = probe.textlength(line, font=font)
+            draw.text(((WIDTH - w) / 2, y), line, font=font, fill=DISSECT_INTRO_COLOR)
+
+        self.buf[:] = image.tobytes()
+        blit_to_canvas(self, lambda d: None)
+        self.root.update()
+        self._sleep_responsive(DISSECT_INTRO_HOLD_S)
+
+    def _dissection_plan(self):
+        """The current element's subshell dissection plan (see
+        atom_cloud.subshell_dissection_plan()) -- shared by _run_dissection()
+        and the idle auto-advance's can-dissect check.
+        """
+        return atom_cloud.subshell_dissection_plan(
+            self.preset.xs, self.preset.ys, self.preset.zs, self.preset.shells, self.preset.ells,
+            self.preset.config)
+
+    @staticmethod
+    def _random_z_excluding(current):
+        """Random Z in [1, MAX_Z], guaranteed != current (device
+        randomIndexExcluding(z-1, kMaxZ)+1).
+        """
+        offset = 1 + random.randrange(slater.MAX_Z - 1)
+        return 1 + (current - 1 + offset) % slater.MAX_Z
+
+    def _switch_to_element(self, new_z):
+        """Element-name intro + fly-over switch to `new_z` -- the PC
+        counterpart of the device's switchToElement() lambda
+        (scrollElementIntro() then flyOver()), shared by Up/Down and the idle
+        random jump so both transitions look identical.
+        """
+        print("atom: switching element Z=%d -> %d (%s)" % (self.z, new_z, slater.element_name_it(new_z)))
+        self._element_intro(new_z)
+        if self.aborted:
+            return
+        self.z = new_z
+        self.preset = AtomPreset(new_z)
+        self.idle_dissected_this_element = False  # fresh element -- fresh idle dissection budget
+        fly_over(self, self._effective_base_scale() * SWITCH_START_SCALE_FACTOR, self._effective_base_scale(),
+                 SWITCH_TRANSITION_FRAMES)
+        self.zoom_angle = 0.0
+        self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
 
     def _run_dissection(self):
         """The full D-key sequence -- see module docstring for the
@@ -528,25 +865,34 @@ class AtomViewApp:
         subshells, a bigger outer-to-inner range) get a proportionally
         longer sequence instead of feeling rushed.
         """
-        plan = atom_cloud.subshell_dissection_plan(
-            self.preset.xs, self.preset.ys, self.preset.zs, self.preset.shells, self.preset.ells,
-            self.preset.config)
+        # Title card first -- "Configurazione / elettronica / <nome>" over
+        # the tiled "e-" backdrop (device showElectronConfigIntro()).
+        self._dissection_intro()
+        if self.aborted or self.abort_dissection:
+            return
+
+        plan = self._dissection_plan()
 
         shell_count = self.preset.shell_count
         orient_frames = shell_count_frames(DISSECT_ORIENT_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
-        zoom_frames = shell_count_frames(DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+        # Shell-to-shell hops paced ~2x slower (device dissection pacing
+        # change, 2026-08-17) -- see DISSECT_ZOOM_SLOWDOWN.
+        zoom_frames = int(shell_count_frames(DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+                          * DISSECT_ZOOM_SLOWDOWN)
         close_frames = shell_count_frames(DISSECT_CLOSE_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
 
         resting_scale = self._effective_base_scale() + self._effective_zoom_amplitude() * math.sin(self.zoom_angle)
         outer_scale = outer_bound_scale(self.preset.r_ref)
         inner_scale = inner_bound_scale(self.preset.inner_r_ref)
 
-        # Every phase below is followed by `if self.aborted: return` -- Esc
-        # (see _request_exit()) can only interrupt a phase BETWEEN whole
-        # _dissect_ease()/_dissect_hold() calls (each of those already
-        # breaks out of its own loop promptly, but control still returns
-        # here afterward), so without this check an abort mid-sequence would
-        # otherwise fall through into the NEXT phase instead of stopping.
+        # Every phase below is followed by `if self.aborted or
+        # self.abort_dissection: return` -- Escape (see _request_exit()) and
+        # any movement (see the input handlers) can only interrupt a phase
+        # BETWEEN whole _dissect_ease()/_dissect_hold() calls (each of those
+        # already breaks out of its own loop promptly, but control still
+        # returns here afterward), so without this check an abort mid-sequence
+        # would otherwise fall through into the NEXT phase instead of
+        # stopping.
 
         # Phase 0: ease out from wherever the camera currently is to the
         # guaranteed "outside" overview, cut still closed, nothing singled
@@ -554,7 +900,7 @@ class AtomViewApp:
         self._dissect_ease(resting_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=zoom_frames, full_tumble=True)
-        if self.aborted:
+        if self.aborted or self.abort_dissection:
             return
 
         # Phase 1: open the cut (nothing hidden -> z>0 hidden) at that
@@ -562,7 +908,7 @@ class AtomViewApp:
         self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=orient_frames)
-        if self.aborted:
+        if self.aborted or self.abort_dissection:
             return
 
         # Phase 2: outermost subshell to innermost -- zoom to each subshell's
@@ -570,20 +916,23 @@ class AtomViewApp:
         # The LAST (innermost/first) subshell is pinned to inner_scale
         # instead of its own r_ref-filling target, guaranteeing the dive
         # reaches ZOOM_INNER_RADIUS_FACTOR x its radius, not just its radius.
+        # Title is the device's drawDissectTitle() triple: big subshell label
+        # ("2p"), plain-size caption ("Shell 2p (k/N)"), corner "<occ>e-"
+        # note.
         prev_scale = outer_scale
         for i, (n, ell, letter, subshell_str, electron_count, r_ref) in enumerate(plan):
             target_scale = inner_scale if i == len(plan) - 1 else DISSECT_TARGET_PX / max(r_ref, 1e-6)
-            label = "%s: n=%d, l=%d (%s shell) -- %d electron%s" % (
-                subshell_str, n, ell, letter, electron_count, "" if electron_count == 1 else "s")
+            subshell = slater.subshell_label(n, ell)
+            title = (subshell, "Shell %s (%d/%d)" % (subshell, i + 1, len(plan)), electron_count)
 
             self._dissect_ease(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
                                 active_subshell=(n, ell), r_ref=r_ref,
-                                frames=zoom_frames, label=label)
-            if self.aborted:
+                                frames=zoom_frames, title=title)
+            if self.aborted or self.abort_dissection:
                 return
             self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, (n, ell), r_ref,
-                               DISSECT_HOLD_SECONDS, label)
-            if self.aborted:
+                               DISSECT_HOLD_SECONDS, title)
+            if self.aborted or self.abort_dissection:
                 return
             prev_scale = target_scale
 
@@ -593,14 +942,14 @@ class AtomViewApp:
         self._dissect_ease(prev_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=zoom_frames)
-        if self.aborted:
+        if self.aborted or self.abort_dissection:
             return
 
         # Phase 4: close the cut back up, still at the overview scale.
         self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
                             active_subshell=None, r_ref=self.preset.r_ref,
                             frames=close_frames)
-        if self.aborted:
+        if self.aborted or self.abort_dissection:
             return
 
         # Phase 5: ease back in to the SAME resting_scale Phase 0 started
@@ -629,6 +978,9 @@ class AtomViewApp:
                 self._run_dissection()
             finally:
                 self.dissecting = False
+            # A movement-aborted dissection (abort_dissection) just returns to
+            # normal viewing on the current element; only Escape stops the app.
+            self.abort_dissection = False
             if self.aborted:
                 self.stop()
                 return
@@ -636,14 +988,43 @@ class AtomViewApp:
             return
 
         if self._pending_z is not None:
-            self.z = self._pending_z
+            new_z = self._pending_z
             self._pending_z = None
-            self.preset = AtomPreset(self.z)
-            fly_over(self, self._effective_base_scale() * SWITCH_START_SCALE_FACTOR, self._effective_base_scale(),
-                     SWITCH_TRANSITION_FRAMES)
+            self._switch_to_element(new_z)
             if self.aborted:
                 self.stop()
                 return
+
+        # Idle auto-advance: 60s without input -> either dissect the CURRENT
+        # element (coin flip, once per element -- the device's
+        # idleDissectedThisElement budget) or jump to a random different
+        # element; both reuse the manual animations (device atom_view.cpp idle
+        # logic).
+        if time.time() - self.last_activity > IDLE_JUMP_SECONDS:
+            plan = self._dissection_plan()
+            can_dissect = not self.idle_dissected_this_element and len(plan) > 0
+            if can_dissect and random.random() < IDLE_DISSECT_PROBABILITY:
+                print("atom: idle %.0fs+ -- dissecting current element (Z=%d, %d shells)" % (
+                    IDLE_JUMP_SECONDS, self.z, len(plan)))
+                self.dissecting = True
+                try:
+                    self._run_dissection()
+                finally:
+                    self.dissecting = False
+                self.abort_dissection = False
+                self.idle_dissected_this_element = True
+                self.zoom_angle = 0.0
+                self.zoom_excursion_countdown = _next_zoom_excursion_countdown()
+            else:
+                new_z = self._random_z_excluding(self.z)
+                print("atom: idle %.0fs+ -- jumping to random element Z=%d" % (IDLE_JUMP_SECONDS, new_z))
+                self._switch_to_element(new_z)
+            self.last_activity = time.time()
+            if self.aborted:
+                self.stop()
+                return
+            self.root.after(FRAME_DELAY_MS, self._tick)
+            return
 
         # Random zoom excursion -- same helper as OrbitalViewApp._tick(); uses
         # the zoom-adjusted base/amplitude and scale_factor so dives are

@@ -7,18 +7,20 @@
 #include "esp_attr.h"        // EXT_RAM_BSS_ATTR
 #include "orbital_library.h" // findOrbitalSampler
 
-constexpr int kOrbitalColorMinLevel = 60; // keeps the dimmest points visible instead of fading to black
+constexpr int kOrbitalColorMinLevel = 80; // "should be bright colors" (feedback, 2026-08-17) -- raised from 60
+                                          // so even the dimmest points read clearly
 
-// Phase colors -- chemistry-diagram convention: positive lobe warm (red/orange), negative
-// lobe cool (blue/cyan). s orbitals (ell=0) are single-signed everywhere, so they render
-// as a uniform warm cloud with no visible split -- expected, not a bug (no phase change
+// Phase colors come from each preset's own pair (see orbital_library.h's
+// OrbitalDescriptor.posRgb/negRgb -- "bright color pairs", 2026-08-17): the old
+// universal orange/blue globals below are gone, each orbital now carries its own vivid
+// positive/negative pair so consecutive orbitals are distinguishable at a glance.
+// s orbitals (ell=0) are single-signed everywhere, so they render as a uniform cloud in
+// their positive color with no visible split -- expected, not a bug (no phase change
 // without a node).
-static constexpr uint8_t kPhasePositiveRgb[3] = {255, 120, 40};
-static constexpr uint8_t kPhaseNegativeRgb[3] = {40, 120, 255};
 
-uint16_t orbitalLevelToColor565(int level, int sign)
+uint16_t orbitalLevelToColor565(int level, int sign, const uint8_t posRgb[3], const uint8_t negRgb[3])
 {
-    const uint8_t *base = sign >= 0 ? kPhasePositiveRgb : kPhaseNegativeRgb;
+    const uint8_t *base = sign >= 0 ? posRgb : negRgb;
     return Display::packColor565(uint8_t(base[0] * level / 255), uint8_t(base[1] * level / 255),
                                  uint8_t(base[2] * level / 255));
 }

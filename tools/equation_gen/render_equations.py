@@ -13,11 +13,18 @@ image, not live text.
 
 Regenerate with: python3 tools/equation_gen/render_equations.py
 """
+import os
+
 import numpy as np
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+# Output paths resolved relative to this script's repo root (the old hardcoded
+# /mnt/d/... WSL paths only worked on the original dev machine).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO = os.path.abspath(os.path.join(_HERE, "..", ".."))
 
 # Target on-device size. Kept comfortably under the 240px display width so the backdrop has
 # margin on both sides; height sized for two stacked lines.
@@ -39,8 +46,8 @@ LINES = [
     r"$\psi_{n\ell m} = R_{n\ell}(r)\,P_\ell^{|m|}(\theta)\,\mathrm{trig}(m\phi)$",
 ]
 
-OUT_H = "/mnt/d/GitHub/electron-3d-display/src/equation_bitmap.h"
-OUT_CPP = "/mnt/d/GitHub/electron-3d-display/src/equation_bitmap.cpp"
+OUT_H = os.path.join(_REPO, "src", "equation_bitmap.h")
+OUT_CPP = os.path.join(_REPO, "src", "equation_bitmap.cpp")
 
 
 def rasterize():

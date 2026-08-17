@@ -27,6 +27,12 @@ on a typical Ubuntu/Debian desktop install — no `pip install` needed there:
 sudo apt-get install python3-tk python3-pil python3-pil.imagetk
 ```
 
+`numpy` is used for the vectorized render fast path (what makes 30 fps
+possible at this point count); without it the viewers fall back to a
+pure-Python render loop (slower, but fully functional). On Debian/Ubuntu
+`python3-numpy` is a system package; on other installs
+`pip install numpy` works.
+
 If you're on a Python build without `tkinter` (e.g. some Homebrew/pyenv
 Python installs on this machine lack it — check with
 `python3 -c "import tkinter"`), use your system's Python instead:
@@ -41,14 +47,18 @@ Python installs on this machine lack it — check with
 python3 pc/main.py
 ```
 
-A window opens on a chooser screen first (`pc/launcher.py`) -- Hydrogen
-Orbitals vs Element Explorer, with a randomly picked tumbling preset (a
-random orbital or a random element) playing behind the two choices so the
-screen isn't static while you decide. **Up/Down/Left/Right** or click to
-select, **Enter** to confirm. **Escape** inside either viewer returns here
--- one shared window the whole time, no new windows opened or closed when
-switching. To jump straight into a specific element from the command line
-instead, skipping the chooser: `python3 pc/atom_main.py [Z]`.
+A window opens on a 2s boot splash -- the atomic-cube image
+(`img/atomic_cube.jpg`, the same image the device embeds as a packed RGB565
+array in `src/splash_bitmap.h/.cpp`; the PC just loads the JPEG directly) --
+then a chooser screen (`pc/launcher.py`) over that SAME static image as its
+background: an electric-blue "ATOM CUBE" title and two bigger options, "UP:
+Orbitals" vs "DOWN: Elements" (port of the device's chooser: same fixed
+splash background, no animation needed; any key/click skips the splash).
+**Up/Down/Left/Right** or click to select, **Enter** to confirm. **Escape**
+inside either viewer returns here -- one shared window the whole time, no new
+windows opened or closed when switching. To jump straight into a specific
+element from the command line instead, skipping the chooser:
+`python3 pc/atom_main.py [Z]`.
 
 Once inside the orbital viewer, it shows the same view as the device at a
 480×480 logical resolution (2× the device's 240×240 panel — see
@@ -204,6 +214,69 @@ of in whichever viewer happened to define it. Genuinely per-viewer state
 (the `Preset`/`AtomPreset` classes, `N_POINTS`, the tkinter `App` class and
 its input handling) stays in each viewer's own file.
 
+## Ported device polish (2026-08-17)
+
+The ESP32 C++ work from 2026-08-17 (src/ commits ae07963 + 59ddea3) was
+ported here idea-for-idea, re-implemented per platform:
+
+- **Brighter electrons / longer persistence**: `ELECTRON_ALPHA` 0.8→0.92,
+  `PERSISTENCE_DECAY` 100→150 then 120 (see the constants sections above).
+- **Per-orbital bright color pairs**: each of the 16 orbital presets now
+  carries its own vivid positive/negative color pair (see
+  `micropython/cloud_common.py`'s `ORBITAL_PHASE_COLORS`, mirrored in
+  `src/orbital_library.h`'s `OrbitalDescriptor`) so consecutive orbitals are
+  distinguishable at a glance — same values on PC, device, and web. The
+  dim-point floor was raised too (`COLOR_MIN_LEVEL` 60→80, and the C++'s
+  `kOrbitalColorMinLevel`). The classic orange/blue pair stays on the
+  default preset, 2p_z.
+- **Proton always visible**: bigger (14px) and drawn on top of the cloud
+  every frame.
+- **Bigger scale bar** with a 2× label font.
+- **Chooser**: static atomic-cube background (no tumbling preset), no
+  "ATOM CUBE" title text over the image, plain "Orbitals"/"Atoms" option
+  names (the PC navigates with arrow keys, not gestures — the device keeps
+  its "UP: Orbitals"/"DOWN: Elements" wording), plus a 2s boot splash before
+  it.
+- **Orbital quantum-number reveal**: on every orbital switch (and the idle
+  jump), n → n l → n l m is revealed one stage at a time (~0.55s each, +0.5s
+  on the final) over a dim backdrop of the Schrödinger equation and this
+  project's `psiReal()` formula. The device blits a pre-rendered 1-bit
+  bitmap (tools/equation_gen/render_equations.py, needed there because the
+  on-device font is ASCII-only); the PC draws the SAME two formulas directly
+  as text with a Unicode-capable font (Segoe UI/Arial/DejaVu/Liberation,
+  with an ASCII fallback) -- no intermediate asset.
+- **Orbital zooms 1.5× slower** (intro/switch/excursion frames ×1.5,
+  breathing zoom step ÷1.5), scoped to the orbital viewer only.
+- **Idle auto-advance** (both viewers): 60s without input jumps to a random
+  different orbital/element using the same animation as manual navigation.
+  In the atom viewer the idle timeout coin-flips between dissecting the
+  current element (at most once per element) and jumping.
+- **Element-switch intro**: the Italian element name slides in from the
+  right over a big pale symbol watermark, holds, then flashes on/off once at
+  0.5Hz. Layout per feedback: the name sits at 2/3 of the canvas height and
+  the "Z=xx" caption in the upper 1/3, so the name reads clearly.
+- **Dissection intro card**: "Configurazione / elettronica / <nome>" over a
+  tiled dim "e-" backdrop, held ~0.9s before the sequence starts.
+- **Dissection HUD**: big subshell label ("2p") + plain-size caption
+  ("Shell 2p (2/5)") + a small "<occ>e-" note in the top-right corner
+  (was a verbose single subtitle line).
+- **Dissection pacing**: shell-to-shell hops take ~2× as long
+  (`DISSECT_ZOOM_SLOWDOWN`); the open/close legs keep their own constants.
+- **Dissection abort**: any movement (arrow keys, wheel, +/-, D) during a
+  dissection closes it and returns to the full element.
+- **30 fps**: the per-point Python render loop was the whole bottleneck
+  (~140ms/frame at 20000 points). With numpy installed the shared render
+  core (`viewer_common._blend_points_np`) is fully vectorized — rotation,
+  projection, 2×2 blocks, and the exact sequential alpha blend (per-pixel
+  "rounds", same semantics as the Python loop, verified pixel-equal within
+  rounding) — bringing a 5000-point frame to ~30ms (measured ~36 fps on the
+  dev machine). The pure-Python loops remain as the no-numpy fallback.
+
+Orbital-name fix: the (n=5, l=2, m=0) preset was mislabeled "5p_z3"/"5pz3"
+in `micropython/cloud_common.py` and `src/orbital_library.h` (a d orbital,
+not p) -- corrected to `5d_z2`/`5dz2` in both, which fixes the PC and web
+ports too since they read the shared `ORBITAL_PRESETS` list.
+
 ## Constants and tuning reference
 
 All viewer behavior is driven by module-level constants, most of them in
@@ -220,8 +293,8 @@ stay documented without turning the source into prose.
 | `WIDTH` / `HEIGHT` | 480 / 480 | Logical render resolution (2× the device's 240×240 panel) |
 | `CENTER` | `WIDTH // 2` | Screen center |
 | `DISPLAY_SCALE` | 2 | The tkinter window is `WIDTH*DISPLAY_SCALE` square; all math stays at `WIDTH`/`HEIGHT` |
-| `N_POINTS` (`orbital_view_pc.py`) | 20000 | Sampled points per preset — 3000 on the device; a desktop CPU has the headroom |
-| `FRAME_DELAY_MS` | 20 | tkinter `.after()` delay — on a PC this, not rendering, is the real throttle |
+| `N_POINTS` (`orbital_view_pc.py`) | 5000 | Sampled points per preset -- 3000 on the device; the PC keeps a bit more for its 2×-resolution buffer without costing the 30fps target |
+| `FRAME_DELAY_MS` | 5 | tkinter `.after()` delay -- a small pacing idle, not the throttle (the numpy render is) |
 
 ### Camera motion (`viewer_common.py`)
 
@@ -302,16 +375,24 @@ flat gray), which reads much stronger than just dimming the same gray-blue.
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `PROTON_SIZE` | 3 | Nucleus marker size (px) |
+| `PROTON_SIZE` | 14 | Nucleus marker size (px) |
 | `PROTON_COLOR` | `(255, 0, 0)` | Nucleus marker color |
+
+14px, not the device's 7: the PC buffer is 480×480 = 2× the 240 panel, so 2×
+the panel px gives the same relative on-screen size. Matches today's device
+change (3 → 7, "proton not visible enough, give him a bigger radius"). The
+nucleus is drawn AFTER the cloud in `render_frame()` — fully opaque on top,
+so a point landing on the same pixel can't dim/hide it (the device now
+redraws the proton on top every frame for the same reason).
 
 ### Electron point rendering (`viewer_common.py`)
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `ELECTRON_ALPHA` | 0.5 | Per-point blend fraction toward the point's own color |
+| `ELECTRON_ALPHA` | 0.92 | Per-point blend fraction toward the point's own color |
+| `ELECTRON_SIZE` | 2 | Electron point size (px per side, square block) |
 | `ENABLE_PERSISTENCE` | True | Fade previous frame instead of clearing (PC-only) |
-| `PERSISTENCE_DECAY` | 100 | /256 kept per frame (~0.39) |
+| `PERSISTENCE_DECAY` | 150 | /256 kept per frame (~0.59) |
 
 `ELECTRON_ALPHA` applies to every sampled electron point; the nucleus is not
 affected (one literal particle, not a probability cloud — it stays fully
@@ -325,6 +406,30 @@ subsequent point blends in. Apparent brightness therefore tracks local
 sample *density*, not just occupancy, the way a translucent point cloud
 reads. `1.0` = opaque (the old direct-overwrite behavior).
 
+`ELECTRON_ALPHA`/`PERSISTENCE_DECAY` were raised together (0.8→0.92,
+100→150) to match the device's change (src/camera.h's
+`kElectronAlphaQ8`/`kPersistenceKeepQ8`): during rotation a point rarely
+lands on the exact same pixel two frames running, so it gets essentially one
+blend toward full brightness before the persistence fade starts pulling that
+pixel back down — the cloud reads visibly dimmer in motion than in a static
+frame. A stronger alpha makes each hit closer to full brightness, and slower
+decay keeps the glow alive between re-hits; the two are tuned together.
+`PERSISTENCE_DECAY` was then pulled back 150→120 ("persistence is a bit too
+much", 2026-08-17): the numpy fast path restored ~30 fps, so the same decay
+value now spans roughly half as many wall-clock seconds and 150 read as too
+long a trail.
+
+`ELECTRON_SIZE` draws each point as a square block of that many pixels per
+side (each block pixel blended at `ELECTRON_ALPHA`, so overlap still
+converges toward full brightness). `1` = the old single-pixel dot. `2`
+(double size) is the default because the PC buffer is 480×480 = 2× the
+device's 240×240 panel: a 2×2 block here is exactly one device pixel, so the
+PC preview shows electrons at the same apparent size as the panel instead of
+half-size dots. Both `render_frame()` and the atom dissection view draw
+through the shared `blend_electron()` (which has unrolled fast paths for the
+common 1×1 and 2×2 sizes — it's called once per point per frame) so they
+can't drift apart.
+
 Persistence is a PC-only cosmetic: the device stays a hard clear+redraw (no
 budget on-device). Fading instead of clearing makes points leave a trailing
 glow as they tumble and softens the "buzz" turnover flicker (a skipped point
@@ -337,13 +442,17 @@ be. Lower `PERSISTENCE_DECAY` = shorter trails; 256 = never fades.
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `SCALE_BAR_MARGIN_X` / `_Y` | 8 / 8 | Bottom-left margin (px) |
-| `SCALE_BAR_MAX_PX` | 90 | Longest allowed bar |
-| `SCALE_BAR_TICK_PX` | 4 | End-tick length |
-| `SCALE_BAR_COLOR` | `(210, 210, 210)` | Bar color |
+| `SCALE_BAR_MARGIN_X` / `_Y` | 16 / 16 | Bottom-left margin (px) |
+| `SCALE_BAR_MAX_PX` | 180 | Longest allowed bar |
+| `SCALE_BAR_TICK_PX` | 8 | End-tick length |
+| `SCALE_BAR_LINE_WIDTH` | 2 | Bar/tick line thickness (px) |
+| `SCALE_BAR_FONT_SIZE` | 22 | Label font size (~2× the old default) |
 
-The "nice" round lengths and the length-picking rule live in
-`micropython/cloud_common.py` (`SCALE_BAR_CANDIDATES` /
+Every dimension doubled (margins, tick height, line thickness) and the label
+now drawn at a 2× font instead of PIL's tiny default — port of today's device
+change (`src/overlay.cpp`: "la scaletta risulta illegibile, raddoppia le sue
+dimensioni font compresa"). The "nice" round lengths and the length-picking
+rule live in `micropython/cloud_common.py` (`SCALE_BAR_CANDIDATES` /
 `pick_scale_bar_length()`), shared with the device renderer
 (`micropython/orbital_view.py`), so a scale bar reads the same physical
 length on both renderers at the same zoom. What's left in the PC code is

@@ -168,8 +168,14 @@ void OrbitalPresetState::load(int index)
     resample.cursor = 0;
 
     computeOrbitalLevels(psi2, kOrbitalViewNumPoints, levels, resample.psi2Sorted);
+    posRgb[0] = d.posRgb[0];
+    posRgb[1] = d.posRgb[1];
+    posRgb[2] = d.posRgb[2];
+    negRgb[0] = d.negRgb[0];
+    negRgb[1] = d.negRgb[1];
+    negRgb[2] = d.negRgb[2];
     for (int i = 0; i < kOrbitalViewNumPoints; i++)
-        colors[i] = orbitalLevelToColor565(levels[i], signs[i]);
+        colors[i] = orbitalLevelToColor565(levels[i], signs[i], d.posRgb, d.negRgb);
 
     std::snprintf(title, sizeof(title), "%s (n=%d l=%d m=%d)", d.label, d.n, d.ell, d.m);
 
@@ -187,7 +193,7 @@ void OrbitalPresetState::resamplePoints(int count)
     {
         ResampledOrbitalPoint r = resampleOneOrbitalPoint(&resample, points);
         int level = r.level > kOrbitalColorMaxLevel ? kOrbitalColorMaxLevel : r.level;
-        colors[r.index] = orbitalLevelToColor565(level, r.sign);
+        colors[r.index] = orbitalLevelToColor565(level, r.sign, posRgb, negRgb);
     }
 }
 

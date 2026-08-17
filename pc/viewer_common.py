@@ -26,6 +26,18 @@ import cloud_common
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
+# numpy is optional: when present, render_frame()/render_dissection_frame()
+# take a fully vectorized fast path (the per-point Python loop was the whole
+# reason the PC ran at ~7 fps -- see the _render_*_np functions below); the
+# pure-Python paths remain as the fallback so the viewers still run on a
+# numpy-less install.
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    np = None
+    _HAS_NUMPY = False
+
 # --- Display geometry -------------------------------------------------------
 WIDTH = 480
 HEIGHT = 480
@@ -48,7 +60,12 @@ ZOOM_ANGLE_STEP = 0.016
 # can't move axis-aligned lobes at all), so even frame 0 isn't axis-locked.
 _TILT_ANGLE_START = 0.9
 _ROLL_ANGLE_START = 2.1
-FRAME_DELAY_MS = 20  # tkinter .after() delay; PC is fast enough this is the real throttle
+# Throttle between _tick() frames. Was 20ms when the pure-Python render was
+# the bottleneck (the delay was invisible); with the numpy fast path the
+# render is a few ms and the frame is ~30ms, so the delay is a small pacing
+# idle, not the throttle -- 5ms leaves the loop at ~30-40 fps (target:
+# "30 fps like the ESP32", 2026-08-17).
+FRAME_DELAY_MS = 5
 
 # --- Intro / preset-switch transitions --------------------------------------
 INTRO_START_SCALE_FACTOR = 1
@@ -126,7 +143,14 @@ MARKER_COLOR_FRONT = (255, 220, 40)    # rotating toward the viewer -- a warm
 _MARKER_FONT = ImageFont.load_default(size=MARKER_FONT_SIZE)  # loaded once, not per frame
 
 # --- Nucleus ----------------------------------------------------------------
-PROTON_SIZE = 3
+# 14px, not the device's 7: the PC buffer is 480x480 = 2x the 240 panel, so 2x
+# the panel px gives the same relative on-screen size. Matches today's device
+# change (src/orbital_view.cpp's kOrbitalProtonMarkerSize / atom_view.cpp's
+# kAtomProtonMarkerSize 3->7, "proton not visible enough, give him a bigger
+# radius"). Drawn AFTER the cloud (see render_frame()) so it's always a fully
+# opaque bright-red point on top and can't be dimmed out by points landing on
+# the same pixels -- the same on-top redraw the device now does every frame.
+PROTON_SIZE = 14
 PROTON_COLOR = (255, 0, 0)
 
 # --- Electron point rendering ------------------------------------------------
@@ -135,7 +159,21 @@ PROTON_COLOR = (255, 0, 0)
 # so apparent brightness tracks local sample DENSITY at a pixel -- the way a
 # translucent point cloud reads. The nucleus above is NOT blended (one literal
 # particle, not a probability cloud).
-ELECTRON_ALPHA = 0.8
+# Raised from 0.8 to ~0.92 to match today's device-side change
+# (src/camera.h's kElectronAlphaQ8 205->235): during rotation a given point
+# rarely lands on the exact same pixel two frames running, so it gets
+# essentially one blend toward full brightness before the persistence fade
+# below starts pulling that pixel back down -- the cloud reads visibly dimmer
+# in motion than in a static single-frame render. A stronger alpha makes each
+# individual hit closer to full brightness, which is where the perceived
+# dimming during animation/rotation actually comes from.
+ELECTRON_ALPHA = 0.92
+# Each electron renders as an ELECTRON_SIZE x ELECTRON_SIZE square block
+# (1 = single pixel, the old behavior). 2 = double size: the PC buffer is
+# 480x480 = 2x the device's 240x240 panel, so a 2x2 block here is exactly one
+# device pixel -- the PC preview then shows electrons at the same apparent
+# size as the panel, instead of half-size dots.
+ELECTRON_SIZE = 2
 
 # Phosphor-style persistence (PC-only cosmetic; the device hard-clears each
 # frame -- see orbital_view.py). Each frame fades the previous buffer toward
@@ -143,18 +181,33 @@ ELECTRON_ALPHA = 0.8
 # 240x240x3 bytes/frame) instead of clearing, so points leave a trailing glow
 # and skipped "buzz" points fade out instead of vanishing.
 ENABLE_PERSISTENCE = True
-PERSISTENCE_DECAY = 100  # /256 kept per frame (~0.39); lower = shorter trails, 256 = never fades
+# Raised from 100 to 150 to match the device's kPersistenceKeepQ8 -- then
+# pulled back to 120 ("persistence is a bit too much", 2026-08-17): slower
+# decay keeps a hit pixel's glow alive longer between re-hits as points sweep
+# across the screen during rotation, filling in the gaps that otherwise read
+# as fading -- but with the numpy fast path restoring ~30 fps, the same decay
+# value now spans roughly half as many wall-clock seconds, so 150 read as too
+# long a trail and 120 (~0.47 kept/frame) splits the difference.
+PERSISTENCE_DECAY = 120  # /256 kept per frame (~0.47); lower = shorter trails, 256 = never fades
 _PERSISTENCE_TABLE = bytes((i * PERSISTENCE_DECAY) // 256 for i in range(256))
 
 # --- Scale bar (bottom-left physical-size reference) ------------------------
 # "Nice" round lengths + the picking rule live in cloud_common.py
 # (pick_scale_bar_length()), shared with the device renderer so a bar reads
 # the same physical length on both. What's left here is PIL-specific geometry.
-SCALE_BAR_MARGIN_X = 8
-SCALE_BAR_MARGIN_Y = 8
-SCALE_BAR_MAX_PX = 90
-SCALE_BAR_TICK_PX = 4
+# Every dimension doubled to match today's device-side change
+# (src/overlay.cpp: "la scaletta risulta illegibile, raddoppia le sue
+# dimensioni font compresa") -- margins, tick height, bar line thickness, and
+# the label now at a 2x font instead of PIL's tiny default.
+SCALE_BAR_MARGIN_X = 16
+SCALE_BAR_MARGIN_Y = 16
+SCALE_BAR_MAX_PX = 180
+SCALE_BAR_TICK_PX = 8
+SCALE_BAR_LINE_WIDTH = 2   # was an implicit 1px line
+SCALE_BAR_FONT_SIZE = 22   # ~2x the old default bitmap font (~11px)
+SCALE_BAR_LABEL_GAP_PX = 4  # px between label bottom and the tick top
 SCALE_BAR_COLOR = (210, 210, 210)
+_SCALE_BAR_FONT = ImageFont.load_default(size=SCALE_BAR_FONT_SIZE)  # loaded once, not per frame
 
 # --- HUD text positions -------------------------------------------------------
 TITLE_POS = (2, 2)
@@ -163,6 +216,28 @@ SUBTITLE_POS = (2, 12)
 
 def _next_zoom_excursion_countdown():
     return random.randint(ZOOM_EXCURSION_MIN_INTERVAL_FRAMES, ZOOM_EXCURSION_MAX_INTERVAL_FRAMES)
+
+
+def find_unicode_font(size):
+    """First installed TrueType font that can render Greek letters, from a
+    cross-platform candidate list; None if none exist (callers then fall back
+    to the default PIL font / ASCII text). Segoe UI and Arial ship with
+    Windows; DejaVu/Liberation are the usual Linux desktop defaults. Used by
+    both viewers' full-screen title/equation text.
+    """
+    for path in (
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/calibri.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ):
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+    return None
 
 
 def draw_nucleus(buf):
@@ -195,18 +270,244 @@ def rotate_yaw_tilt_roll(x, y, z, cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll
     return rx3, ry3, rz
 
 
-def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
-    """Clear (or fade, see ENABLE_PERSISTENCE) `buf`, draw the nucleus, then
-    rotate (yaw/tilt/roll -- all three needed, see orbital_view.py's module
-    docstring) and alpha-blend every point of `preset` into the buffer.
-    `preset` need only expose xs/ys/zs/colors (Preset and AtomPreset both do).
+def blend_electron(buf, px, py, cr, cg, cb, alpha=ELECTRON_ALPHA, size=ELECTRON_SIZE):
+    """Alpha-blend one electron into `buf` (a WIDTH*HEIGHT*3 RGB bytearray)
+    as an `size` x `size` square block centered on (px, py), clipped at the
+    screen edges. Every block pixel blends exactly the way the old single
+    point did, so overlapping blocks still converge toward full brightness
+    and apparent brightness keeps tracking local sample density. Shared by
+    render_frame() and atom_view_pc.render_dissection_frame()'s _draw() so
+    both PC views draw electrons at the same size.
+
+    Sizes 1 and 2 (the default) have unrolled fast paths -- this is called
+    once per point per frame (20000+ calls), so the generic range()-loop
+    version below would add measurable per-point overhead on top of the
+    pixel writes themselves.
     """
+    if size == 1:
+        if 0 <= px < WIDTH and 0 <= py < HEIGHT:
+            idx = (py * WIDTH + px) * 3
+            buf[idx] = buf[idx] + int((cr - buf[idx]) * alpha)
+            buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * alpha)
+            buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * alpha)
+        return
+
+    if size == 2:
+        x0, y0 = px - 1, py - 1
+        for yy in (y0, y0 + 1):
+            if 0 <= yy < HEIGHT:
+                row = yy * WIDTH
+                for xx in (x0, x0 + 1):
+                    if 0 <= xx < WIDTH:
+                        idx = (row + xx) * 3
+                        buf[idx] = buf[idx] + int((cr - buf[idx]) * alpha)
+                        buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * alpha)
+                        buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * alpha)
+        return
+
+    # General path (uncommon sizes > 2): clip the block to the screen and
+    # blend every in-bounds pixel.
+    half = size // 2
+    x0 = max(px - half, 0)
+    y0 = max(py - half, 0)
+    x1 = min(px - half + size, WIDTH)
+    y1 = min(py - half + size, HEIGHT)
+    for yy in range(y0, y1):
+        row = yy * WIDTH
+        for xx in range(x0, x1):
+            idx = (row + xx) * 3
+            buf[idx] = buf[idx] + int((cr - buf[idx]) * alpha)
+            buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * alpha)
+            buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * alpha)
+
+
+def _preset_np(preset):
+    """Cached numpy arrays of a preset's point data -- built once and kept on
+    the preset as `_np_cache` (point turnover invalidates it by setting it to
+    None, see orbital_view_pc.Preset.resample()). Also collects the atom
+    preset's shells/ells/signs and per-point shell colors for the dissection
+    view. Returns None when numpy isn't installed.
+    """
+    if not _HAS_NUMPY:
+        return None
+    cache = getattr(preset, '_np_cache', None)
+    if cache is not None:
+        return cache
+    cache = {
+        'xs': np.asarray(preset.xs, dtype=np.float64),
+        'ys': np.asarray(preset.ys, dtype=np.float64),
+        'zs': np.asarray(preset.zs, dtype=np.float64),
+        'colors': np.asarray(preset.colors, dtype=np.uint8),
+    }
+    if getattr(preset, 'shells', None) is not None:
+        # Multi-electron atom preset (AtomPreset): shells/ells/signs and the
+        # per-point shell color needed by the dissection view's color rules.
+        import atom_cloud  # lazy: atom_cloud imports cloud_common, which this module already did
+        cache['shells'] = np.asarray(preset.shells, dtype=np.int32)
+        cache['ells'] = np.asarray(preset.ells, dtype=np.int32)
+        cache['signs'] = np.asarray(preset.signs, dtype=np.int32)
+        shell_rgb = atom_cloud.SHELL_RGB
+        cache['shell_colors'] = np.asarray(
+            [shell_rgb[s] if s < len(shell_rgb) else shell_rgb[-1] for s in preset.shells],
+            dtype=np.uint8)
+    preset._np_cache = cache
+    return cache
+
+
+def _blend_points_np(buf_np, xs, ys, zs, colors, cy, sy, cx, sx, cz, sz, scale,
+                     buzz_fraction=0.0, clip_rz_max=None, skip_mask=None, alpha=ELECTRON_ALPHA):
+    """Vectorized core of render_frame()/render_dissection_frame(): rotate
+    (yaw/tilt/roll, same transform as rotate_yaw_tilt_roll()), project, and
+    alpha-blend every point's ELECTRON_SIZE block into `buf_np` (a
+    (HEIGHT, WIDTH, 3) uint8 view over the caller's bytearray -- zero-copy).
+
+    The blend preserves the pure-Python path's exact sequential semantics
+    (per hit: v = v*(1-alpha) + c*alpha, in point order) via a per-pixel
+    "rounds" loop: pixels are grouped by index, then each round applies one
+    hit to every pixel that has at least that many hits -- fully vectorized
+    per round, and the number of rounds is just the max hits-per-pixel in
+    this frame (small for a sparse point cloud).
+
+    `clip_rz_max` (dissection) drops points whose post-yaw-and-tilt depth
+    exceeds it; `skip_mask` (dissection pass structure) skips points;
+    `buzz_fraction` randomly drops a fraction of points (orbital buzz).
+    """
+    n = len(xs)
+    if n == 0:
+        return
+    rx1 = xs * cy + zs * sy
+    rz1 = zs * cy - xs * sy
+    ry2 = ys * cx - rz1 * sx
+    rz = ys * sx + rz1 * cx
+    rx3 = rx1 * cz - ry2 * sz
+    ry3 = rx1 * sz + ry2 * cz
+    px = np.rint(CENTER + rx3 * scale).astype(np.int32)
+    py = np.rint(CENTER - ry3 * scale).astype(np.int32)
+
+    ok = (px >= 0) & (px < WIDTH) & (py >= 0) & (py < HEIGHT)
+    if clip_rz_max is not None:
+        ok &= rz <= clip_rz_max
+    if skip_mask is not None:
+        ok &= ~skip_mask
+    if buzz_fraction:
+        ok &= np.random.random(n) >= buzz_fraction
+    if not ok.any():
+        return
+    px = px[ok]
+    py = py[ok]
+    col = colors[ok]
+
+    size = ELECTRON_SIZE
+    if size == 2:
+        # 2x2 block, POINT-MAJOR layout: entries [4i..4i+3] are point i's four
+        # corners (px-1,py-1), (px-1,py), (px,py-1), (px,py). The stable
+        # argsort below then keeps hits at a shared pixel in point order,
+        # matching the pure-Python path's sequential blend exactly -- a
+        # corner-major layout (concatenating whole corner planes) would sort
+        # corner-0 hits before corner-3 hits regardless of point order and
+        # reverse the blend at overlapping pixels.
+        n_ok = len(px)
+        px4 = np.empty(4 * n_ok, dtype=px.dtype)
+        py4 = np.empty(4 * n_ok, dtype=py.dtype)
+        px4[0::4] = px - 1
+        py4[0::4] = py - 1
+        px4[1::4] = px - 1
+        py4[1::4] = py
+        px4[2::4] = px
+        py4[2::4] = py - 1
+        px4[3::4] = px
+        py4[3::4] = py
+        px, py = px4, py4
+        col = np.repeat(col, 4, axis=0)
+    elif size == 1:
+        pass
+    else:
+        # Uncommon sizes: fall back to the per-point Python blend for these
+        # points (rare -- ELECTRON_SIZE is 1 or 2 in practice).
+        for i in range(len(px)):
+            blend_electron(buf_np, int(px[i]), int(py[i]), *tuple(int(v) for v in col[i]), alpha=alpha, size=size)
+        return
+
+    ok2 = (px >= 0) & (px < WIDTH) & (py >= 0) & (py < HEIGHT)
+    px = px[ok2]
+    py = py[ok2]
+    col = col[ok2]
+    if px.size == 0:
+        return
+
+    pix = py * WIDTH + px
+    flat = buf_np.reshape(-1, 3)
+    order = np.argsort(pix, kind='stable')  # stable: keeps point order within a pixel
+    p = pix[order]
+    c = col[order]
+    is_start = np.empty(p.size, dtype=bool)
+    is_start[0] = True
+    is_start[1:] = p[1:] != p[:-1]
+    uniq = p[is_start]
+    starts = np.flatnonzero(is_start)
+    hits = np.diff(np.concatenate((starts, [p.size])))
+    keep_frac = 1.0 - alpha
+    for k in range(1, int(hits.max()) + 1):
+        sel = hits >= k
+        if not sel.any():
+            break
+        u = uniq[sel]
+        ck = c[starts[sel] + (k - 1)]
+        old = flat[u].astype(np.float32)
+        flat[u] = np.rint(old * keep_frac + ck * alpha).astype(np.uint8)
+
+
+def _draw_nucleus_np(buf_np):
+    """Vectorized draw_nucleus(): the fully-opaque PROTON_SIZE square at
+    screen center, written on top of the cloud (see render_frame())."""
+    half = PROTON_SIZE // 2
+    x0 = CENTER - half
+    x1 = x0 + PROTON_SIZE
+    y0 = CENTER - half
+    y1 = y0 + PROTON_SIZE
+    buf_np[y0:y1, x0:x1] = PROTON_COLOR
+
+
+def _render_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
+    """numpy fast path of render_frame() -- see that function's docstring;
+    mutates `buf` (the bytearray) in place via a zero-copy view."""
+    buf_np = np.frombuffer(buf, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3)
+    if ENABLE_PERSISTENCE:
+        buf_np[:] = (buf_np.astype(np.uint16) * PERSISTENCE_DECAY) // 256  # same per-byte map as translate()
+    else:
+        buf_np[:] = 0
+    cy, sy = math.cos(angle), math.sin(angle)
+    cx, sx = math.cos(tilt_angle), math.sin(tilt_angle)
+    cz, sz = math.cos(roll_angle), math.sin(roll_angle)
+    _blend_points_np(buf_np, arr['xs'], arr['ys'], arr['zs'], arr['colors'],
+                     cy, sy, cx, sx, cz, sz, scale, buzz_fraction=buzz_fraction)
+    _draw_nucleus_np(buf_np)
+
+
+def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
+    """Clear (or fade, see ENABLE_PERSISTENCE) `buf`, rotate (yaw/tilt/roll
+    -- all three needed, see orbital_view.py's module docstring) and
+    alpha-blend every point of `preset` into the buffer, then draw the
+    nucleus LAST, fully opaque, on top of the cloud -- matching the device's
+    today's change: the old order (nucleus first, points blending over it)
+    let a point landing on the same pixel dim/hide it (worst near screen
+    center for any orbital whose density peaks at the origin). `preset` need
+    only expose xs/ys/zs/colors (Preset and AtomPreset both do).
+
+    With numpy installed this takes the vectorized fast path (_render_frame_np
+    -- ~10ms at 20000 points instead of ~140ms, the whole difference between
+    7 and 30 fps); the pure-Python loop below is the no-numpy fallback.
+    """
+    if _HAS_NUMPY and ELECTRON_SIZE in (1, 2):
+        arr = _preset_np(preset)
+        if arr is not None:
+            _render_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle, scale, buzz_fraction)
+            return
+
     if ENABLE_PERSISTENCE:
         buf[:] = buf.translate(_PERSISTENCE_TABLE)  # fade previous frame instead of clearing
     else:
         buf[:] = bytes(len(buf))  # fast bulk clear
-
-    draw_nucleus(buf)
 
     cos_yaw = math.cos(angle)
     sin_yaw = math.sin(angle)
@@ -226,12 +527,10 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
         px = CENTER + round(rx3 * scale)
         py = CENTER - round(ry3 * scale)
 
-        if 0 <= px < WIDTH and 0 <= py < HEIGHT:
-            idx = (py * WIDTH + px) * 3
-            cr, cg, cb = colors[i]
-            buf[idx] = buf[idx] + int((cr - buf[idx]) * ELECTRON_ALPHA)
-            buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * ELECTRON_ALPHA)
-            buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * ELECTRON_ALPHA)
+        blend_electron(buf, px, py, *colors[i])
+
+    # Nucleus on top -- see this function's docstring for why it must be last.
+    draw_nucleus(buf)
 
 
 def draw_bounding_circle(draw, r_ref, scale, outline_color=BOUNDING_SPHERE_COLOR):
@@ -304,11 +603,19 @@ def draw_scale_bar(draw, pixels_per_unit, unit_label, canvas_height=HEIGHT, max_
     y = canvas_height - SCALE_BAR_MARGIN_Y
     x1 = x0 + bar_px
 
-    draw.line((x0, y, x1, y), fill=SCALE_BAR_COLOR)
-    draw.line((x0, y - SCALE_BAR_TICK_PX, x0, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR)
-    draw.line((x1, y - SCALE_BAR_TICK_PX, x1, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR)
+    # Thicker bar + ticks (SCALE_BAR_LINE_WIDTH), matching the device's
+    # post-feedback doubling -- the old 1px lines read as too thin.
+    draw.line((x0, y, x1, y), fill=SCALE_BAR_COLOR, width=SCALE_BAR_LINE_WIDTH)
+    draw.line((x0, y - SCALE_BAR_TICK_PX, x0, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR,
+              width=SCALE_BAR_LINE_WIDTH)
+    draw.line((x1, y - SCALE_BAR_TICK_PX, x1, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR,
+              width=SCALE_BAR_LINE_WIDTH)
 
-    draw.text((x0, y - SCALE_BAR_TICK_PX - 12), "%s %s" % (label, unit_label), fill=SCALE_BAR_COLOR)
+    # Label at SCALE_BAR_FONT_SIZE (2x the old default font), sitting above
+    # the tick with SCALE_BAR_LABEL_GAP_PX clearance -- was PIL's tiny default
+    # font, same "illegible" complaint the device fixed.
+    draw.text((x0, y - SCALE_BAR_TICK_PX - SCALE_BAR_LABEL_GAP_PX - SCALE_BAR_FONT_SIZE),
+              "%s %s" % (label, unit_label), fill=SCALE_BAR_COLOR, font=_SCALE_BAR_FONT)
 
 
 def advance_rotation(app):
@@ -359,7 +666,7 @@ def fly_over(app, start_scale, end_scale, frames):
 
 
 def maybe_zoom_excursion(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_ref,
-                          shell_count=1, scale_factor=1.0):
+                          shell_count=1, scale_factor=1.0, ease_frames_base=None):
     """If the excursion countdown expired, dive from wherever the camera
     currently is out to the shared "outside" bound (outer_r_ref x
     ZOOM_OUTER_RADIUS_FACTOR filling the frame), in through the cloud to the
@@ -373,7 +680,9 @@ def maybe_zoom_excursion(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_r
     scales the two bounds the same way. `shell_count` stretches every leg
     (see shell_count_frames()) so a heavier, multi-shell atom's dive isn't
     rushed. zoom_angle resets to 0 after -- sin(0) == 0 lines up exactly with
-    where the dive left off.
+    where the dive left off. `ease_frames_base`, if given, overrides the
+    shared ZOOM_EXCURSION_EASE_FRAMES_BASE for per-viewer dive pacing (the
+    orbital viewer's 1.5x-slower zooms).
 
     `scale_factor` is only a SNAPSHOT of app.zoom_factor taken when this
     call started. fly_over() already rescales live against app.zoom_factor
@@ -395,7 +704,12 @@ def maybe_zoom_excursion(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_r
     current_scale = base_scale + zoom_amplitude * math.sin(app.zoom_angle)
     outer_scale = outer_bound_scale(outer_r_ref, scale_factor)
     inner_scale = inner_bound_scale(inner_r_ref, scale_factor)
-    frames = shell_count_frames(ZOOM_EXCURSION_EASE_FRAMES_BASE, ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL, shell_count)
+    # ease_frames_base overrides the shared ZOOM_EXCURSION_EASE_FRAMES_BASE for
+    # callers that want a different dive cadence -- e.g. orbital_view_pc.py's
+    # 1.5x-slower zooms (mirroring src/orbital_view.cpp's local 1.5x copies of
+    # camera.h's pacing constants).
+    frames = shell_count_frames(ease_frames_base or ZOOM_EXCURSION_EASE_FRAMES_BASE,
+                                ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL, shell_count)
     fly_over(app, current_scale, _live(outer_scale), frames)
     fly_over(app, _live(outer_scale), _live(inner_scale), frames)
     fly_over(app, _live(inner_scale), _live(base_scale), frames)

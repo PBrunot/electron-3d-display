@@ -48,18 +48,20 @@ import slater
 
 from atom_view_pc import (
     AtomPreset, draw_atom_title, render_dissection_frame,
-    DISSECT_TARGET_PX, DISSECT_CLIP_CLOSED,
-    DISSECT_LABEL_COLOR, Z_NOTE_COLOR, ROLL_ANGLE_STEP,
+    DISSECT_TARGET_PX, DISSECT_CLIP_CLOSED, Z_NOTE_COLOR, ROLL_ANGLE_STEP,
     DISSECT_ZOOM_FRAMES, DISSECT_FRAME_DELAY_S,
+    DISSECT_TITLE_COLOR, DISSECT_BIG_FONT_SIZE, DISSECT_CAPTION_FONT_SIZE,
+    DISSECT_OCC_FONT_SIZE, DISSECT_OCC_MARGIN_PX,
 )
 from orbital_view_pc import Preset
 from viewer_common import (
     WIDTH, HEIGHT, CENTER, PROTON_SIZE,
-    TITLE_POS, SUBTITLE_POS,
+    TITLE_POS,
     _TILT_ANGLE_START, _ROLL_ANGLE_START,
     ANGLE_STEP, TILT_ANGLE_STEP, ZOOM_ANGLE_STEP,
     FRAME_DELAY_MS, SWITCH_START_SCALE_FACTOR, SWITCH_TRANSITION_FRAMES,
     render_frame, draw_orbit_marker, draw_bounding_circle, draw_scale_bar,
+    find_unicode_font,
 )
 
 from PIL import Image, ImageDraw, ImageFont
@@ -417,26 +419,47 @@ def atom_gallery():
 
 # --- Shell-dissection journey --------------------------------------------------
 
-def _dissect_overlays(preset, z, scale, r_ref, label):
+# Same dissection HUD fonts the live app uses (atom_view_pc.py's
+# _blit_dissection) -- big shell label, plain-size caption, small corner occ
+# note.
+_DISSECT_BIG_FONT = find_unicode_font(DISSECT_BIG_FONT_SIZE) or ImageFont.load_default(size=DISSECT_BIG_FONT_SIZE)
+_DISSECT_CAPTION_FONT = find_unicode_font(DISSECT_CAPTION_FONT_SIZE) or ImageFont.load_default(
+    size=DISSECT_CAPTION_FONT_SIZE)
+_DISSECT_OCC_FONT = find_unicode_font(DISSECT_OCC_FONT_SIZE) or ImageFont.load_default(size=DISSECT_OCC_FONT_SIZE)
+
+
+def _dissect_overlays(preset, z, scale, r_ref, title):
     """The dissection HUD: plain gray bounding circle (neutral
-    BOUNDING_SPHERE_COLOR, not shell-colored), scale bar, config title,
-    optional yellow subshell label, and the red Z note by the nucleus.
+    BOUNDING_SPHERE_COLOR, not shell-colored), scale bar, the device-style
+    drawDissectTitle() triple (big "2p" label, "Shell 2p (k/N)" caption,
+    small "<occ>e-" top-right corner note -- `title` is that tuple or None),
+    and the red Z note by the nucleus.
     """
 
     def overlays(draw):
         draw_bounding_circle(draw, r_ref, scale)
         draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
-        draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], z, preset.config)
-        if label:
-            draw.text(SUBTITLE_POS, label, fill=DISSECT_LABEL_COLOR)
+        if title is not None:
+            big_label, caption, occ = title
+            draw.text(TITLE_POS, big_label, fill=DISSECT_TITLE_COLOR, font=_DISSECT_BIG_FONT)
+            draw.text((TITLE_POS[0], TITLE_POS[1] + DISSECT_BIG_FONT_SIZE + 6),
+                      caption, fill=DISSECT_TITLE_COLOR, font=_DISSECT_CAPTION_FONT)
+            occ_text = "%de-" % occ
+            occ_x = WIDTH - draw.textlength(occ_text, font=_DISSECT_OCC_FONT) - DISSECT_OCC_MARGIN_PX
+            draw.text((occ_x, DISSECT_OCC_MARGIN_PX), occ_text, fill=DISSECT_TITLE_COLOR,
+                      font=_DISSECT_OCC_FONT)
         draw.text((CENTER + PROTON_SIZE, CENTER - PROTON_SIZE), "Z=%d" % z, fill=Z_NOTE_COLOR)
 
     return overlays
 
 
-def _dissect_label(subshell_str, n, ell, letter, ecount):
-    return '%s: n=%d, l=%d (%s shell) -- %d electron%s' % (
-        subshell_str, n, ell, letter, ecount, '' if ecount == 1 else 's')
+def _dissect_title(n, ell, ecount, index, count):
+    """Device-style dissection title triple: big subshell label ("2p"), the
+    "Shell 2p (k/N)" caption, and the electron count for the corner note --
+    matches atom_view_pc.py's _run_dissection() title construction.
+    """
+    subshell = slater.subshell_label(n, ell)
+    return (subshell, "Shell %s (%d/%d)" % (subshell, index, count), ecount)
 
 
 def dissection_screenshots(z):
@@ -469,10 +492,10 @@ def dissection_screenshots(z):
     # full cloud stays visible: no clip plane.
     for k, (n, ell, letter, subshell_str, ecount, r_ref) in enumerate(plan, start=1):
         target_scale = DISSECT_TARGET_PX / max(r_ref, 1e-6)
-        label = _dissect_label(subshell_str, n, ell, letter, ecount)
+        title = _dissect_title(n, ell, ecount, k, len(plan))
         render_dissection_frame(buf, preset, angle, tilt, roll, target_scale, DISSECT_CLIP_CLOSED, (n, ell))
         relpath = 'dissect_%s_%d_%s.png' % (sym, k, subshell_str)
-        save_frame(buf, _dissect_overlays(preset, z, target_scale, r_ref, label), relpath)
+        save_frame(buf, _dissect_overlays(preset, z, target_scale, r_ref, title), relpath)
         cells.append((relpath, '%s (%s shell)' % (subshell_str, letter)))
 
     # Phase N+1: zoom back out to the resting scale, full cloud again.
@@ -555,13 +578,13 @@ def dissection_animation_gif(z=DEFAULT_DISSECT_GIF_Z):
     # (DISSECT_GIF_HOLD_SECONDS).
     hold_frames = int(round(DISSECT_GIF_HOLD_SECONDS / DISSECT_FRAME_DELAY_S))
     prev_scale = base_scale
-    for n, ell, letter, subshell_str, ecount, r_ref in plan:
+    for k, (n, ell, letter, subshell_str, ecount, r_ref) in enumerate(plan, start=1):
         target_scale = DISSECT_TARGET_PX / max(r_ref, 1e-6)
-        label = _dissect_label(subshell_str, n, ell, letter, ecount)
+        title = _dissect_title(n, ell, ecount, k, len(plan))
         ease(prev_scale, target_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED, (n, ell),
-             r_ref, DISSECT_ZOOM_FRAMES, label)
+             r_ref, DISSECT_ZOOM_FRAMES, title)
         hold(target_scale, DISSECT_CLIP_CLOSED, (n, ell), r_ref,
-             hold_frames, label)
+             hold_frames, title)
         prev_scale = target_scale
 
     # Zoom back out to the resting scale, full cloud again.
