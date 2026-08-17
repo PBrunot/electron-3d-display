@@ -1,12 +1,18 @@
 // Multi-electron atom point clouds: combines slater.h's Z_eff/electron-configuration
 // model with pointcloud.h's angular/radial-split samplers and angular_library.h's
-// compile-time angular tables. Direct (simplified) port of
-// micropython/atom_cloud.py's build_atom_point_cloud() -- see that file's module
-// docstring for the full model rationale. Simplifications vs the MicroPython version
-// for this first device port: no per-point color/shell-brightening and no psi sign
-// recomputation (both pure display polish, not physics) -- points carry (n, ell) so a
-// caller can still color by shell/subshell itself if wanted.
+// compile-time angular tables. Port of micropython/atom_cloud.py's
+// build_atom_point_cloud() -- see that file's module docstring for the full model
+// rationale, and its "Coloring" paragraph for the shell-color/brighten-dim rationale
+// specifically. Points carry (n, ell) so a caller can color by shell/subshell itself --
+// see colorizeAtomPoints() below (M4). Simplification vs the MicroPython version: no psi
+// sign recomputation for anisotropic (Hund's-rule) groups -- that only feeds
+// pc/atom_view_pc.py's PC-only shell-dissection view (phase coloring for one exploded
+// shell at a time), which this project has no on-device equivalent of (same "not worth
+// the effort for dev/debug" call atom_view.py's module docstring already makes about that
+// feature) and so nothing here would ever consume it.
 #pragma once
+
+#include <cstdint>
 
 #include "angular_library.h"
 #include "pointcloud.h"
@@ -19,6 +25,7 @@ struct AtomPoint {
 };
 
 constexpr int kMaxDrawingGroups = 40; // see atom_cloud.h's comment: at most ~1 partial subshell (<=7 groups) + up to ~19 full ones, in Madelung order; generous margin for the hardcoded exceptions too.
+constexpr int kAtomMaxPoints = 4096; // static scratch bound for outerSubshellRRef()'s per-subshell radius sort
 
 struct DrawingGroup {
     int n, ell, m; // m == kIsotropicM means "full subshell, sample isotropically"
@@ -36,22 +43,7 @@ constexpr int kIsotropicM = -999;
  *
  * @return  Number of groups written to out (must hold at least kMaxDrawingGroups).
  */
-inline int drawingGroups(const ElectronConfig& config, DrawingGroup* out) {
-    int count = 0;
-    for (int i = 0; i < config.count; i++) {
-        int n = config.subshells[i].n, ell = config.subshells[i].ell, occ = config.subshells[i].occ;
-        if (occ == subshellCapacity(ell)) {
-            out[count++] = {n, ell, kIsotropicM, occ};
-        } else {
-            MOcc mOcc[2 * kOrbitalEllMax + 1];
-            int mCount = hundFillM(ell, occ, mOcc);
-            for (int j = 0; j < mCount; j++) {
-                out[count++] = {n, ell, mOcc[j].m, mOcc[j].occ};
-            }
-        }
-    }
-    return count;
-}
+int drawingGroups(const ElectronConfig& config, DrawingGroup* out);
 
 /**
  * Divide `total` points across `count` groups proportional to `weights`, largest-
@@ -60,46 +52,12 @@ inline int drawingGroups(const ElectronConfig& config, DrawingGroup* out) {
  *
  * @param outCounts  [out] Must hold at least `count` entries.
  */
-inline void splitCounts(const int* weights, int count, int total, int* outCounts) {
-    int grandTotal = 0;
-    for (int i = 0; i < count; i++)
-        grandTotal += weights[i];
-
-    orb_real_t shares[kMaxDrawingGroups];
-    int assigned = 0;
-    for (int i = 0; i < count; i++) {
-        shares[i] = orb_real_t(total) * orb_real_t(weights[i]) / orb_real_t(grandTotal);
-        outCounts[i] = int(shares[i]);
-        assigned += outCounts[i];
-    }
-    int remainder = total - assigned;
-
-    // Selection sort for the `remainder` largest fractional remainders -- count is at
-    // most kMaxDrawingGroups (~40) and remainder < count, so this is cheap enough
-    // without needing a real sort.
-    bool used[kMaxDrawingGroups] = {};
-    for (int r = 0; r < remainder; r++) {
-        int best = -1;
-        orb_real_t bestFrac = orb_real_t(-1);
-        for (int i = 0; i < count; i++) {
-            if (used[i])
-                continue;
-            orb_real_t frac = shares[i] - orb_real_t(outCounts[i]);
-            if (frac > bestFrac) {
-                bestFrac = frac;
-                best = i;
-            }
-        }
-        if (best >= 0) {
-            outCounts[best]++;
-            used[best] = true;
-        }
-    }
-}
+void splitCounts(const int* weights, int count, int total, int* outCounts);
 
 /**
  * Sample `count` points approximating atomic number z's total electron density. Port of
- * atom_cloud.build_atom_point_cloud(), simplified (see this file's header comment).
+ * atom_cloud.build_atom_point_cloud() (coloring split out separately, see
+ * colorizeAtomPoints() below).
  *
  * @param z       Atomic number, 1 <= z <= kMaxZ.
  * @param out     [out] Must hold at least `count` entries.
@@ -108,38 +66,100 @@ inline void splitCounts(const int* weights, int count, int total, int* outCounts
  * @return        The electron configuration used (config.count subshells), for
  *                caller-side logging/title display.
  */
-inline ElectronConfig buildAtomPointCloud(int z, AtomPoint* out, int count, uint32_t seed) {
-    ElectronConfig config = electronConfiguration(z);
+ElectronConfig buildAtomPointCloud(int z, AtomPoint* out, int count, uint32_t seed);
 
-    DrawingGroup groups[kMaxDrawingGroups];
-    int groupCount = drawingGroups(config, groups);
+// --- Shell coloring (M4) ---
+//
+// Every point's default color is by shell (principal quantum number n), so the classic
+// K/L/M/N shell structure reads visually across the whole atom -- see kAtomShellRgb.
+// Points belonging to the OUTERMOST subshell (see outerSubshellRRef(), the same subshell
+// the scale calibration below treats as "the atom's size") are brightened toward white;
+// every other point is dimmed toward black, widening the contrast further -- without this
+// the valence subshell (a small minority of the total point budget for any atom past neon)
+// is easy to miss entirely. Port of atom_cloud.py's SHELL_RGB / _brighten_outer_shell() /
+// _dim_inner_shell() and their application loop in build_atom_point_cloud() -- see that
+// file's "Coloring" docstring paragraph for the full rationale.
+//
+// Index 0 unused (n starts at 1); index 8 is the fallback for n>7, unreachable for any
+// z<=kMaxZ ground-state configuration but kept so an out-of-range n degrades to a color
+// instead of an out-of-bounds read.
+constexpr uint8_t kAtomShellRgb[9][3] = {
+    {255, 255, 255}, // unused (n=0)
+    {255, 80, 80},   // n=1 K
+    {255, 170, 60},  // n=2 L
+    {255, 230, 60},  // n=3 M
+    {120, 230, 90},  // n=4 N
+    {70, 200, 220},  // n=5 O
+    {110, 130, 255}, // n=6 P
+    {200, 100, 240}, // n=7 Q
+    {160, 160, 160}, // fallback, n>7
+};
 
-    int weights[kMaxDrawingGroups];
-    for (int i = 0; i < groupCount; i++)
-        weights[i] = groups[i].weight;
-    int counts[kMaxDrawingGroups];
-    splitCounts(weights, groupCount, count, counts);
+/** kAtomShellRgb[n], clamped to the fallback entry for n outside [1, 7]. */
+const uint8_t* shellBaseRgb(int n);
 
-    XorShift32 rng(seed);
-    int idx = 0;
-    for (int g = 0; g < groupCount; g++) {
-        int n = groups[g].n, ell = groups[g].ell, m = groups[g].m;
-        orb_real_t zEff = zEffRadial(z, config, n, ell);
-        RadialTable radial = buildRadialSamplerRuntime(n, ell, zEff);
+constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.92); // lerp toward white
+constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);       // scale toward black
 
-        if (m == kIsotropicM) {
-            for (int i = 0; i < counts[g]; i++) {
-                OrbitalPoint p = sampleIsotropicPoint(radial, &rng);
-                out[idx++] = {p.x, p.y, p.z, n, ell};
-            }
-        } else {
-            const OrbitalAngularTables* angular = findAngularTables(ell, m);
-            for (int i = 0; i < counts[g]; i++) {
-                OrbitalPoint p = sampleOrientedPoint(radial, *angular, &rng);
-                out[idx++] = {p.x, p.y, p.z, n, ell};
-            }
-        }
-    }
+/**
+ * Which subshell (n, ell) has the largest measured p90 radius in THIS specific point
+ * cloud, and that radius -- this is what actually defines an atom's on-screen size and
+ * which points get brightened by colorizeAtomPoints(), NOT the whole cloud's own p90
+ * (dominated by core electrons for any atom past helium, since points are split strictly
+ * proportional to electron count). Port of atom_cloud.outer_subshell_r_ref(), simplified:
+ * only the single outermost entry of subshell_dissection_plan() is needed here (there is
+ * no on-device shell-dissection view to consume the rest of that sorted per-subshell
+ * list), so this returns just that one entry instead of building/sorting the full plan.
+ */
+struct OuterSubshell {
+    int n = 0, ell = 0;
+    orb_real_t rRef = orb_real_t(1);
+};
+OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const ElectronConfig& config);
 
-    return config;
-}
+/**
+ * Pack point i's shell color (shellBaseRgb(points[i].n)) into outColors[i], brightened
+ * toward white if it belongs to `outer`'s subshell (kAtomOuterShellBrighten) or dimmed
+ * toward black otherwise (kAtomInnerShellDim).
+ */
+void colorizeAtomPoints(const AtomPoint* points, int count, const OuterSubshell& outer, uint16_t* outColors);
+
+// --- Scale calibration (M4) ---
+//
+// Rubidium (Z=37) is the reference element: the largest atom this model produces within
+// the Clementi-Raimondi-covered range (Z<=54) -- see micropython/atom_cloud.py's
+// calibration comment for the full derivation (why Rb specifically, why 0.6 of canvas
+// center, and the known Z>=55 Slater-fallback caveat, all unchanged here).
+constexpr int kAtomCalibrationZ = 37;
+constexpr orb_real_t kAtomCalibrationRadiusFraction = orb_real_t(0.6);
+constexpr int kAtomCalibrationPoints = 2000;
+constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py's SEED
+
+/**
+ * The single pixels-per-Bohr-radius conversion factor scaleForAtom() needs, calibrated so
+ * `referenceZ`'s outermost subshell reaches `radiusFraction` of `canvasCenter` at rest --
+ * see the calibration comment above for why a FRACTION of the caller's own canvas center,
+ * not a fixed pixel count (this module has no canvas of its own). Call once (e.g. lazily
+ * on first use) and cache the result -- this builds and discards a whole reference point
+ * cloud, not free. Port of atom_cloud.pixels_per_bohr_for_canvas().
+ */
+orb_real_t pixelsPerBohrForCanvas(orb_real_t canvasCenter, orb_real_t radiusFraction = kAtomCalibrationRadiusFraction,
+                                   int referenceZ = kAtomCalibrationZ);
+
+constexpr orb_real_t kAtomZoomAmplitudeFraction = orb_real_t(0.4); // matches cloud_common.ZOOM_AMPLITUDE_FRACTION
+
+struct AtomScale {
+    orb_real_t baseScale, zoomAmplitude, rRef;
+};
+
+/**
+ * Like orbital_presets.h's scaleFromRadii(), but with a FIXED baseScale (pixelsPerBohr,
+ * the same for every element) instead of one renormalized per-cloud to a constant
+ * target_px -- switching Z is partly meant to SHOW the periodic size trend (noble gases
+ * small and tight, alkali metals big and diffuse), so it must not be erased the way
+ * orbital_presets.h's hydrogen-preset scaling deliberately erases size differences.
+ * `rRef` must be outerSubshellRRef()'s result, not the whole cloud's p90 -- see that
+ * function's docstring. Port of atom_cloud.scale_for_atom().
+ */
+AtomScale scaleForAtom(orb_real_t rRef, orb_real_t pixelsPerBohr,
+                        orb_real_t amplitudeFraction = kAtomZoomAmplitudeFraction);
