@@ -137,6 +137,58 @@ proprio la firma di questo scambio G/B, non un problema di geometria).
 Rieseguire `examples/corner_calibration`-style test con le costanti colore
 corrette prima di fidarsi di `MX`/`MY`/rotazione 180° per questa unità.
 
+### CORREZIONE (2026-08-18): la sezione "scambio G/B" sopra era una diagnosi
+### sbagliata — causa reale trovata e risolta
+
+I due `#define` a schermo intero (§ sopra) funzionavano per i 4 colori puri
+testati, ma sull'orbital viewer reale (colori composti, non un solo canale
+alla volta — es. l'arancione classico `(255,120,40)`) il risultato restava
+visibilmente sbagliato ("l'arancione non è arancione ma verde chiaro",
+feedback) anche dopo aver applicato lo scambio bit G/B in
+`Display::packColor565()`. Tentativi di correzione lineare per-canale
+(guadagno su R, poi attenuazione su G) non hanno prodotto ALCUN cambiamento
+visibile su hardware — segno che il modello "scambio di campi bit" non era
+il meccanismo giusto.
+
+Causa reale, individuata confrontando con un esempio OEM di riferimento per
+questo stesso pannello: `esp_lcd_panel_dev_config_t` in `display.cpp` non
+impostava affatto `data_endian` (quindi restava sul default, sbagliato per
+questo pannello) e usava `rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR` invece
+di `RGB`. L'esempio OEM suggeriva:
+```c
+panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+panel_config.data_endian = LCD_RGB_DATA_ENDIAN_BIG;
+```
+`rgb_ele_order = RGB` è risultato corretto anche su questa unità specifica,
+ma **non** `data_endian = BIG`: verificato empiricamente su hardware che
+questa unità richiede `LCD_RGB_DATA_ENDIAN_LITTLE` invece — stessa lezione
+della sezione precedente (mirror/BGR): un riferimento OEM/datasheet indica
+il punto di partenza corretto, ma va comunque riverificato su QUESTA unità
+fisica, non assunto identico per lotto/pannello. Impostazione finale
+verificata in `src/display.cpp`'s `Display()`:
+```c
+panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+panel_config.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE;
+```
+Con questi due campi impostati correttamente, `Display::packColor565()`
+torna ad essere RGB565 testuale semplice (`(r>>3)<<11 | (g>>2)<<5 | (b>>3)`,
+nessuno scambio di bit, bit-per-bit identico alla macro `RGB565(r,g,b)` di
+Arduino_GFX) — vedi `src/display.h`/`.cpp` per l'implementazione attuale. Lo
+scambio bit G/B in software "funzionava" per i 4 colori puri sopra per pura
+coincidenza (uno scambio di canali e un problema di endianness/byte-order
+possono produrre lo stesso risultato su un valore con un solo canale acceso,
+ma divergono su un colore composto) — da qui la falsa verifica. Le costanti
+`COLOR_RED/GREEN/BLUE/YELLOW` sopra restano valide solo come cronaca storica
+del percorso Arduino/TFT_eSPI (`examples/corner_calibration/`, framework
+diverso, non più quello usato da `src/`) —
+non usarle come riferimento per il path ESP-IDF attuale.
+
+**Nota per asset generati offline** (`tools/splash_gen/render_splash.py` e
+simili che chiamano un porting Python di `packColor565()`): rigenerare dopo
+questa correzione — un asset pre-impacchettato con la vecchia formula a bit
+scambiati risulterebbe ora doppiamente sbagliato con il pannello configurato
+correttamente.
+
 ## 3. Linguaggio e toolchain — decisione e motivazione
 
 **Scelto: C++ su framework Arduino (via PlatformIO), libreria `TFT_eSPI`.**
