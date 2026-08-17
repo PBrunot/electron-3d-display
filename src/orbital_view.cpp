@@ -31,10 +31,17 @@ constexpr int64_t kIdleJumpUs = 60'000'000;
 // glyphs. n/l/m reveal progressively on top of it, one stage per short real-time hold.
 namespace {
 constexpr int kOrbitalIntroEqX = (Display::kDisplayWidth - kEquationBitmapWidth) / 2;
-constexpr int kOrbitalIntroEqY = 140;
-// Dim on purpose -- background decoration, not the star of the animation (matches
-// atom_view.cpp's kDissectDimColor, same intent: legible but clearly secondary).
-constexpr uint16_t kOrbitalIntroEqColor = Display::packColor565(70, 70, 70);
+// "equation should be at the center, quantum numbers below" (feedback, 2026-08-17) --
+// was pinned near the bottom with the reveal numbers above it; now vertically centered
+// with the numbers stacked underneath instead.
+constexpr int kOrbitalIntroEqY = (Display::kDisplayHeight - kEquationBitmapHeight) / 2;
+// "still barely visible" (feedback, 2026-08-17, after (70,70,70)->(160,160,170) plus
+// render_equations.py's bold regen wasn't enough) -- raised again, close enough to the
+// foreground text's pure white that it reads as "dimmer white" rather than "gray you have
+// to squint for". Combined with render_equations.py's dilation pass (strokes now ~1px
+// thicker on every side), this should clear the panel + Pepper's Ghost prism's contrast
+// loss with real margin instead of incrementally.
+constexpr uint16_t kOrbitalIntroEqColor = Display::packColor565(210, 210, 220);
 // Scale 2, not 3 (kDissectBigScale's size elsewhere) -- the final stage ("n=X l=Y m=Z",
 // m can be negative/2-digit-wide for this library's presets) overflows the 240px width at
 // scale 3 (measured up to 282px for "n=3 l=2 m=-2"); scale 2's worst case (188px) leaves
@@ -42,8 +49,19 @@ constexpr uint16_t kOrbitalIntroEqColor = Display::packColor565(70, 70, 70);
 // per-stage like atom_view.cpp's pickNameScale()) keeps the reveal's size steady instead of
 // jumping bigger->smaller when the longest stage appears.
 constexpr int kOrbitalIntroNumberScale = 2;
-constexpr int kOrbitalIntroNumberY = 50;
+// Below the now vertically-centered equation backdrop (kOrbitalIntroEqY..+kEquationBitmapHeight),
+// with a gap that roughly mirrors the margin above the equation.
+constexpr int kOrbitalIntroNumberY = kOrbitalIntroEqY + kEquationBitmapHeight + 20;
 constexpr uint32_t kOrbitalIntroStageHoldMs = 550;
+
+// "zooms should be slowed down by a factor 1.5x in the orbitals animations" (feedback,
+// 2026-08-17) -- scoped to orbital_view only (atom_view keeps camera.h's stock pacing), so
+// these are local 1.5x-scaled copies of camera.h's kIntroFrames/kSwitchTransitionFrames/
+// kZoomExcursionEaseFrames/kZoomAngleStep rather than edits to those shared constants.
+constexpr int kOrbitalIntroFrames = 105;            // kIntroFrames (70) * 1.5
+constexpr int kOrbitalSwitchTransitionFrames = 27;  // kSwitchTransitionFrames (18) * 1.5
+constexpr int kOrbitalZoomExcursionEaseFrames = 68; // round(kZoomExcursionEaseFrames (45) * 1.5)
+constexpr orb_real_t kOrbitalZoomAngleStep = kZoomAngleStep / orb_real_t(1.5);
 
 void renderOrbitalIntroStage(Display &display, const char *text) {
     display.waitForFlushDone();
@@ -72,7 +90,57 @@ void scrollOrbitalIntro(Display &display, int n, int ell, int m) {
 
     std::snprintf(stage, sizeof(stage), "n=%d l=%d m=%d", n, ell, m);
     renderOrbitalIntroStage(display, stage);
-    vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs));
+    // "add a pause after the last quantum number 0.5s otherwise it feels too fast"
+    // (feedback, 2026-08-17) -- extra hold on top of the normal per-stage one, only after
+    // the final "n=X l=Y m=Z" stage, so the reveal doesn't rush straight into the switch.
+    vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs + 500));
+}
+// "proton still not visible enough. give him a bigger radius" (feedback, 2026-08-17) -- on
+// top of always redrawing after the cloud (see orbitalFlyOver()'s docstring below), also
+// draw it larger than camera.h's shared kProtonMarkerSize (3px). Local to this file, same
+// reasoning as orbitalFlyOver(): atom_view.cpp keeps the shared/original marker size.
+constexpr int kOrbitalProtonMarkerSize = 7;
+
+void drawOrbitalProtonMarker(uint16_t *frameBuf, uint16_t color)
+{
+    int x0 = Display::kDisplayWidth / 2 - kOrbitalProtonMarkerSize / 2;
+    int y0 = Display::kDisplayHeight / 2 - kOrbitalProtonMarkerSize / 2;
+    for (int y = y0; y < y0 + kOrbitalProtonMarkerSize; y++)
+        for (int x = x0; x < x0 + kOrbitalProtonMarkerSize; x++)
+            frameBuf[y * Display::kDisplayWidth + x] = color;
+}
+
+/**
+ * Like camera.h's flyOver(), but redraws the proton marker fully opaque (and larger, see
+ * drawOrbitalProtonMarker() above) on top of every frame after the cloud -- "the proton is
+ * not visible enough. it should always be a bright red point in orbitals" (feedback,
+ * 2026-08-17): the shared flyOver()/renderScene() draw the nucleus BEFORE the cloud
+ * (matching pc/viewer_common.py's render_frame() blend order on purpose, see camera.h), so a
+ * point that lands on the same pixel alpha-blends over it and dims/hides it -- likely near
+ * the center for any orbital whose density peaks at the origin. Kept local to this file
+ * rather than changing camera.h's flyOver(): that shared order/size stays as-is for
+ * atom_view.cpp, only orbital_view wants the nucleus guaranteed visible and bigger.
+ */
+template <typename PointT, typename TitleDrawFn>
+void orbitalFlyOver(Display &display, const PointT *points, const uint16_t *colors, int count, TitleDrawFn drawTitle,
+                     uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, CameraState *camera,
+                     orb_real_t startScale, orb_real_t endScale, int frames, uint32_t buzzThreshold = 0)
+{
+    for (int i = 0; i < frames; i++)
+    {
+        orb_real_t t = frames > 1 ? orb_real_t(i) / orb_real_t(frames - 1) : orb_real_t(1);
+        orb_real_t scale = startScale + (endScale - startScale) * t;
+
+        display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
+        renderScene(display.getFrameBuf(), points, colors, count, protonColor, *camera, scale, uint32_t(i),
+                    buzzThreshold);
+        drawOrbitalProtonMarker(display.getFrameBuf(), protonColor);
+        drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
+        drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
+        display.presentFrame();
+
+        stepCamera(camera);
+    }
 }
 } // namespace
 
@@ -164,9 +232,9 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     CameraState camera;
     orb_real_t zoomAngle = orb_real_t(0);
 
-    flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
-            kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, kIntroFrames,
-            kBuzzThreshold);
+    orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
+            kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale,
+            kOrbitalIntroFrames, kBuzzThreshold);
 
     constexpr int kFpsUpdateInterval = 50;
     int frameCount = 0;
@@ -190,35 +258,47 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         scrollOrbitalIntro(display, newD.n, newD.ell, newD.m);
         presetIndex = newIndex;
         preset.load(presetIndex);
-        flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
-                kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames, kBuzzThreshold);
+        orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor, kTextColor,
+                kScaleBarColor, &camera, currentScale, preset.baseScale, kOrbitalSwitchTransitionFrames,
+                kBuzzThreshold);
         zoomAngle = orb_real_t(0);
         zoomExcursionCountdown = nextZoomExcursionCountdown();
+        // "why the FPS dips" (feedback, 2026-08-17, atom_view.cpp -- same bug here):
+        // scrollOrbitalIntro()'s real-time holds plus this orbitalFlyOver() spend real
+        // wall-clock time without incrementing frameCount, so leaving the FPS window running
+        // charged that time to whichever later window crossed kFpsUpdateInterval, reporting
+        // a bogus low FPS for an otherwise-full-speed window. Not an actual slowdown -- just
+        // a mismeasured one; reset the window here so it only ever measures steady-state
+        // frames.
+        frameCount = 0;
+        fpsWindowStartUs = esp_timer_get_time();
     };
 
     while (true)
     {
         TiltEvent tiltEv = tilt.poll();
-        if (tiltEv.phase == TiltPhase::kConfirmed || tiltEv.phase == TiltPhase::kConfirmedLong)
+        if (tiltEv.phase == TiltPhase::kConfirmed)
             lastActivityUs = esp_timer_get_time();
 
+        // "During orbitals browsing U/D should change orbitals in the listed orders and L
+        // bring back to the menu and R has no effect" (feedback, 2026-08-17).
         if (tiltEv.phase == TiltPhase::kConfirmed)
         {
-            if (tiltEv.direction == TiltDirection::kUp)
+            if (tiltEv.direction == TiltDirection::kLeft)
             {
-                ESP_LOGI(kOrbitalViewTag, "tilt UP confirmed -- returning to menu");
+                ESP_LOGI(kOrbitalViewTag, "tilt LEFT confirmed -- returning to menu");
                 return;
             }
-            if (tiltEv.direction == TiltDirection::kRight || tiltEv.direction == TiltDirection::kLeft)
+            if (tiltEv.direction == TiltDirection::kUp || tiltEv.direction == TiltDirection::kDown)
             {
-                int delta = tiltEv.direction == TiltDirection::kRight ? 1 : -1;
+                int delta = tiltEv.direction == TiltDirection::kDown ? 1 : -1;
                 int newIndex = (presetIndex + delta + kOrbitalLibraryCount) % kOrbitalLibraryCount;
                 ESP_LOGI(kOrbitalViewTag, "tilt %s confirmed", tiltDirectionName(tiltEv.direction));
                 switchToPreset(newIndex);
                 continue;
             }
-            if (tiltEv.direction == TiltDirection::kDown)
-                ESP_LOGI(kOrbitalViewTag, "tilt DOWN confirmed -- no action in orbital view");
+            if (tiltEv.direction == TiltDirection::kRight)
+                ESP_LOGI(kOrbitalViewTag, "tilt RIGHT confirmed -- no action in orbital view");
         }
 
         // Idle auto-advance -- see atom_view.cpp's identical kIdleJumpUs comment; reuses
@@ -238,14 +318,17 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
             orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
-            flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
-                    kTextColor, kScaleBarColor, &camera, currentScale, targetScale, kZoomExcursionEaseFrames,
+            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
+                    kTextColor, kScaleBarColor, &camera, currentScale, targetScale, kOrbitalZoomExcursionEaseFrames,
                     kBuzzThreshold);
-            flyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
-                    kTextColor, kScaleBarColor, &camera, targetScale, preset.baseScale, kZoomExcursionEaseFrames,
-                    kBuzzThreshold);
+            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalViewNumPoints, drawTitle, kProtonColor,
+                    kTextColor, kScaleBarColor, &camera, targetScale, preset.baseScale,
+                    kOrbitalZoomExcursionEaseFrames, kBuzzThreshold);
             zoomAngle = orb_real_t(0);
             zoomExcursionCountdown = nextZoomExcursionCountdown();
+            // See switchToPreset()'s comment above -- same unmeasured-time issue.
+            frameCount = 0;
+            fpsWindowStartUs = esp_timer_get_time();
             continue;
         }
 
@@ -260,6 +343,10 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
         renderScene(display.getFrameBuf(), preset.points, preset.colors, kOrbitalViewNumPoints, kProtonColor, camera,
                     scale, buzzFrame, kBuzzThreshold);
+        // Redraw bigger, on top of the cloud -- see orbitalFlyOver()'s docstring above for
+        // why (renderScene() alone draws the small shared marker BEFORE the points, so a
+        // point landing on the same pixel can dim/hide it).
+        drawOrbitalProtonMarker(display.getFrameBuf(), kProtonColor);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
         drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontLarge);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
@@ -279,7 +366,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         }
 
         stepCamera(&camera);
-        zoomAngle += kZoomAngleStep;
+        zoomAngle += kOrbitalZoomAngleStep;
         if (zoomAngle >= kTwoPi)
             zoomAngle -= kTwoPi;
 

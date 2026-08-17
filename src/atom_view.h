@@ -12,12 +12,14 @@
 // mixture of several subshells built once and stays static, matching
 // atom_cloud.py's module docstring on that tradeoff.
 //
-// Tilt-gesture-driven controls (see tilt_gesture.h): Right/Left tilt-hold steps the
-// element Z up/down (wrapping 1..kMaxZ); Up tilt-hold returns to chooser.h's menu (this
-// function then returns); Down tilt-hold triggers the on-device shell dissection sequence
+// Tilt-gesture-driven controls (see tilt_gesture.h): Up/Down tilt-hold steps through EVERY
+// element in periodic-table order (periodic_grid.h's periodicTableSnakeStep() -- read down a
+// column, then jump to the top of the next, wrapping group 18 back to group 1), Down =
+// forward, Up = backward. Left tilt-hold returns to chooser.h's menu (this function then
+// returns); Right tilt-hold triggers the on-device shell dissection sequence
 // (runDissectionSequence(), file-local to atom_view.cpp, built on atom_cloud.h's
 // subshellDissectionPlan()) -- a simplified device-path port of pc/atom_view_pc.py's
-// shell-dissection sequence (D key): ONE Down-hold automatically peels through every
+// shell-dissection sequence (D key): ONE Right-hold automatically peels through every
 // occupied subshell outer to inner (no further gesture needed mid-sequence, matching the
 // PC version's own one-shot blocking sequence), easing the camera in to frame each newly-
 // revealed outermost remaining shell and holding briefly before moving to the next, then
@@ -25,7 +27,8 @@
 // version: whole shells are DROPPED as they're peeled away (rather than a camera-space
 // half-clip cutaway -- no per-frame clip-plane test needed, and arguably clearer on a
 // 240x240 panel: a whole shell vanishes instead of being sliced in half), and there's no
-// phase/sign coloring (matches atom_cloud.h's existing on-device simplification).
+// phase/sign coloring (matches atom_cloud.h's existing on-device simplification). Also
+// auto-advances to a random element after kIdleJumpUs of no tilt input (atom_view.cpp).
 #pragma once
 
 #include <cstdint>

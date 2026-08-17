@@ -150,7 +150,6 @@ RawTiltEvent TiltGestureDetector::pollRaw()
         active_ = true;
         holdStartMs_ = now;
         confirmedFired_ = false;
-        longConfirmedFired_ = false;
         return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kHolding, 0};
     }
 
@@ -163,18 +162,6 @@ RawTiltEvent TiltGestureDetector::pollRaw()
     }
 
     uint32_t heldMs = now - holdStartMs_;
-    // kConfirmedLong only ever fires AFTER kConfirmed already has (holdConfirmLongMs is
-    // additional hold time past holdConfirmMs, see TiltGestureConfig's comment), so this
-    // check must come first -- otherwise a hold long enough for both would only ever report
-    // kConfirmed, on the poll() right after crossing holdConfirmMs, and kConfirmedLong would
-    // never fire on its own poll().
-    if (confirmedFired_ && !longConfirmedFired_ && heldMs >= cfg_.holdConfirmMs + cfg_.holdConfirmLongMs)
-    {
-        longConfirmedFired_ = true;
-        ESP_LOGI(kTiltTag, "CONFIRMED LONG dir=(%.2f, %.2f, %.2f) after %ums", double(activeDirX_),
-                 double(activeDirY_), double(activeDirZ_), heldMs);
-        return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kConfirmedLong, heldMs};
-    }
     if (!confirmedFired_ && heldMs >= cfg_.holdConfirmMs)
     {
         confirmedFired_ = true;

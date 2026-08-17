@@ -2,14 +2,16 @@
 // orbital_presets.h's model layer and camera.h's render/fly-over pipeline. Port of
 // micropython/orbital_view.py.
 //
-// Tilt-gesture-driven preset cycling (see tilt_gesture.h): Right/Left tilt-hold advances/
-// goes back a preset in orbital_library.h (eased via camera.h's kSwitchStartScaleFactor/
+// Tilt-gesture-driven preset cycling (see tilt_gesture.h): Down/Up tilt-hold advances/goes
+// back a preset in orbital_library.h (eased via camera.h's kSwitchStartScaleFactor/
 // kSwitchTransitionFrames, same constants the boot intro's fly-in already uses at a bigger
-// scale factor); Up tilt-hold returns to chooser.h's menu (this function then returns);
-// Down tilt-hold is logged but otherwise a no-op here -- it means "dissect" in atom_view.h,
-// and hydrogen orbitals have no subshell structure to dissect. Everything else is full
-// parity with the MicroPython port: boot fly-in, breathing zoom, random zoom excursions,
-// point turnover ("buzz"), phase coloring.
+// scale factor, plus the new quantum-number reveal, see scrollOrbitalIntro() in
+// orbital_view.cpp); Left tilt-hold returns to chooser.h's menu (this function then
+// returns); Right tilt-hold is logged but otherwise a no-op here -- it means "dissect" in
+// atom_view.h, and hydrogen orbitals have no subshell structure to dissect. Also
+// auto-advances to a random preset after kIdleJumpUs of no tilt input. Everything else is
+// full parity with the MicroPython port: boot fly-in, breathing zoom, random zoom
+// excursions, point turnover ("buzz"), phase coloring.
 #pragma once
 
 #include <cstdint>
