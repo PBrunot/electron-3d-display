@@ -431,7 +431,7 @@ _DISSECT_OCC_FONT = find_unicode_font(DISSECT_OCC_FONT_SIZE) or ImageFont.load_d
 def _dissect_overlays(preset, z, scale, r_ref, title):
     """The dissection HUD: plain gray bounding circle (neutral
     BOUNDING_SPHERE_COLOR, not shell-colored), scale bar, the device-style
-    drawDissectTitle() triple (big "2p" label, "Shell 2p (k/N)" caption,
+    drawDissectTitle() triple (big "2p" label, "Fe (k/N)" caption,
     small "<occ>e-" top-right corner note -- `title` is that tuple or None),
     and the red Z note by the nucleus.
     """
@@ -453,13 +453,14 @@ def _dissect_overlays(preset, z, scale, r_ref, title):
     return overlays
 
 
-def _dissect_title(n, ell, ecount, index, count):
+def _dissect_title(n, ell, ecount, index, count, sym):
     """Device-style dissection title triple: big subshell label ("2p"), the
-    "Shell 2p (k/N)" caption, and the electron count for the corner note --
-    matches atom_view_pc.py's _run_dissection() title construction.
+    "Fe (k/N)" caption (element symbol, not the shell notation already shown
+    by the big label), and the electron count for the corner note -- matches
+    atom_view_pc.py's _run_dissection() title construction.
     """
     subshell = slater.subshell_label(n, ell)
-    return (subshell, "Shell %s (%d/%d)" % (subshell, index, count), ecount)
+    return (subshell, "%s (%d/%d)" % (sym, index, count), ecount)
 
 
 def dissection_screenshots(z):
@@ -492,7 +493,7 @@ def dissection_screenshots(z):
     # full cloud stays visible: no clip plane.
     for k, (n, ell, letter, subshell_str, ecount, r_ref) in enumerate(plan, start=1):
         target_scale = DISSECT_TARGET_PX / max(r_ref, 1e-6)
-        title = _dissect_title(n, ell, ecount, k, len(plan))
+        title = _dissect_title(n, ell, ecount, k, len(plan), sym)
         render_dissection_frame(buf, preset, angle, tilt, roll, target_scale, DISSECT_CLIP_CLOSED, (n, ell))
         relpath = 'dissect_%s_%d_%s.png' % (sym, k, subshell_str)
         save_frame(buf, _dissect_overlays(preset, z, target_scale, r_ref, title), relpath)
@@ -580,7 +581,7 @@ def dissection_animation_gif(z=DEFAULT_DISSECT_GIF_Z):
     prev_scale = base_scale
     for k, (n, ell, letter, subshell_str, ecount, r_ref) in enumerate(plan, start=1):
         target_scale = DISSECT_TARGET_PX / max(r_ref, 1e-6)
-        title = _dissect_title(n, ell, ecount, k, len(plan))
+        title = _dissect_title(n, ell, ecount, k, len(plan), sym)
         ease(prev_scale, target_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED, (n, ell),
              r_ref, DISSECT_ZOOM_FRAMES, title)
         hold(target_scale, DISSECT_CLIP_CLOSED, (n, ell), r_ref,
