@@ -1243,3 +1243,63 @@ int textWidth(const char *text, const Font &font)
     return total;
 }
 
+void drawCharScaled(uint16_t *frameBuf, int x, int y, char c, uint16_t color, const Font &font, int scale)
+{
+    if (scale <= 1)
+    {
+        drawChar(frameBuf, x, y, c, color, font);
+        return;
+    }
+    int index = int(uint8_t(c)) - int(uint8_t(font.firstChar));
+    if (index < 0 || index >= font.glyphCount)
+        return;
+    uint8_t width = font.glyphWidths[index];
+    const uint16_t *rows = font.glyphRows + size_t(index) * font.height;
+    for (int row = 0; row < font.height; row++)
+    {
+        uint16_t bits = rows[row];
+        int by = y + row * scale;
+        if (by + scale <= 0 || by >= Display::kDisplayHeight)
+            continue;
+        for (int col = 0; col < width; col++)
+        {
+            if (!(bits & (uint16_t(1) << (width - 1 - col))))
+                continue;
+            int bx = x + col * scale;
+            if (bx + scale <= 0 || bx >= Display::kDisplayWidth)
+                continue;
+            for (int sy = 0; sy < scale; sy++)
+            {
+                int py = by + sy;
+                if (py < 0 || py >= Display::kDisplayHeight)
+                    continue;
+                for (int sx = 0; sx < scale; sx++)
+                {
+                    int px = bx + sx;
+                    if (px < 0 || px >= Display::kDisplayWidth)
+                        continue;
+                    frameBuf[py * Display::kDisplayWidth + px] = color;
+                }
+            }
+        }
+    }
+}
+
+int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font, int scale)
+{
+    if (scale <= 1)
+        return drawText(frameBuf, x, y, text, color, font);
+    int cursorX = x;
+    for (const char *p = text; *p; p++)
+    {
+        drawCharScaled(frameBuf, cursorX, y, *p, color, font, scale);
+        cursorX += glyphAdvance(font, *p) * scale;
+    }
+    return cursorX;
+}
+
+int textWidthScaled(const char *text, const Font &font, int scale)
+{
+    return scale <= 1 ? textWidth(text, font) : textWidth(text, font) * scale;
+}
+

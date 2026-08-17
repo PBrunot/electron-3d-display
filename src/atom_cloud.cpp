@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "display.h" // Display::packColor565
+#include "esp_attr.h" // EXT_RAM_BSS_ATTR
 
 int drawingGroups(const ElectronConfig& config, DrawingGroup* out) {
     int count = 0;
@@ -101,10 +102,21 @@ const uint8_t* shellBaseRgb(int n) {
     return (n >= 1 && n <= 7) ? kAtomShellRgb[n] : kAtomShellRgb[8];
 }
 
+namespace {
+// Static, not stack-local: see orbital_presets.cpp's computeOrbitalLevels() comment --
+// this project avoids large stack arrays after a real task stack overflow. Shared by
+// outerSubshellRRef() and subshellDissectionPlan() below (never called concurrently or
+// re-entrantly -- both only ever run on the main render task) rather than each keeping
+// its own kAtomMaxPoints-sized copy: on real hardware, unrelated extra static buffers
+// added while building the dissection view already starved Display::Display()'s frame
+// buffer allocation once (see atom_view.cpp's compactDissectLevelInPlace() docstring for
+// the bigger instance of this same lesson) -- not worth risking a repeat over one
+// harmless-looking duplicate static array.
+EXT_RAM_BSS_ATTR orb_real_t sSubshellRadii[kAtomMaxPoints];
+} // namespace
+
 OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const ElectronConfig& config) {
-    // Static, not stack-local: see orbital_presets.cpp's computeOrbitalLevels() comment --
-    // this project avoids large stack arrays after a real task stack overflow.
-    static orb_real_t radii[kAtomMaxPoints];
+    orb_real_t* radii = sSubshellRadii;
 
     OuterSubshell best;
     orb_real_t bestR = orb_real_t(-1);
@@ -133,7 +145,7 @@ OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const Electr
 }
 
 int subshellDissectionPlan(const AtomPoint* points, int count, const ElectronConfig& config, DissectionEntry* out) {
-    static orb_real_t radii[kAtomMaxPoints];
+    orb_real_t* radii = sSubshellRadii;
 
     int written = 0;
     for (int s = 0; s < config.count; s++) {

@@ -53,3 +53,17 @@ int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color,
 
 /** Pixel width of `text` if drawn with drawText() in `font` -- for right-aligned/centered layout. */
 int textWidth(const char *text, const Font &font);
+
+/**
+ * Like drawChar(), but each font pixel becomes a `scale` x `scale` block -- this project
+ * bakes only two fixed sizes (kFontSmall/kFontLarge), so this is how a caller gets a
+ * bigger look (e.g. atom_view.cpp's dissection shell label, ticker.h's scrolling banners)
+ * without a third baked font. scale <= 1 behaves exactly like drawChar().
+ */
+void drawCharScaled(uint16_t *frameBuf, int x, int y, char c, uint16_t color, const Font &font, int scale);
+
+/** Like drawText(), scaled -- see drawCharScaled(). */
+int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font, int scale);
+
+/** Like textWidth(), scaled -- see drawCharScaled(). */
+int textWidthScaled(const char *text, const Font &font, int scale);
