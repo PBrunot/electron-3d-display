@@ -33,7 +33,7 @@ static void drawCentered(uint16_t *frameBuf, int y, const char *text, uint16_t c
 /** Like drawCentered(), but through drawTextScaled()/textWidthScaled() -- "Options should be
  * with a bigger font" (feedback, 2026-08-17). */
 static void drawCenteredScaled(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font,
-                                int scale)
+                               int scale)
 {
     int x = (Display::kDisplayWidth - textWidthScaled(text, font, scale)) / 2;
     drawTextScaled(frameBuf, x, y, text, color, font, scale);
@@ -142,9 +142,9 @@ static void drawChooserScreen(uint16_t *frameBuf)
     std::memcpy(frameBuf, kSplashBitmapData, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
 
     drawCenteredScaled(frameBuf, kChooserOption1Y, "UP: Orbitals", kChooserTextColor, kFontLarge,
-                        kChooserOptionScale);
+                       kChooserOptionScale);
     drawCenteredScaled(frameBuf, kChooserOption2Y, "DOWN: Elements", kChooserTextColor, kFontLarge,
-                        kChooserOptionScale);
+                       kChooserOptionScale);
 }
 
 void runChooser(Display &display, TiltGestureDetector &tilt)

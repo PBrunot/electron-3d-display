@@ -13,7 +13,7 @@
 #include "freertos/task.h"
 #include "overlay.h"
 
-static const char* kAtomViewTestTag = "atom_view_test";
+static const char *kAtomViewTestTag = "atom_view_test";
 
 // Full multi-electron atom point cloud (atom_cloud.h): angular tables are compile-time
 // embedded (angular_library.h, confirmed working the same way kOrbital1sSampler was --
@@ -34,7 +34,8 @@ static constexpr orb_real_t kScale = orb_real_t(10);
 
 static constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
 
-void runAtomViewTest(Display& display) {
+void runAtomViewTest(Display &display)
+{
     // Sample the point cloud ONCE (builds every occupied subshell's radial table as it
     // goes); only the rotation/projection below runs every frame (matches CLAUDE.md §5:
     // generate points once per orbital/atom, then just rotate/reproject -- not per-frame
@@ -46,7 +47,8 @@ void runAtomViewTest(Display& display) {
 
     ESP_LOGI(kAtomViewTestTag, "%s (Z=%d): %d subshells, %d points, built in %lldms", elementSymbol(kAtomicNumber),
              kAtomicNumber, config.count, kNumPoints, buildMs);
-    for (int i = 0; i < config.count; i++) {
+    for (int i = 0; i < config.count; i++)
+    {
         ESP_LOGI(kAtomViewTestTag, "  %d%c%d", config.subshells[i].n, subshellLabelChar(config.subshells[i].ell),
                  config.subshells[i].occ);
     }
@@ -76,7 +78,8 @@ void runAtomViewTest(Display& display) {
     int64_t renderUsAccum = 0;
 
     CameraState camera;
-    while (1) {
+    while (1)
+    {
         int64_t tBeforeWait = esp_timer_get_time();
         display.waitForFlushDone(); // wait for the previous frame's DMA to finish before overwriting the buffer
         int64_t tAfterWait = esp_timer_get_time();
@@ -98,7 +101,8 @@ void runAtomViewTest(Display& display) {
         renderUsAccum += tAfterPresent - tAfterWait;
 
         framesSinceReport++;
-        if (framesSinceReport >= kFpsReportEveryNFrames) {
+        if (framesSinceReport >= kFpsReportEveryNFrames)
+        {
             int64_t nowUs = esp_timer_get_time();
             double elapsedS = double(nowUs - reportWindowStartUs) / 1e6;
             double fps = double(framesSinceReport) / elapsedS;
