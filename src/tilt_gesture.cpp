@@ -81,6 +81,14 @@ void TiltGestureDetector::calibrate()
                  double(stdDev), double(cfg_.calibrationMaxStdDevG));
 }
 
+void TiltGestureDetector::setBaseline(orb_real_t x, orb_real_t y, orb_real_t z)
+{
+    baseX_ = x;
+    baseY_ = y;
+    baseZ_ = z;
+    ESP_LOGI(kTiltTag, "baseline set directly: x=%.3fg y=%.3fg z=%.3fg", double(x), double(y), double(z));
+}
+
 void TiltGestureDetector::setMapping(orb_real_t dirX, orb_real_t dirY, orb_real_t dirZ, TiltDirection dir)
 {
     if (dir == TiltDirection::kNone)
@@ -89,6 +97,25 @@ void TiltGestureDetector::setMapping(orb_real_t dirX, orb_real_t dirY, orb_real_
     directionRefs_[idx] = {dirX, dirY, dirZ, true};
     ESP_LOGI(kTiltTag, "mapping set: dir=(%.2f, %.2f, %.2f) -> %s", double(dirX), double(dirY), double(dirZ),
              tiltDirectionName(dir));
+}
+
+void TiltGestureDetector::logCalibrationForHardcode() const
+{
+    // Printed as ready-to-paste C++ -- copy straight into tilt_defaults.h's matching
+    // constant names (see main.cpp's checkPlanarAtBoot() for how they're consumed).
+    ESP_LOGI(kTiltTag, "--- calibration constants for tilt_defaults.h ---");
+    ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultBaselineX = orb_real_t(%.4f);", double(baseX_));
+    ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultBaselineY = orb_real_t(%.4f);", double(baseY_));
+    ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultBaselineZ = orb_real_t(%.4f);", double(baseZ_));
+    static const char *kNames[kTiltDirectionCount] = {"Left", "Right", "Up", "Down"};
+    for (int i = 0; i < kTiltDirectionCount; i++)
+    {
+        const DirectionRef &ref = directionRefs_[i];
+        ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultDirRef%sX = orb_real_t(%.4f);", kNames[i], double(ref.x));
+        ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultDirRef%sY = orb_real_t(%.4f);", kNames[i], double(ref.y));
+        ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultDirRef%sZ = orb_real_t(%.4f);", kNames[i], double(ref.z));
+    }
+    ESP_LOGI(kTiltTag, "--- end calibration constants ---");
 }
 
 RawTiltEvent TiltGestureDetector::pollRaw()
@@ -123,6 +150,7 @@ RawTiltEvent TiltGestureDetector::pollRaw()
         active_ = true;
         holdStartMs_ = now;
         confirmedFired_ = false;
+        longConfirmedFired_ = false;
         return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kHolding, 0};
     }
 
@@ -135,6 +163,18 @@ RawTiltEvent TiltGestureDetector::pollRaw()
     }
 
     uint32_t heldMs = now - holdStartMs_;
+    // kConfirmedLong only ever fires AFTER kConfirmed already has (holdConfirmLongMs is
+    // additional hold time past holdConfirmMs, see TiltGestureConfig's comment), so this
+    // check must come first -- otherwise a hold long enough for both would only ever report
+    // kConfirmed, on the poll() right after crossing holdConfirmMs, and kConfirmedLong would
+    // never fire on its own poll().
+    if (confirmedFired_ && !longConfirmedFired_ && heldMs >= cfg_.holdConfirmMs + cfg_.holdConfirmLongMs)
+    {
+        longConfirmedFired_ = true;
+        ESP_LOGI(kTiltTag, "CONFIRMED LONG dir=(%.2f, %.2f, %.2f) after %ums", double(activeDirX_),
+                 double(activeDirY_), double(activeDirZ_), heldMs);
+        return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kConfirmedLong, heldMs};
+    }
     if (!confirmedFired_ && heldMs >= cfg_.holdConfirmMs)
     {
         confirmedFired_ = true;

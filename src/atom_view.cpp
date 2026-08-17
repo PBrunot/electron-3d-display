@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "overlay.h"
+#include "periodic_grid.h"
 #include "slater.h"
 #include "ticker.h"
 
@@ -22,6 +23,13 @@ static const char* kAtomViewTag = "atom_view";
 // matches tilt_gesture.h's arrow color, tying this project's few highlight-colored UI
 // moments together instead of inventing a new one per feature.
 constexpr uint16_t kAccentColor = Display::packColor565(255, 210, 60);
+
+// "if no activity, element should change every 30s [later: 1 minute] with an animation"
+// (feedback, 2026-08-17) -- idle threshold for AtomView's random auto-advance, see
+// runAtomView()'s lastActivityUs tracking below. Shared shape with orbital_view.cpp's own
+// idle timer, kept as separate constants per file rather than a shared header since nothing
+// else needs them.
+constexpr int64_t kIdleJumpUs = 60'000'000;
 
 void AtomPresetState::load(int zIn) {
     ESP_LOGI(kAtomViewTag, "loading Z=%d (%s)...", zIn, elementSymbol(zIn));
@@ -42,30 +50,16 @@ void AtomPresetState::load(int zIn) {
              double(baseScale), double(outer.rRef * baseScale));
 }
 
-void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig& config, uint16_t textColor,
-                    const Font& font) {
-    int cursorX = x, cursorY = y;
+// "Make the element symbol bigger" (feedback, 2026-08-17) -- kFontLarge is already this
+// project's biggest baked font, so drawAtomTitle() goes through font.h's drawTextScaled()
+// instead, same trick as atom_view.h's kDissectBigScale/scrollElementIntro().
+constexpr int kAtomTitleSymbolScale = 3;
 
-    auto drawSegment = [&](const char* segment, uint16_t color) {
-        int segWidth = textWidth(segment, font);
-        if (cursorX > x && cursorX + segWidth > Display::kDisplayWidth) {
-            cursorX = x;
-            cursorY += font.lineAdvance;
-        }
-        cursorX = drawText(frameBuf, cursorX, cursorY, segment, color, font);
-    };
-
-    char headSeg[24];
-    std::snprintf(headSeg, sizeof(headSeg), "%s (Z=%d) ", elementSymbol(z), z);
-    drawSegment(headSeg, textColor);
-
-    for (int i = 0; i < config.count; i++) {
-        int n = config.subshells[i].n, ell = config.subshells[i].ell, occ = config.subshells[i].occ;
-        char segBuf[8];
-        std::snprintf(segBuf, sizeof(segBuf), "%d%c%d ", n, subshellLabelChar(ell), occ);
-        const uint8_t* base = shellBaseRgb(n);
-        drawSegment(segBuf, Display::packColor565(base[0], base[1], base[2]));
-    }
+void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, uint16_t textColor, const Font& font) {
+    drawTextScaled(frameBuf, x, y, elementSymbol(z), textColor, font, kAtomTitleSymbolScale);
+    char zLabel[16];
+    std::snprintf(zLabel, sizeof(zLabel), "Z=%d", z);
+    drawText(frameBuf, x, y + font.height * kAtomTitleSymbolScale + 4, zLabel, textColor, font);
 }
 
 // --- Element-switch intro ticker (Right/Left tilt-hold) -------------------------------
@@ -213,11 +207,22 @@ int compactDissectLevelInPlace(AtomPoint* points, uint16_t* colors, int count, i
 // plain-size underneath it -- scaling THAT up too would overflow the 240px width.
 constexpr int kDissectBigScale = 3;
 
-/** Draw `bigLabel` scaled kDissectBigScale x, then `caption` underneath at plain size,
- * both starting at (x, y) -- shared by the eased leg's easeScaleTimed() title callback and
+// "include the number of electrons next to the shell name: 1/2/3... e- (minus superscript)"
+// (feedback, 2026-08-17) -- the minus is drawn as its own smaller drawCharScaled() call
+// right after "Ne", no new font glyph needed (see font.h's drawCharScaled()).
+constexpr int kDissectOccSuperscriptScale = kDissectBigScale > 1 ? kDissectBigScale - 1 : 1;
+
+/** Draw `bigLabel` scaled kDissectBigScale x, then " Ne-" (electron count, minus as a
+ * smaller superscript) right after it on the same line, then `caption` underneath at plain
+ * size -- shared by the eased leg's easeScaleTimed() title callback and
  * renderDissectFrame()'s real-time hold below, so both look identical. */
-void drawDissectTitle(uint16_t* frameBuf, int x, int y, uint16_t color, const char* bigLabel, const char* caption) {
-    drawTextScaled(frameBuf, x, y, bigLabel, color, kFontLarge, kDissectBigScale);
+void drawDissectTitle(uint16_t* frameBuf, int x, int y, uint16_t color, const char* bigLabel, const char* caption,
+                       int occ) {
+    int cursorX = drawTextScaled(frameBuf, x, y, bigLabel, color, kFontLarge, kDissectBigScale);
+    char occText[8];
+    std::snprintf(occText, sizeof(occText), " %de", occ);
+    cursorX = drawTextScaled(frameBuf, cursorX, y, occText, color, kFontLarge, kDissectBigScale);
+    drawCharScaled(frameBuf, cursorX, y, '-', color, kFontLarge, kDissectOccSuperscriptScale);
     drawText(frameBuf, x, y + kFontLarge.height * kDissectBigScale + 4, caption, color, kFontLarge);
 }
 
@@ -225,10 +230,10 @@ void drawDissectTitle(uint16_t* frameBuf, int x, int y, uint16_t color, const ch
  * and the real-time hold below, which holds a constant scale so doesn't need easing. */
 void renderDissectFrame(Display& display, const AtomPoint* points, const uint16_t* colors, int count,
                          uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, const CameraState& camera,
-                         orb_real_t scale, const char* bigLabel, const char* caption) {
+                         orb_real_t scale, const char* bigLabel, const char* caption, int occ) {
     display.waitForFlushDone();
     renderScene(display.getFrameBuf(), points, colors, count, protonColor, camera, scale);
-    drawDissectTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor, bigLabel, caption);
+    drawDissectTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor, bigLabel, caption, occ);
     drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
     display.presentFrame();
 }
@@ -242,11 +247,16 @@ void renderDissectFrame(Display& display, const AtomPoint* points, const uint16_
 // ACTUAL radial distance between the two shells' reference radii -- a hop between two
 // closely-spaced shells is quick, a hop across a big radius gap takes longer, matching how
 // flying past physical distance would feel, and staying independent of render FPS.
-constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(150);
+// "still too fast" (feedback, 2026-08-17, after an earlier 150 pm/s pass already tuned
+// down once) -- more than halved again.
+// "no no I want everything to be slower, no need for fancy math" (feedback, 2026-08-17) --
+// plain further cut to the linear pm/s speed (was 60, halved again) instead of a non-linear
+// reshaping; every hop just takes proportionally longer, big and small alike.
+constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(30);
 // Floor so a ~zero-distance hop (e.g. entering dissection at level 1, already framed by
 // the full-atom view -- see runDissectionSequence()'s `prevRRef` seeding) still eases
-// briefly instead of cutting instantly.
-constexpr uint32_t kDissectFlyMinMs = 150;
+// briefly instead of cutting instantly. Raised alongside the speed cut above, same reason.
+constexpr uint32_t kDissectFlyMinMs = 700;
 
 /** Real-time duration (ms) to fly between two shells' reference radii at
  * kDissectFlySpeedPmPerSec, floored at kDissectFlyMinMs -- see the comment above. */
@@ -335,7 +345,7 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
         std::snprintf(caption, sizeof(caption), "Shell %d%c (%d/%d)", active.n, subshellLabelChar(active.ell), level,
                       dissectPlanCount);
         auto title = [&](uint16_t* fb, int x, int y, uint16_t color) {
-            drawDissectTitle(fb, x, y, color, bigLabel, caption);
+            drawDissectTitle(fb, x, y, color, bigLabel, caption, active.occ);
         };
 
         uint32_t flyMs = dissectFlyDurationMs(prevRRef, active.rRef);
@@ -350,7 +360,7 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
         int64_t holdStartUs = esp_timer_get_time();
         while (esp_timer_get_time() - holdStartUs < kDissectHoldUs) {
             renderDissectFrame(display, preset.points, preset.colors, count, protonColor, textColor, scaleBarColor,
-                                camera, scale, bigLabel, caption);
+                                camera, scale, bigLabel, caption, active.occ);
             stepCamera(&camera);
             vTaskDelay(pdMS_TO_TICKS(1));
         }
@@ -362,7 +372,7 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
     uint32_t returnFlyMs = dissectFlyDurationMs(prevRRef, dissectPlanCount > 0 ? dissectPlan[0].rRef : prevRRef);
     preset.load(preset.z);
     auto fullTitle = [&](uint16_t* fb, int x, int y, uint16_t color) {
-        drawAtomTitle(fb, x, y, preset.z, preset.config, color, kFontLarge);
+        drawAtomTitle(fb, x, y, preset.z, color, kFontLarge);
     };
     easeScaleTimed(display, preset.points, preset.colors, kAtomViewNumPoints, fullTitle, protonColor, textColor,
                    scaleBarColor, camera, scale, preset.baseScale, returnFlyMs);
@@ -387,7 +397,7 @@ void runAtomView(Display& display, TiltGestureDetector& tilt) {
     // preset has static storage duration, so it's odr-usable without capturing -- see
     // orbital_view.cpp's drawTitle for the same pattern.
     auto drawTitle = [](uint16_t* frameBuf, int x, int y, uint16_t color) {
-        drawAtomTitle(frameBuf, x, y, preset.z, preset.config, color, kFontLarge);
+        drawAtomTitle(frameBuf, x, y, preset.z, color, kFontLarge);
     };
 
     CameraState camera;
@@ -400,45 +410,88 @@ void runAtomView(Display& display, TiltGestureDetector& tilt) {
     int frameCount = 0;
     int64_t fpsWindowStartUs = esp_timer_get_time();
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
+    int64_t lastActivityUs = esp_timer_get_time();
+
+    // Shared by every switch site below (Up/Down/Left/Right periodic-table movement, and
+    // the idle random jump) -- was only written once (for Left/Right's plain Z+-1) before
+    // periodic-table navigation gave every direction its own movement, and the idle timer
+    // its own random target.
+    auto switchToElement = [&](int newZ) {
+        ESP_LOGI(kAtomViewTag, "switching element Z %d -> %d (%s)", preset.z, newZ, elementNameIt(newZ));
+        orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
+        scrollElementIntro(display, elementNameIt(newZ), newZ, elementSymbol(newZ), kAccentColor);
+        preset.load(newZ);
+        refreshDissectPlan(preset);
+        flyOver(display, preset.points, preset.colors, kAtomViewNumPoints, drawTitle, kProtonColor, kTextColor,
+                kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames);
+        zoomAngle = orb_real_t(0);
+        zoomExcursionCountdown = nextZoomExcursionCountdown();
+    };
 
     while (true) {
         TiltEvent tiltEv = tilt.poll();
-        if (tiltEv.phase == TiltPhase::kConfirmed) {
+        if (tiltEv.phase == TiltPhase::kConfirmed || tiltEv.phase == TiltPhase::kConfirmedLong)
+            lastActivityUs = esp_timer_get_time();
+
+        if (tiltEv.phase == TiltPhase::kConfirmedLong) {
             if (tiltEv.direction == TiltDirection::kUp) {
-                ESP_LOGI(kAtomViewTag, "tilt UP confirmed -- returning to menu");
+                ESP_LOGI(kAtomViewTag, "tilt UP long-confirmed -- returning to menu");
                 return;
-            }
-            if (tiltEv.direction == TiltDirection::kRight || tiltEv.direction == TiltDirection::kLeft) {
-                int delta = tiltEv.direction == TiltDirection::kRight ? 1 : -1;
-                int newZ = preset.z + delta;
-                if (newZ < 1)
-                    newZ = kMaxZ;
-                else if (newZ > kMaxZ)
-                    newZ = 1;
-                ESP_LOGI(kAtomViewTag, "tilt %s confirmed -- switching element Z %d -> %d (%s)",
-                         tiltDirectionName(tiltEv.direction), preset.z, newZ, elementNameIt(newZ));
-                orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
-                scrollElementIntro(display, elementNameIt(newZ), newZ, elementSymbol(newZ), kAccentColor);
-                preset.load(newZ);
-                refreshDissectPlan(preset);
-                flyOver(display, preset.points, preset.colors, kAtomViewNumPoints, drawTitle, kProtonColor,
-                        kTextColor, kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames);
-                zoomAngle = orb_real_t(0);
-                zoomExcursionCountdown = nextZoomExcursionCountdown();
-                continue;
             }
             if (tiltEv.direction == TiltDirection::kDown) {
                 if (dissectPlanCount > 0) {
-                    ESP_LOGI(kAtomViewTag, "tilt DOWN confirmed -- starting automatic dissection (%d shells)",
+                    ESP_LOGI(kAtomViewTag, "tilt DOWN long-confirmed -- starting automatic dissection (%d shells)",
                              dissectPlanCount);
                     runDissectionSequence(display, preset, camera, kProtonColor, kTextColor, kScaleBarColor);
                 } else {
-                    ESP_LOGI(kAtomViewTag, "tilt DOWN confirmed -- no subshells to dissect");
+                    ESP_LOGI(kAtomViewTag, "tilt DOWN long-confirmed -- no subshells to dissect");
                 }
                 zoomAngle = orb_real_t(0);
                 zoomExcursionCountdown = nextZoomExcursionCountdown();
                 continue;
             }
+        } else if (tiltEv.phase == TiltPhase::kConfirmed) {
+            // Periodic-table 2D navigation (vertically, then horizontally -- see
+            // periodic_grid.h): Up/Down move within the current element's column
+            // (period), Left/Right move within its row (group), both wrapping at the
+            // table's edges. Up/Down's plain-confirm actions (menu-return, dissection)
+            // moved to a long hold instead -- see the kConfirmedLong branch above.
+            int newZ = preset.z;
+            bool moved = true;
+            switch (tiltEv.direction) {
+            case TiltDirection::kUp:
+                newZ = periodicTableMoveVertical(preset.z, -1);
+                break;
+            case TiltDirection::kDown:
+                newZ = periodicTableMoveVertical(preset.z, 1);
+                break;
+            case TiltDirection::kLeft:
+                newZ = periodicTableMoveHorizontal(preset.z, -1);
+                break;
+            case TiltDirection::kRight:
+                newZ = periodicTableMoveHorizontal(preset.z, 1);
+                break;
+            default:
+                moved = false;
+                break;
+            }
+            if (moved) {
+                ESP_LOGI(kAtomViewTag, "tilt %s confirmed -- periodic-table move", tiltDirectionName(tiltEv.direction));
+                switchToElement(newZ);
+                continue;
+            }
+        }
+
+        // Idle auto-advance: "just jump at random after 1 minute if no tilt has been
+        // detected" (feedback, 2026-08-17) -- reuses switchToElement()'s exact animation,
+        // just with a random target (randomIndexExcluding()) instead of a table-adjacent
+        // one, so the transition looks identical whether user- or timer-triggered.
+        if (esp_timer_get_time() - lastActivityUs > kIdleJumpUs) {
+            int newZ = randomIndexExcluding(preset.z - 1, kMaxZ) + 1;
+            ESP_LOGI(kAtomViewTag, "idle 60s+ -- jumping to random element Z=%d", newZ);
+            switchToElement(newZ);
+            lastActivityUs = esp_timer_get_time();
+            continue;
         }
 
         // Random zoom excursion: pause breathing, fly to a random scale and back, same as
@@ -462,8 +515,7 @@ void runAtomView(Display& display, TiltGestureDetector& tilt) {
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
         renderScene(display.getFrameBuf(), preset.points, preset.colors, kAtomViewNumPoints, kProtonColor, camera,
                     scale);
-        drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, preset.config, kTextColor,
-                      kFontLarge);
+        drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, kTextColor, kFontLarge);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         if (tiltEv.phase != TiltPhase::kIdle)
             drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);

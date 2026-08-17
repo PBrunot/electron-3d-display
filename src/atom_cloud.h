@@ -127,10 +127,12 @@ struct OuterSubshell {
 };
 OuterSubshell outerSubshellRRef(const AtomPoint* points, int count, const ElectronConfig& config);
 
-/** One subshell's identity and p90 radius, as produced by subshellDissectionPlan() below. */
+/** One subshell's identity, p90 radius, and electron occupancy, as produced by
+ * subshellDissectionPlan() below. */
 struct DissectionEntry {
     int n, ell;
     orb_real_t rRef;
+    int occ; // this subshell's own electron count, e.g. 4 for 2p4 -- see ElectronConfig::occ
 };
 
 /**

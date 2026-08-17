@@ -37,11 +37,16 @@ static constexpr ScaleBarLength kScaleBarCandidates[] = {
 };
 static constexpr int kScaleBarCandidateCount = sizeof(kScaleBarCandidates) / sizeof(kScaleBarCandidates[0]);
 
-static constexpr int kScaleBarMarginX = 8;
-static constexpr int kScaleBarMarginY = 8;
-static constexpr orb_real_t kScaleBarMaxPx = orb_real_t(90);
-static constexpr int kScaleBarTickPx = 4;
-static constexpr int kScaleBarLabelGapPx = 2; // px between label bottom and the tick top
+// "la scaletta risulta illegibile, raddoppia le sue dimensioni font compresa" (feedback,
+// 2026-08-17) -- every dimension below doubled, and the label now goes through
+// drawTextScaled() at kScaleBarTextScale instead of plain drawText().
+static constexpr int kScaleBarMarginX = 16;
+static constexpr int kScaleBarMarginY = 16;
+static constexpr orb_real_t kScaleBarMaxPx = orb_real_t(180);
+static constexpr int kScaleBarTickPx = 8;
+static constexpr int kScaleBarLabelGapPx = 4; // px between label bottom and the tick top
+static constexpr int kScaleBarTextScale = 2;
+static constexpr int kScaleBarLineThicknessPx = 2; // was an implicit 1px line
 
 /**
  * Largest candidate from kScaleBarCandidates whose on-screen length (value *
@@ -78,18 +83,23 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
 
     for (int x = x0; x <= x1; x++)
         if (x >= 0 && x < Display::kDisplayWidth)
-            frameBuf[y * Display::kDisplayWidth + x] = barColor;
+            for (int ly = y; ly < y + kScaleBarLineThicknessPx && ly < Display::kDisplayHeight; ly++)
+                frameBuf[ly * Display::kDisplayWidth + x] = barColor;
     for (int ty = y - kScaleBarTickPx; ty <= y + kScaleBarTickPx; ty++)
     {
         if (ty < 0 || ty >= Display::kDisplayHeight)
             continue;
-        if (x0 >= 0 && x0 < Display::kDisplayWidth)
-            frameBuf[ty * Display::kDisplayWidth + x0] = barColor;
-        if (x1 >= 0 && x1 < Display::kDisplayWidth)
-            frameBuf[ty * Display::kDisplayWidth + x1] = barColor;
+        for (int lx = 0; lx < kScaleBarLineThicknessPx; lx++)
+        {
+            if (x0 + lx >= 0 && x0 + lx < Display::kDisplayWidth)
+                frameBuf[ty * Display::kDisplayWidth + x0 + lx] = barColor;
+            if (x1 + lx >= 0 && x1 + lx < Display::kDisplayWidth)
+                frameBuf[ty * Display::kDisplayWidth + x1 + lx] = barColor;
+        }
     }
 
     char text[32];
     std::snprintf(text, sizeof(text), "%s %s", len.label, unitLabel);
-    drawText(frameBuf, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontSmall.height, text, textColor, kFontSmall);
+    drawTextScaled(frameBuf, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontSmall.height * kScaleBarTextScale,
+                   text, textColor, kFontSmall, kScaleBarTextScale);
 }
