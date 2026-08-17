@@ -11,12 +11,13 @@ constexpr int kOrbitalColorMinLevel = 80; // "should be bright colors" (feedback
                                           // so even the dimmest points read clearly
 
 // Phase colors come from each preset's own pair (see orbital_library.h's
-// OrbitalDescriptor.posRgb/negRgb -- "bright color pairs", 2026-08-17): the old
-// universal orange/blue globals below are gone, each orbital now carries its own vivid
-// positive/negative pair so consecutive orbitals are distinguishable at a glance.
-// s orbitals (ell=0) are single-signed everywhere, so they render as a uniform cloud in
-// their positive color with no visible split -- expected, not a bug (no phase change
-// without a node).
+// OrbitalDescriptor.posRgb/negRgb), but every preset's pair is now the same classic
+// vibrant orange/blue -- sign of psi_real determines the color consistently across the
+// whole library ("all orbitals should be colored according to sign of psi_Real with the
+// classical blue/orange vibrant colors", 2026-08-17), not a per-orbital distinguishing
+// hue. s orbitals (ell=0) are single-signed everywhere, so they render as a uniform cloud
+// in their positive (orange) color with no visible split -- expected, not a bug (no phase
+// change without a node).
 
 uint16_t orbitalLevelToColor565(int level, int sign, const uint8_t posRgb[3], const uint8_t negRgb[3])
 {
@@ -30,7 +31,7 @@ void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels,
     // Static, not stack-local: this project avoids large stack arrays after
     // pointcloud.h's buildRadialSamplerRuntime() already hit a real task stack overflow
     // with a much smaller (~4KB) local array.
-    static EXT_RAM_BSS_ATTR int order[kOrbitalMaxPoints];
+    static EXT_RAM_BSS_ATTR int order[kOrbitalNumPoints];
     for (int i = 0; i < count; i++)
         order[i] = i;
     std::sort(order, order + count, [psi2](int a, int b)
@@ -95,7 +96,7 @@ static constexpr orb_real_t kOrbitalZoomAmplitudeFraction = orb_real_t(0.4);
 
 OrbitalScale scaleFromRadii(const OrbitalPoint *points, int count)
 {
-    static EXT_RAM_BSS_ATTR orb_real_t radii[kOrbitalMaxPoints]; // static scratch, see computeOrbitalLevels()'s comment
+    static EXT_RAM_BSS_ATTR orb_real_t radii[kOrbitalNumPoints]; // static scratch, see computeOrbitalLevels()'s comment
     for (int i = 0; i < count; i++)
         radii[i] = std::sqrt(points[i].x * points[i].x + points[i].y * points[i].y + points[i].z * points[i].z);
     std::sort(radii, radii + count);

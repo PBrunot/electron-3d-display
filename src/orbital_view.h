@@ -21,10 +21,7 @@
 #include "orbital_presets.h"
 #include "tilt_gesture.h"
 
-constexpr int kOrbitalViewNumPoints = 3000; // matches cloud_common.N_POINTS (device budget)
-static_assert(kOrbitalViewNumPoints <= kOrbitalMaxPoints,
-              "kOrbitalViewNumPoints exceeds orbital_presets.h's static scratch bound");
-constexpr uint32_t kOrbitalViewSeed = 12345; // fixed for a reproducible-looking demo across boots
+static constexpr uint32_t kOrbitalViewSeed = 12345; // fixed for a reproducible-looking demo across boots
 
 /**
  * Everything one loaded preset needs to render and turn over: point coordinates (kept
@@ -33,8 +30,8 @@ constexpr uint32_t kOrbitalViewSeed = 12345; // fixed for a reproducible-looking
  */
 struct OrbitalPresetState
 {
-    OrbitalPoint points[kOrbitalViewNumPoints];
-    uint16_t colors[kOrbitalViewNumPoints];
+    OrbitalPoint points[kOrbitalNumPoints];
+    uint16_t colors[kOrbitalNumPoints];
     OrbitalResampleState resample;
     char title[32];
     orb_real_t baseScale, zoomAmplitude;
