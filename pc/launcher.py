@@ -1,14 +1,16 @@
-"""Unified PC entry point (see pc/main.py): an initial chooser screen
-("Hydrogen Orbitals" vs "Element Explorer") with a randomly picked tumbling
-preset playing behind it as a backdrop, then hands off to whichever viewer
-the user picks. Escape inside either viewer returns here (see
-orbital_view_pc.OrbitalViewApp._request_exit()/atom_view_pc.AtomViewApp's
-matching method).
+"""Unified PC entry point (see pc/main.py): a 2s boot splash (the atomic-cube
+image, port of the device's kSplashHoldMs boot screen), then a chooser screen
+("Orbitals" vs "Atoms") over the SAME static splash image as its background
+-- port of the device's chooser ("the chooser screen shall have the same
+fixed splash screen background - no animation needed"; no "ATOM CUBE" title
+text over the image, and plain option names since the PC doesn't gesture
+UP/DOWN) -- then hands off to whichever viewer the user picks. Escape inside
+either viewer returns here.
 
 One shared tk.Tk() root/Canvas/image item is created once here and reused
-across all three scenes -- the chooser and both viewer apps -- so switching
-between them never opens or closes a window; each scene just takes over the
-existing canvas (see OrbitalViewApp/AtomViewApp's `root=`/`canvas=`/
+across all scenes -- the splash, the chooser and both viewer apps -- so
+switching between them never opens or closes a window; each scene just takes
+over the existing canvas (see OrbitalViewApp/AtomViewApp's `root=`/`canvas=`/
 `image_id=` constructor params) and unbinds its own key/mouse bindings when
 it hands control back (see those classes' stop()).
 
@@ -19,26 +21,18 @@ to a specific element), pc/atom_main.py's standalone entry point still works
 unchanged.
 """
 
-import math
 import os
-import random
 import sys
 
 import micropython_shim  # noqa: F401 -- must precede micropython/ imports (see that module)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'micropython'))
 
-import slater
-
 import tkinter as tk
+from PIL import Image, ImageTk
 
-from viewer_common import (
-    WIDTH, HEIGHT, DISPLAY_SIZE, FRAME_DELAY_MS,
-    ANGLE_STEP, _TILT_ANGLE_START, _ROLL_ANGLE_START,
-    render_frame, blit_to_canvas,
-)
+from viewer_common import DISPLAY_SIZE
 
-import cloud_common
 import orbital_view_pc
 import atom_view_pc
 
@@ -46,15 +40,19 @@ CHOICE_ORBITALS = 'orbitals'
 CHOICE_ATOM = 'atom'
 CHOICE_ORDER = [CHOICE_ORBITALS, CHOICE_ATOM]
 CHOICE_LABELS = {
-    CHOICE_ORBITALS: 'Hydrogen Orbitals',
-    CHOICE_ATOM: 'Element Explorer',
+    # Plain names -- no UP/DOWN prefixes: the PC navigates with arrow keys,
+    # but the option labels read as "Orbitals"/"Atoms" ("on PC we dont use
+    # UP/DOWN only Orbitals or Atoms", 2026-08-17). The device keeps its own
+    # "UP: Orbitals"/"DOWN: Elements" wording (real tilt gestures).
+    CHOICE_ORBITALS: 'Orbitals',
+    CHOICE_ATOM: 'Atoms',
 }
 
 # Canvas-item coordinates, NOT viewer_common.CENTER -- the chooser's buttons
-# are plain tkinter Canvas items layered on top of the rendered image, so
-# they live in the CANVAS's own coordinate space (DISPLAY_SIZE, the
-# on-screen window size) rather than the small WIDTH x HEIGHT math buffer
-# render_frame() draws into.
+# are plain tkinter Canvas items layered on top of the splash image, so they
+# live in the CANVAS's own coordinate space (DISPLAY_SIZE, the on-screen
+# window size) rather than the small WIDTH x HEIGHT math buffer the viewers
+# render into.
 #
 # Sized as FRACTIONS of DISPLAY_SIZE, not fixed pixel counts -- PC's window
 # happens to be fixed-size, but these same fractions are also the reference
@@ -62,19 +60,19 @@ CHOICE_LABELS = {
 # use on their own, much smaller canvases, so one set of numbers defines the
 # chooser's proportions everywhere instead of three independently-tuned ones.
 DISPLAY_CENTER = DISPLAY_SIZE[0] // 2
-BUTTON_WIDTH_FRAC = 0.44
-BUTTON_HEIGHT_FRAC = 0.0875
-BUTTON_FONT_FRAC = 0.027   # of DISPLAY_SIZE[1], rounded to an int point size
-TITLE_FONT_FRAC = 0.017
+BUTTON_WIDTH_FRAC = 0.50
+BUTTON_HEIGHT_FRAC = 0.10
+BUTTON_FONT_FRAC = 0.042   # bigger options, port of the device's scaled-up menu font
 HINT_FONT_FRAC = 0.0135
-TITLE_GAP_FRAC = 0.052     # title baseline above the top button, as a gap
+BUTTON1_Y_FRAC = 0.4375    # device kChooserOption1Y=105 on 240 -> fraction of the canvas height
+BUTTON2_Y_FRAC = 0.6875    # device kChooserOption2Y=165 on 240
 
 BUTTON_WIDTH = round(DISPLAY_SIZE[0] * BUTTON_WIDTH_FRAC)
 BUTTON_HEIGHT = round(DISPLAY_SIZE[1] * BUTTON_HEIGHT_FRAC)
 BUTTON_FONT = ('Helvetica', round(DISPLAY_SIZE[1] * BUTTON_FONT_FRAC), 'bold')
-TITLE_FONT = ('Helvetica', round(DISPLAY_SIZE[1] * TITLE_FONT_FRAC))
 HINT_FONT = ('Helvetica', round(DISPLAY_SIZE[1] * HINT_FONT_FRAC))
-TITLE_GAP = round(DISPLAY_SIZE[1] * TITLE_GAP_FRAC)
+BUTTON1_Y = round(DISPLAY_SIZE[1] * BUTTON1_Y_FRAC)
+BUTTON2_Y = round(DISPLAY_SIZE[1] * BUTTON2_Y_FRAC)
 
 COLOR_NORMAL_TEXT = '#c8c8c8'
 COLOR_NORMAL_BG = '#141414'
@@ -84,17 +82,77 @@ COLOR_SELECTED_BG = '#ffdc28'
 COLOR_SELECTED_OUTLINE = '#ffdc28'
 COLOR_HINT = '#888888'
 
-TITLE_TEXT = 'Choose a viewer'
+# No title text over the splash image ("remove atom cube text from the splash
+# screen", 2026-08-17) -- the image stands clean, only the two options on top.
 HINT_TEXT = 'Up/Down or click to choose, Enter to confirm'
+
+# Boot-splash hold -- port of the device's kSplashHoldMs=2000 in main.cpp.
+SPLASH_HOLD_MS = 2000
+
+# The splash image the device embeds as a packed RGB565 array
+# (img/atomic_cube.jpg -> src/splash_bitmap.h/.cpp); the PC just loads the
+# original JPEG directly.
+_SPLASH_PATH = os.path.join(os.path.dirname(__file__), '..', 'img', 'atomic_cube.jpg')
+
+
+def _load_splash_photo():
+    """Load img/atomic_cube.jpg, resized to the canvas size, as a PhotoImage
+    -- the PC counterpart of the device's kSplashBitmapData. Shared by the
+    splash and chooser scenes (same static background, per device feedback).
+    """
+    image = Image.open(_SPLASH_PATH).convert('RGB')
+    image = image.resize(DISPLAY_SIZE, Image.LANCZOS)
+    return ImageTk.PhotoImage(image)
+
+
+class SplashScene:
+    """Boot splash: the atomic cube image alone for SPLASH_HOLD_MS, then the
+    chooser -- the PC counterpart of main.cpp's drawSplashScreen() +
+    vTaskDelay(kSplashHoldMs). No interaction; any key/click skips the wait.
+    """
+
+    def __init__(self, root, canvas, image_id, on_done):
+        self.root = root
+        self.canvas = canvas
+        self.image_id = image_id
+        self.on_done = on_done
+        self.photo = _load_splash_photo()
+        self.canvas.itemconfig(self.image_id, image=self.photo)
+
+        self._after_id = None
+        self.active = True
+        # Any key/click skips the splash (root.bind so focus doesn't matter).
+        self._skip_id = self.canvas.bind_all('<Key>', self._skip)
+        self._click_id = self.canvas.bind_all('<Button-1>', self._skip)
+        self._after_id = self.root.after(SPLASH_HOLD_MS, self._done)
+
+    def _skip(self, event=None):
+        if self.active:
+            self._done()
+
+    def _done(self):
+        if not self.active:
+            return
+        self.active = False
+        if self._after_id is not None:
+            self.root.after_cancel(self._after_id)
+            self._after_id = None
+        self.canvas.unbind_all('<Key>')
+        self.canvas.unbind_all('<Button-1>')
+        self.on_done()
+
+    def stop(self):
+        """Not normally called (the splash hands off itself); defensive."""
+        self._done()
 
 
 class ChooserScene:
-    """Backdrop-tumble + two-button chooser. Deliberately minimal compared
-    to OrbitalViewApp/AtomViewApp: no zoom breathing, no fly-overs, no
-    dissection -- just a steady rotation so the screen isn't static while
-    the user decides, per "an animation should be randomly played behind
-    the choices". Which content tumbles (a random hydrogen orbital or a
-    random element) is re-rolled every time the chooser is (re)shown.
+    """Static splash-image background + two-button chooser -- the PC
+    counterpart of the device's drawChooserScreen() ("same fixed splash
+    screen background - no animation needed"): the atomic cube image at full
+    brightness behind an electric-blue "ATOM CUBE" title and the two option
+    buttons at a bigger font. No per-frame rendering (the background is
+    static), unlike the old tumbling-preset backdrop.
     """
 
     def __init__(self, root, canvas, image_id, on_choice):
@@ -103,25 +161,11 @@ class ChooserScene:
         self.image_id = image_id
         self.on_choice = on_choice
 
-        self.buf = bytearray(WIDTH * HEIGHT * 3)
-        self.photo = None  # kept alive on self; see viewer_common.blit_to_canvas()
-
-        if random.random() < 0.5:
-            index = random.randrange(len(cloud_common.ORBITAL_PRESETS))
-            self.preset = orbital_view_pc.Preset(index)
-        else:
-            z = random.randint(1, slater.MAX_Z)
-            self.preset = atom_view_pc.AtomPreset(z)
-        self.scale = self.preset.base_scale
-
-        self.angle = random.uniform(0, 2 * math.pi)
-        self.tilt_angle = _TILT_ANGLE_START
-        self.roll_angle = _ROLL_ANGLE_START
-        self.two_pi = 2 * math.pi
+        self.photo = _load_splash_photo()
+        self.canvas.itemconfig(self.image_id, image=self.photo)
 
         self.selection = CHOICE_ORBITALS
         self._bound_sequences = []
-        self._after_id = None
         self.active = True
 
         self._bind('<Up>', lambda e: self._move(-1))
@@ -133,7 +177,6 @@ class ChooserScene:
         self.canvas.focus_set()
 
         self._create_widgets()
-        self._tick()
 
     def _bind(self, sequence, handler):
         self.canvas.bind(sequence, handler)
@@ -154,19 +197,11 @@ class ChooserScene:
         self._confirm()
 
     def _create_widgets(self):
-        # Centered on the 1/3 and 2/3 height marks, not clustered around the
-        # middle -- the tumbling backdrop is densest at vertical center, so
-        # this keeps it clearly visible between the two buttons instead of
-        # covered by them.
-        y1 = DISPLAY_SIZE[1] // 3 - BUTTON_HEIGHT // 2
-        y2 = DISPLAY_SIZE[1] * 2 // 3 - BUTTON_HEIGHT // 2
-
-        self.title_id = self.canvas.create_text(
-            DISPLAY_CENTER, y1 - TITLE_GAP, text=TITLE_TEXT, font=TITLE_FONT, fill=COLOR_HINT)
-
+        # No title text -- the splash image stands clean (see the constants
+        # comment); just the two option buttons.
         self.rect_ids = {}
         self.text_ids = {}
-        for choice, y0 in ((CHOICE_ORBITALS, y1), (CHOICE_ATOM, y2)):
+        for choice, y0 in ((CHOICE_ORBITALS, BUTTON1_Y), (CHOICE_ATOM, BUTTON2_Y)):
             rect = self.canvas.create_rectangle(
                 DISPLAY_CENTER - BUTTON_WIDTH // 2, y0,
                 DISPLAY_CENTER + BUTTON_WIDTH // 2, y0 + BUTTON_HEIGHT,
@@ -192,21 +227,10 @@ class ChooserScene:
 
     def stop(self):
         self.active = False
-        if self._after_id is not None:
-            self.root.after_cancel(self._after_id)
-            self._after_id = None
         for sequence in self._bound_sequences:
             self.canvas.unbind(sequence)
-        for item in (self.title_id, *self.rect_ids.values(), *self.text_ids.values()):
+        for item in (*self.rect_ids.values(), *self.text_ids.values()):
             self.canvas.delete(item)
-
-    def _tick(self):
-        if not self.active:
-            return
-        render_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle, self.scale)
-        blit_to_canvas(self, lambda draw: None)  # buttons are separate Canvas items, no PIL overlay
-        self.angle = (self.angle + ANGLE_STEP) % self.two_pi
-        self._after_id = self.root.after(FRAME_DELAY_MS, self._tick)
 
 
 ORBITAL_HINT_TEXT = "Arrow keys = nudge (switch orbital). Esc = back to menu."
@@ -237,7 +261,11 @@ class Launcher:
         self.hint_label.pack(fill='x')
 
         self.scene = None
-        self._show_chooser()
+        self._show_splash()
+
+    def _show_splash(self):
+        print("launcher: -> splash")
+        self.scene = SplashScene(self.root, self.canvas, self.image_id, self._show_chooser)
 
     def _show_chooser(self):
         print("launcher: -> chooser")

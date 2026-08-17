@@ -292,3 +292,31 @@ assert len(_ELEMENT_SYMBOLS) == MAX_Z
 
 def element_symbol(z):
     return _ELEMENT_SYMBOLS[z - 1]
+
+
+# Italian element names, Z=1..118 -- hand-transcribed from
+# src/element_names_it.h (which is the C++ source of truth for these; keep
+# this list in sync with it). ASCII-only, same convention as that header
+# (none of the 118 names need an accent). Used by the PC viewers' element
+# intro / dissection title card, mirroring atom_view.cpp's elementNameIt().
+_ELEMENT_NAMES_IT = (
+    "Idrogeno Elio Litio Berillio Boro Carbonio Azoto Ossigeno Fluoro Neon "
+    "Sodio Magnesio Alluminio Silicio Fosforo Zolfo Cloro Argon Potassio Calcio "
+    "Scandio Titanio Vanadio Cromo Manganese Ferro Cobalto Nichel Rame Zinco "
+    "Gallio Germanio Arsenico Selenio Bromo Kripton Rubidio Stronzio Ittrio "
+    "Zirconio Niobio Molibdeno Tecnezio Rutenio Rodio Palladio Argento Cadmio "
+    "Indio Stagno Antimonio Tellurio Iodio Xeno Cesio Bario Lantanio Cerio "
+    "Praseodimio Neodimio Promezio Samario Europio Gadolinio Terbio Disprosio "
+    "Olmio Erbio Tulio Itterbio Lutezio Afnio Tantalio Tungsteno Renio Osmio "
+    "Iridio Platino Oro Mercurio Tallio Piombo Bismuto Polonio Astato Radon "
+    "Francio Radio Attinio Torio Protoattinio Uranio Nettunio Plutonio Americio "
+    "Curio Berkelio Californio Einsteinio Fermio Mendelevio Nobelio Laurenzio "
+    "Rutherfordio Dubnio Seaborgio Bohrio Hassio Meitnerio Darmstadtio "
+    "Roentgenio Copernicio Nihonio Flerovio Moscovio Livermorio Tennesso Oganesson"
+).split()
+
+assert len(_ELEMENT_NAMES_IT) == MAX_Z
+
+
+def element_name_it(z):
+    return _ELEMENT_NAMES_IT[z - 1]

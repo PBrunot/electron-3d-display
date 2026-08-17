@@ -47,10 +47,11 @@ display inside a 4-face glass pyramid. The display shows the point cloud
 upside-down on its back; the prism mirrors it into thin air above the
 screen, and your eye sees a glowing 3D object hovering in space.
 
-- **Hydrogen orbitals** (1s → 5p, 16 shapes) as tumbling point clouds,
-  colored by the sign of the wavefunction (orange = positive lobe, blue =
-  negative lobe — just a color choice for telling the two apart, with no
-  connection to temperature or energy), with zoom breathing and a slow
+- **Hydrogen orbitals** (1s → 5d, 16 shapes) as tumbling point clouds,
+  each with its own bright color pair (positive lobe = one vivid hue,
+  negative lobe = its partner — e.g. the default 2p_z is classic
+  orange/blue; every preset's pair is identical across PC, device, and
+  web), with zoom breathing and a slow
   turnover of resampled points so the cloud stays alive instead of
   static.
 - **Multi-electron atoms** (Z = 1–118, one click away) modeled as
@@ -330,10 +331,11 @@ nuvola di punti capovolta; il prisma la riflette nell'aria sopra lo
 schermo, e il tuo occhio vede un oggetto 3D luminoso sospeso nello
 spazio.
 
-- **Orbitali dell'idrogeno** (1s → 5p, 16 forme) come nuvole di punti
-  rotanti, colorate per il segno della funzione d'onda (arancione = lobo
-  positivo, blu = lobo negativo — solo una scelta cromatica per
-  distinguerli, senza alcun legame con temperatura o energia), con
+- **Orbitali dell'idrogeno** (1s → 5d, 16 forme) come nuvole di punti
+  rotanti, ognuna con la sua coppia di colori brillanti (lobo positivo = una
+  tinta vivida, lobo negativo = la sua compagna — es. la 2p_z predefinita è
+  il classico arancione/blu; ogni preset ha la stessa coppia su PC,
+  dispositivo e web), con
   respiro dello zoom e un lento ricambio dei punti campionati così che la
   nuvola resti viva invece che statica.
 - **Atomi multielettronici** (Z = 1–118, a un clic di distanza)

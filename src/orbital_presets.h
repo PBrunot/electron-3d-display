@@ -19,10 +19,10 @@ constexpr int kOrbitalMaxPoints = 4096;
 
 constexpr int kOrbitalColorMaxLevel = 255; // callers must clamp a resampled point's level to this before comparing
 
-/** Brightness level (0..kOrbitalColorMaxLevel) + wavefunction sign -> this panel's packed
- * RGB565, phase-colored (positive lobe warm, negative lobe cool -- chemistry-diagram
- * convention). Port of cloud_common.level_to_rgb(). */
-uint16_t orbitalLevelToColor565(int level, int sign);
+/** Brightness level (0..kOrbitalColorMaxLevel) + wavefunction sign + this preset's
+ * phase-color pair (positive/negative, see orbital_library.h's OrbitalDescriptor) ->
+ * this panel's packed RGB565, phase-colored. Port of cloud_common.level_to_rgb(). */
+uint16_t orbitalLevelToColor565(int level, int sign, const uint8_t posRgb[3], const uint8_t negRgb[3]);
 
 /**
  * Rank-based (histogram-equalized) brightness levels: NOT linear min/max, since psi^2 is

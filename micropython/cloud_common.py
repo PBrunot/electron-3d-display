@@ -53,11 +53,11 @@ ORBITAL_PRESETS = (
     (3, 2, 2, "3d_x2-y2"),
     (3, 2, -2, "3d_xy"),
     (4, 3, 0, "4f_z3"),
-    (5, 2, 0, "5p_z3"),
+    (5, 2, 0, "5d_z2"),
 )
 DEFAULT_PRESET_INDEX = 4
 
-COLOR_MIN_LEVEL = 60  # keeps the dimmest points visible instead of fading to black
+COLOR_MIN_LEVEL = 80  # "should be bright colors" (2026-08-17) -- raised from 60 so even the dimmest points read clearly
 COLOR_MAX_LEVEL = 255
 
 # Projection scale target: the p90-radius point should land P90_TARGET_PX
@@ -160,22 +160,52 @@ def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
     return xs, ys, zs, psi2, signs, sampler, rng, radial_coeff, legendre_coeff
 
 
-# Phase colors -- chemistry-diagram convention: positive lobe warm
-# (red/orange), negative lobe cool (blue/cyan). s orbitals (ell=0) are
-# single-signed everywhere, so they render as a uniform warm cloud with no
-# visible split -- expected, not a bug (no phase change without a node).
-PHASE_POSITIVE_RGB = (255, 120, 40)
-PHASE_NEGATIVE_RGB = (40, 120, 255)
+# Phase colors -- each preset carries its own bright positive/negative pair
+# ("bright color pairs", 2026-08-17) so consecutive orbitals are
+# distinguishable at a glance; the old universal orange/blue is kept as the
+# default preset's pair (2p_z, index 4). Index-matched to ORBITAL_PRESETS and
+# to src/orbital_library.h's OrbitalDescriptor.posRgb/negRgb -- keep the two
+# in lockstep. s orbitals (ell=0) are single-signed everywhere, so they
+# render as a uniform cloud in their positive color with no visible split --
+# expected, not a bug (no phase change without a node).
+ORBITAL_PHASE_COLORS = (
+    ((255, 90, 90), (140, 40, 60)),      # 0 1s
+    ((255, 170, 60), (200, 90, 20)),     # 1 2s
+    ((255, 210, 60), (220, 140, 0)),     # 2 2p_x
+    ((120, 255, 120), (20, 140, 60)),    # 3 2p_y
+    ((255, 120, 40), (40, 120, 255)),    # 4 2p_z -- classic orange/blue (default preset)
+    ((60, 220, 255), (0, 110, 200)),     # 5 3s
+    ((90, 150, 255), (30, 60, 200)),     # 6 3p_x
+    ((180, 120, 255), (90, 40, 200)),    # 7 3p_y
+    ((255, 120, 220), (190, 40, 150)),   # 8 3p_z
+    ((255, 90, 140), (170, 20, 90)),     # 9 3d_z2
+    ((255, 160, 90), (200, 90, 30)),     # 10 3d_xz
+    ((160, 255, 90), (70, 170, 20)),     # 11 3d_yz
+    ((90, 255, 200), (0, 150, 120)),     # 12 3d_x2-y2
+    ((255, 220, 90), (210, 150, 10)),    # 13 3d_xy
+    ((255, 90, 200), (160, 20, 140)),    # 14 4f_z3
+    ((140, 200, 255), (50, 100, 210)),   # 15 5d_z2
+)
+assert len(ORBITAL_PHASE_COLORS) == len(ORBITAL_PRESETS)
+
+# Universal fallback pair kept for any caller that doesn't pick a preset pair
+# (e.g. atom_view's phase-colored highlights) -- the classic orange/blue.
+PHASE_POSITIVE_RGB = ORBITAL_PHASE_COLORS[4][0]
+PHASE_NEGATIVE_RGB = ORBITAL_PHASE_COLORS[4][1]
 
 
-def level_to_rgb(level, sign):
-    """Brightness level + wavefunction sign -> (r, g, b): scales
-    PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB by level/255 so COLOR_MIN_LEVEL's
-    "keep dim points visible" floor still applies per-channel. Each platform
-    encodes the result into its own pixel format (RGB565+swap on the
-    device, a plain tuple on PC).
+def level_to_rgb(level, sign, phase_pair=None):
+    """Brightness level + wavefunction sign -> (r, g, b): scales the
+    phase-color pair (per-preset bright pair by default; the universal
+    PHASE_POSITIVE_RGB/PHASE_NEGATIVE_RGB when phase_pair is None) by
+    level/255 so COLOR_MIN_LEVEL's "keep dim points visible" floor still
+    applies per-channel. Each platform encodes the result into its own pixel
+    format (RGB565+swap on the device, a plain tuple on PC).
     """
-    base = PHASE_POSITIVE_RGB if sign >= 0 else PHASE_NEGATIVE_RGB
+    if phase_pair is None:
+        base = PHASE_POSITIVE_RGB if sign >= 0 else PHASE_NEGATIVE_RGB
+    else:
+        base = phase_pair[0] if sign >= 0 else phase_pair[1]
     return (base[0] * level // 255, base[1] * level // 255, base[2] * level // 255)
 
 

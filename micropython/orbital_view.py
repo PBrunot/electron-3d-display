@@ -75,10 +75,10 @@ FPS_UPDATE_INTERVAL = 50
 FPS_TEXT_POS = (2, 2)
 
 
-def _encode_color(level, sign):
+def _encode_color(level, sign, phase_pair):
     # r, g, b = ... then encode_color565(r, g, b), NOT encode_color565(*level_to_rgb(level, sign)) --
     # star-unpacking measured ~4x slower here (matters: called once per point).
-    r, g, b = cloud_common.level_to_rgb(level, sign)
+    r, g, b = cloud_common.level_to_rgb(level, sign, phase_pair)
     return drc.encode_color565(r, g, b)
 
 
@@ -103,9 +103,12 @@ class PresetState:
         self.xs_fx = drc.to_fixed(xs)
         self.ys_fx = drc.to_fixed(ys)
         self.zs_fx = drc.to_fixed(zs)
+        # This preset's bright phase-color pair (see cloud_common.ORBITAL_PHASE_COLORS) --
+        # kept so resample() re-encodes turned-over points in the same colors.
+        self.phase_pair = cloud_common.ORBITAL_PHASE_COLORS[index]
         self.colors = array.array('H', bytes(2 * len(levels)))
         for i in range(len(levels)):
-            self.colors[i] = _encode_color(levels[i], signs[i])
+            self.colors[i] = _encode_color(levels[i], signs[i], self.phase_pair)
 
         self.title = cloud_common.title_for_preset(cloud_common.ORBITAL_PRESETS[index])
         self.base_scale, self.zoom_amplitude, _r_ref = cloud_common.scale_from_radii(xs, ys, zs)
@@ -133,7 +136,7 @@ class PresetState:
             self.xs_fx[idx] = int(self.xs[idx] * drc.FX_SCALE)
             self.ys_fx[idx] = int(self.ys[idx] * drc.FX_SCALE)
             self.zs_fx[idx] = int(self.zs[idx] * drc.FX_SCALE)
-            self.colors[idx] = _encode_color(level, sign)
+            self.colors[idx] = _encode_color(level, sign, self.phase_pair)
 
 
 def run(d=None, detector=None):
