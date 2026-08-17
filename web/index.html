@@ -121,19 +121,23 @@
 // Mirrors web/py/web_common.py's FRAME_DELAY_MS -- kept as a plain JS
 // constant here so the animation loop doesn't need a Python round-trip
 // just to read one number every frame.
-const FRAME_DELAY_MS = 20;
+const FRAME_DELAY_MS = 5;
 
 // Shared model files are fetched straight from micropython/ and pc/ --
 // NOT duplicated into web/py/ -- so this demo can never drift from the
 // device/PC source of truth (mirrors how pc/*.py already reaches into
-// micropython/ via sys.path instead of copying). Only web_common.py,
-// web_orbital.py, web_atom.py, and web_app.py (genuinely web-only: canvas
-// rendering, generator-driven animation loop, the chooser screen) live
-// under web/py/. `dest` is the module's import name inside Pyodide's
-// virtual filesystem -- import resolution only sees `dest`, so files from
-// different source directories all land flat in the same lib/ folder there.
+// micropython/ via sys.path instead of copying). render_core.py is the
+// numpy point-cloud render core the PC simulator and this demo SHARE
+// (web_common.py imports it the same way pc/viewer_common.py does). Only
+// web_common.py, web_orbital.py, web_atom.py, and web_app.py (genuinely
+// web-only: canvas rendering, generator-driven animation loop, the chooser
+// screen) live under web/py/. `dest` is the module's import name inside
+// Pyodide's virtual filesystem -- import resolution only sees `dest`, so
+// files from different source directories all land flat in the same lib/
+// folder there.
 const PY_FILES = [
   { src: '../pc/micropython_shim.py', dest: 'micropython_shim.py' },
+  { src: '../pc/render_core.py', dest: 'render_core.py' },
   { src: '../micropython/slater_cr_zeff.py', dest: 'slater_cr_zeff.py' },
   { src: '../micropython/slater.py', dest: 'slater.py' },
   { src: '../micropython/orbitals.py', dest: 'orbitals.py' },

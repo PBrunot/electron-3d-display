@@ -28,15 +28,14 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 # numpy is optional: when present, render_frame()/render_dissection_frame()
 # take a fully vectorized fast path (the per-point Python loop was the whole
-# reason the PC ran at ~7 fps -- see the _render_*_np functions below); the
-# pure-Python paths remain as the fallback so the viewers still run on a
-# numpy-less install.
-try:
-    import numpy as np
-    _HAS_NUMPY = True
-except ImportError:
-    np = None
-    _HAS_NUMPY = False
+# reason the PC ran at ~7 fps); the pure-Python paths remain as the fallback
+# so the viewers still run on a numpy-less install. The vectorized core
+# itself lives in render_core.py, SHARED with the web port (web/py/web_common
+# imports the same module under Pyodide) so the two can't drift apart.
+import render_core
+
+_HAS_NUMPY = render_core._HAS_NUMPY
+_preset_np = render_core.preset_np
 
 # --- Display geometry -------------------------------------------------------
 WIDTH = 480
@@ -150,7 +149,7 @@ _MARKER_FONT = ImageFont.load_default(size=MARKER_FONT_SIZE)  # loaded once, not
 # radius"). Drawn AFTER the cloud (see render_frame()) so it's always a fully
 # opaque bright-red point on top and can't be dimmed out by points landing on
 # the same pixels -- the same on-top redraw the device now does every frame.
-PROTON_SIZE = 14
+PROTON_SIZE = 4
 PROTON_COLOR = (255, 0, 0)
 
 # --- Electron point rendering ------------------------------------------------
@@ -173,7 +172,7 @@ ELECTRON_ALPHA = 0.92
 # 480x480 = 2x the device's 240x240 panel, so a 2x2 block here is exactly one
 # device pixel -- the PC preview then shows electrons at the same apparent
 # size as the panel, instead of half-size dots.
-ELECTRON_SIZE = 2
+ELECTRON_SIZE = 1
 
 # Phosphor-style persistence (PC-only cosmetic; the device hard-clears each
 # frame -- see orbital_view.py). Each frame fades the previous buffer toward
@@ -321,167 +320,31 @@ def blend_electron(buf, px, py, cr, cg, cb, alpha=ELECTRON_ALPHA, size=ELECTRON_
             buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * alpha)
 
 
-def _preset_np(preset):
-    """Cached numpy arrays of a preset's point data -- built once and kept on
-    the preset as `_np_cache` (point turnover invalidates it by setting it to
-    None, see orbital_view_pc.Preset.resample()). Also collects the atom
-    preset's shells/ells/signs and per-point shell colors for the dissection
-    view. Returns None when numpy isn't installed.
-    """
-    if not _HAS_NUMPY:
-        return None
-    cache = getattr(preset, '_np_cache', None)
-    if cache is not None:
-        return cache
-    cache = {
-        'xs': np.asarray(preset.xs, dtype=np.float64),
-        'ys': np.asarray(preset.ys, dtype=np.float64),
-        'zs': np.asarray(preset.zs, dtype=np.float64),
-        'colors': np.asarray(preset.colors, dtype=np.uint8),
-    }
-    if getattr(preset, 'shells', None) is not None:
-        # Multi-electron atom preset (AtomPreset): shells/ells/signs and the
-        # per-point shell color needed by the dissection view's color rules.
-        import atom_cloud  # lazy: atom_cloud imports cloud_common, which this module already did
-        cache['shells'] = np.asarray(preset.shells, dtype=np.int32)
-        cache['ells'] = np.asarray(preset.ells, dtype=np.int32)
-        cache['signs'] = np.asarray(preset.signs, dtype=np.int32)
-        shell_rgb = atom_cloud.SHELL_RGB
-        cache['shell_colors'] = np.asarray(
-            [shell_rgb[s] if s < len(shell_rgb) else shell_rgb[-1] for s in preset.shells],
-            dtype=np.uint8)
-    preset._np_cache = cache
-    return cache
-
-
 def _blend_points_np(buf_np, xs, ys, zs, colors, cy, sy, cx, sx, cz, sz, scale,
                      buzz_fraction=0.0, clip_rz_max=None, skip_mask=None, alpha=ELECTRON_ALPHA):
-    """Vectorized core of render_frame()/render_dissection_frame(): rotate
-    (yaw/tilt/roll, same transform as rotate_yaw_tilt_roll()), project, and
-    alpha-blend every point's ELECTRON_SIZE block into `buf_np` (a
-    (HEIGHT, WIDTH, 3) uint8 view over the caller's bytearray -- zero-copy).
-
-    The blend preserves the pure-Python path's exact sequential semantics
-    (per hit: v = v*(1-alpha) + c*alpha, in point order) via a per-pixel
-    "rounds" loop: pixels are grouped by index, then each round applies one
-    hit to every pixel that has at least that many hits -- fully vectorized
-    per round, and the number of rounds is just the max hits-per-pixel in
-    this frame (small for a sparse point cloud).
-
-    `clip_rz_max` (dissection) drops points whose post-yaw-and-tilt depth
-    exceeds it; `skip_mask` (dissection pass structure) skips points;
-    `buzz_fraction` randomly drops a fraction of points (orbital buzz).
+    """Vectorized core of render_frame()/render_dissection_frame(), bound to
+    this platform's geometry/style constants -- implementation shared with
+    the web port lives in render_core.blend_points() (see that module's
+    docstring for the exact sequential-blend semantics it preserves).
     """
-    n = len(xs)
-    if n == 0:
-        return
-    rx1 = xs * cy + zs * sy
-    rz1 = zs * cy - xs * sy
-    ry2 = ys * cx - rz1 * sx
-    rz = ys * sx + rz1 * cx
-    rx3 = rx1 * cz - ry2 * sz
-    ry3 = rx1 * sz + ry2 * cz
-    px = np.rint(CENTER + rx3 * scale).astype(np.int32)
-    py = np.rint(CENTER - ry3 * scale).astype(np.int32)
-
-    ok = (px >= 0) & (px < WIDTH) & (py >= 0) & (py < HEIGHT)
-    if clip_rz_max is not None:
-        ok &= rz <= clip_rz_max
-    if skip_mask is not None:
-        ok &= ~skip_mask
-    if buzz_fraction:
-        ok &= np.random.random(n) >= buzz_fraction
-    if not ok.any():
-        return
-    px = px[ok]
-    py = py[ok]
-    col = colors[ok]
-
-    size = ELECTRON_SIZE
-    if size == 2:
-        # 2x2 block, POINT-MAJOR layout: entries [4i..4i+3] are point i's four
-        # corners (px-1,py-1), (px-1,py), (px,py-1), (px,py). The stable
-        # argsort below then keeps hits at a shared pixel in point order,
-        # matching the pure-Python path's sequential blend exactly -- a
-        # corner-major layout (concatenating whole corner planes) would sort
-        # corner-0 hits before corner-3 hits regardless of point order and
-        # reverse the blend at overlapping pixels.
-        n_ok = len(px)
-        px4 = np.empty(4 * n_ok, dtype=px.dtype)
-        py4 = np.empty(4 * n_ok, dtype=py.dtype)
-        px4[0::4] = px - 1
-        py4[0::4] = py - 1
-        px4[1::4] = px - 1
-        py4[1::4] = py
-        px4[2::4] = px
-        py4[2::4] = py - 1
-        px4[3::4] = px
-        py4[3::4] = py
-        px, py = px4, py4
-        col = np.repeat(col, 4, axis=0)
-    elif size == 1:
-        pass
-    else:
-        # Uncommon sizes: fall back to the per-point Python blend for these
-        # points (rare -- ELECTRON_SIZE is 1 or 2 in practice).
-        for i in range(len(px)):
-            blend_electron(buf_np, int(px[i]), int(py[i]), *tuple(int(v) for v in col[i]), alpha=alpha, size=size)
-        return
-
-    ok2 = (px >= 0) & (px < WIDTH) & (py >= 0) & (py < HEIGHT)
-    px = px[ok2]
-    py = py[ok2]
-    col = col[ok2]
-    if px.size == 0:
-        return
-
-    pix = py * WIDTH + px
-    flat = buf_np.reshape(-1, 3)
-    order = np.argsort(pix, kind='stable')  # stable: keeps point order within a pixel
-    p = pix[order]
-    c = col[order]
-    is_start = np.empty(p.size, dtype=bool)
-    is_start[0] = True
-    is_start[1:] = p[1:] != p[:-1]
-    uniq = p[is_start]
-    starts = np.flatnonzero(is_start)
-    hits = np.diff(np.concatenate((starts, [p.size])))
-    keep_frac = 1.0 - alpha
-    for k in range(1, int(hits.max()) + 1):
-        sel = hits >= k
-        if not sel.any():
-            break
-        u = uniq[sel]
-        ck = c[starts[sel] + (k - 1)]
-        old = flat[u].astype(np.float32)
-        flat[u] = np.rint(old * keep_frac + ck * alpha).astype(np.uint8)
+    return render_core.blend_points(buf_np, xs, ys, zs, colors, cy, sy, cx, sx, cz, sz, scale,
+                                    WIDTH, HEIGHT, CENTER, ELECTRON_SIZE, alpha,
+                                    buzz_fraction, clip_rz_max, skip_mask)
 
 
 def _draw_nucleus_np(buf_np):
     """Vectorized draw_nucleus(): the fully-opaque PROTON_SIZE square at
     screen center, written on top of the cloud (see render_frame())."""
-    half = PROTON_SIZE // 2
-    x0 = CENTER - half
-    x1 = x0 + PROTON_SIZE
-    y0 = CENTER - half
-    y1 = y0 + PROTON_SIZE
-    buf_np[y0:y1, x0:x1] = PROTON_COLOR
+    return render_core.draw_nucleus(buf_np, WIDTH, HEIGHT, CENTER, PROTON_SIZE, PROTON_COLOR)
 
 
 def _render_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
     """numpy fast path of render_frame() -- see that function's docstring;
     mutates `buf` (the bytearray) in place via a zero-copy view."""
-    buf_np = np.frombuffer(buf, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3)
-    if ENABLE_PERSISTENCE:
-        buf_np[:] = (buf_np.astype(np.uint16) * PERSISTENCE_DECAY) // 256  # same per-byte map as translate()
-    else:
-        buf_np[:] = 0
-    cy, sy = math.cos(angle), math.sin(angle)
-    cx, sx = math.cos(tilt_angle), math.sin(tilt_angle)
-    cz, sz = math.cos(roll_angle), math.sin(roll_angle)
-    _blend_points_np(buf_np, arr['xs'], arr['ys'], arr['zs'], arr['colors'],
-                     cy, sy, cx, sx, cz, sz, scale, buzz_fraction=buzz_fraction)
-    _draw_nucleus_np(buf_np)
+    render_core.render_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle, scale,
+                                WIDTH, HEIGHT, CENTER, ELECTRON_SIZE, ELECTRON_ALPHA,
+                                PERSISTENCE_DECAY, PROTON_SIZE, PROTON_COLOR,
+                                buzz_fraction=buzz_fraction, enable_persistence=ENABLE_PERSISTENCE)
 
 
 def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
