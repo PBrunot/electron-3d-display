@@ -6,4 +6,4 @@
 #pragma once
 #include "display.h"
 
-void runAtomViewTest(Display& display);
+void runAtomViewTest(Display &display);

@@ -77,7 +77,7 @@ static bool checkPlanarAtBoot(Qmi8658 &imu)
     orb_real_t x = sumX / orb_real_t(ok), y = sumY / orb_real_t(ok), z = sumZ / orb_real_t(ok);
     orb_real_t mag = std::sqrt(x * x + y * y + z * z);
     orb_real_t defaultMag = std::sqrt(kDefaultBaselineX * kDefaultBaselineX + kDefaultBaselineY * kDefaultBaselineY +
-                                       kDefaultBaselineZ * kDefaultBaselineZ);
+                                      kDefaultBaselineZ * kDefaultBaselineZ);
     if (mag < orb_real_t(1e-6))
     {
         ESP_LOGW(kMainTag, "planar check: near-zero reading, assuming not planar");
