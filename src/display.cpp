@@ -25,7 +25,7 @@
 // achievable step and exceeds the ST7789VW datasheet's Table 6 Tscycw spec (16ns min write
 // cycle = 62.5MHz max) by 28% -- out-of-spec, needs on-hardware visual confirmation (watch
 // for pixel glitches/noise), not assumed safe just because it's the next divisor.
-#define LCD_PIXEL_CLOCK_HZ (80 * 1000 * 1000)
+#define LCD_PIXEL_CLOCK_HZ (20 * 1000 * 1000)
 
 auto Display::onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *, void *userCtx) -> bool
 {
@@ -87,16 +87,14 @@ Display::Display()
     esp_lcd_panel_handle_t panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {};
     panel_config.reset_gpio_num = PIN_RST;
-    panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
+    panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
     panel_config.bits_per_pixel = 16;
+    panel_config.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE;
     ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle));
 
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
-    // X-mirror only: through the prism, text reads correctly this way. Enabling Y-mirror too
-    // (esp_lcd_panel_mirror(panel_handle, true, true)) broke the image on this unit -- the
-    // resulting upside-down scene is instead flipped in software, in presentFrame().
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
@@ -155,11 +153,11 @@ auto Display::waitForFlushDone() -> bool
 void Display::unpackColor565(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)
 {
     uint8_t r5 = (c >> 11) & 0x1F;
-    uint8_t bField6 = (c >> 5) & 0x3F; // carries the physical BLUE value, see packColor565()
-    uint8_t gField5 = c & 0x1F;        // carries the physical GREEN value, see packColor565()
+    uint8_t g6 = (c >> 5) & 0x3F;
+    uint8_t b5 = c & 0x1F;
     *r = uint8_t((r5 << 3) | (r5 >> 2));
-    *b = uint8_t((bField6 << 2) | (bField6 >> 4));
-    *g = uint8_t((gField5 << 3) | (gField5 >> 2));
+    *g = uint8_t((g6 << 2) | (g6 >> 4));
+    *b = uint8_t((b5 << 3) | (b5 >> 2));
 }
 
 uint16_t Display::blendColor565(uint16_t base, uint16_t target, uint16_t alphaQ8)

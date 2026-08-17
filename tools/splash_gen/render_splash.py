@@ -13,9 +13,11 @@ anything ELSE onboard), and a raw blit at boot is both the simplest and the fast
 path (a plain memcpy, no decode-time cost at all).
 
 Pixels are packed through the exact same bit formula as Display::packColor565() (src/
-display.h) -- this hardware unit's G/B subpixel-swap fix (CLAUDE.md's "scambio G/B" section)
--- so the emitted array is ALREADY in this panel's native format; drawSplashScreen() just
-copies bytes, no per-pixel packing on-device.
+display.h) -- plain textbook RGB565 (the panel's real quirk turned out to be a missing
+esp_lcd data_endian/rgb_ele_order config, not a G/B bit-swap needed in software here, see
+display.cpp's Display() constructor and CLAUDE.md, 2026-08-18) -- so the emitted array is
+ALREADY in this panel's native format; drawSplashScreen() just copies bytes, no per-pixel
+packing on-device.
 
 Regenerate with: python3 tools/splash_gen/render_splash.py
 """
@@ -33,8 +35,9 @@ HEIGHT_PX = 240
 
 def pack_color565(r, g, b):
     """Bit-for-bit port of Display::packColor565() (src/display.h) -- MUST stay identical to
-    that formula, not textbook RGB565, since this panel's G/B drive lines are swapped."""
-    return ((r >> 3) << 11) | ((b >> 2) << 5) | (g >> 3)
+    that formula. Plain textbook RGB565; the panel-specific correction lives in the esp_lcd
+    config (display.cpp), not in this bit layout."""
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 
 
 def load_pixels():
@@ -63,8 +66,8 @@ def emit(pixels):
                     "",
                     f"constexpr int kSplashBitmapWidth = {WIDTH_PX};",
                     f"constexpr int kSplashBitmapHeight = {HEIGHT_PX};",
-                    "// Already packed via Display::packColor565()'s exact bit formula (this panel's",
-                    "// G/B-swapped RGB565) -- draw with a plain copy, never re-pack these values.",
+                    "// Already packed via Display::packColor565()'s exact bit formula (plain",
+                    "// textbook RGB565) -- draw with a plain copy, never re-pack these values.",
                     "extern const uint16_t kSplashBitmapData[];",
                     "",
                     "/** Blit the splash image at (0, 0), opaque (no blending) -- caller presents the",

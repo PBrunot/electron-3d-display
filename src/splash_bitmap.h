@@ -7,8 +7,8 @@
 
 constexpr int kSplashBitmapWidth = 240;
 constexpr int kSplashBitmapHeight = 240;
-// Already packed via Display::packColor565()'s exact bit formula (this panel's
-// G/B-swapped RGB565) -- draw with a plain copy, never re-pack these values.
+// Already packed via Display::packColor565()'s exact bit formula (plain
+// textbook RGB565) -- draw with a plain copy, never re-pack these values.
 extern const uint16_t kSplashBitmapData[];
 
 /** Blit the splash image at (0, 0), opaque (no blending) -- caller presents the

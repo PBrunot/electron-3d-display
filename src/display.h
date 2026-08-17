@@ -12,6 +12,20 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+namespace detail
+{
+// Free function, not a Display member: a class's own static constexpr member functions
+// aren't usable in a constant expression until the class body finishes parsing ("complete-
+// class context"), so Display::packColor565() itself can't be called to initialize the
+// kColor* palette below it in the same class -- this standalone helper can, since it's
+// already complete at the point it's used. Display::packColor565() just delegates here;
+// see that function's docstring for the actual formula rationale.
+constexpr uint16_t packColor565Impl(uint8_t r, uint8_t g, uint8_t b)
+{
+    return uint16_t(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+} // namespace detail
+
 class Display
 {
 public:
@@ -57,25 +71,32 @@ public:
     auto waitForFlushDone() -> bool;
 
     /**
-     * Pack a physical-intent (r, g, b) (each 0-255) into this specific panel's raw RGB565
-     * value. This panel's G and B subpixel drive lines are physically swapped (verified
-     * empirically: sending standard-RGB565 GREEN displays as blue and vice versa, RED
-     * unaffected -- see CLAUDE.md's "scambio G/B" section). No ST7789 register fixes a G/B
-     * swap, so every color anywhere in this project must be packed through this function --
-     * never build an RGB565 value by hand elsewhere. Verified against CLAUDE.md's four
-     * full-screen test constants (red/green/blue/yellow all correct with this formula).
+     * Pack a physical-intent (r, g, b) (each 0-255) into standard textbook RGB565
+     * (R5-G6-B5, no per-project bit-field swap) -- bit-for-bit identical to Arduino_GFX's
+     * RGB565(r,g,b) macro, confirmed 2026-08-18. The "G and B lines are physically swapped"
+     * theory (CLAUDE.md's old "scambio G/B" section) was a misdiagnosis: the real cause was
+     * this panel's esp_lcd_panel_dev_config_t missing an explicit `data_endian` (defaulted
+     * away from this panel's actual wire format) plus the wrong `rgb_ele_order` -- fixed at
+     * the source in display.cpp's Display() constructor (LCD_RGB_ELEMENT_ORDER_RGB +
+     * LCD_RGB_DATA_ENDIAN_LITTLE, 2026-08-18) instead of being papered over here with a
+     * hand-rolled bit-swapped packing. The old swapped formula "worked" for pure
+     * single-channel test colors (where a channel swap and an endianness fix can
+     * coincidentally agree) but never correctly for compound colors like this project's
+     * orbital orange/yellow -- see CLAUDE.md for the full history. Every color anywhere in
+     * this project should still be packed through this function -- never build an RGB565
+     * value by hand elsewhere -- but it no longer needs to be panel-quirk-aware; that's the
+     * esp_lcd config's job now.
      */
     static inline constexpr uint16_t packColor565(uint8_t r, uint8_t g, uint8_t b)
     {
-        return uint16_t(((r >> 3) << 11) | ((b >> 2) << 5) | (g >> 3));
+        return detail::packColor565Impl(r, g, b);
     }
 
     /** Inverse of packColor565() -- recovers the physical-intent (r, g, b) packColor565()
      * was called with, each expanded back to 8 bits (5/6-bit field replicated into the low
      * bits, the usual RGB565-to-24-bit expansion). Needed by blendColor565()/fadeColor565()
      * below, which must read a pixel already in the frame buffer before combining it with a
-     * new color -- see CLAUDE.md's "scambio G/B" section for why the bit layout isn't the
-     * textbook RGB565 one.
+     * new color.
      */
     static void unpackColor565(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b);
 
@@ -98,6 +119,30 @@ public:
 
     static constexpr uint16_t kColorBlack = 0x0000;
     static constexpr uint16_t kColorWhite = 0xFFFF;
+
+    // Named palette, RGB values matching Arduino_GFX's RGB565_* macro set (a widely-used
+    // reference palette -- its RGB565(r,g,b) macro is bit-for-bit identical to
+    // packColor565() above, confirmed 2026-08-18), computed through detail::packColor565Impl()
+    // (not the packColor565() member above -- see its forward-declaration comment for why)
+    // rather than copied as raw hex so they always match this panel's actual packing.
+    static constexpr uint16_t kColorNavy = detail::packColor565Impl(0, 0, 123);
+    static constexpr uint16_t kColorDarkGreen = detail::packColor565Impl(0, 125, 0);
+    static constexpr uint16_t kColorDarkCyan = detail::packColor565Impl(0, 125, 123);
+    static constexpr uint16_t kColorMaroon = detail::packColor565Impl(123, 0, 0);
+    static constexpr uint16_t kColorPurple = detail::packColor565Impl(123, 0, 123);
+    static constexpr uint16_t kColorOlive = detail::packColor565Impl(123, 125, 0);
+    static constexpr uint16_t kColorLightGrey = detail::packColor565Impl(198, 195, 198);
+    static constexpr uint16_t kColorDarkGrey = detail::packColor565Impl(123, 125, 123);
+    static constexpr uint16_t kColorBlue = detail::packColor565Impl(0, 0, 255);
+    static constexpr uint16_t kColorGreen = detail::packColor565Impl(0, 255, 0);
+    static constexpr uint16_t kColorCyan = detail::packColor565Impl(0, 255, 255);
+    static constexpr uint16_t kColorRed = detail::packColor565Impl(255, 0, 0);
+    static constexpr uint16_t kColorMagenta = detail::packColor565Impl(255, 0, 255);
+    static constexpr uint16_t kColorYellow = detail::packColor565Impl(255, 255, 0);
+    static constexpr uint16_t kColorOrange = detail::packColor565Impl(255, 165, 0);
+    static constexpr uint16_t kColorGreenYellow = detail::packColor565Impl(173, 255, 41);
+    static constexpr uint16_t kColorPaleRed = detail::packColor565Impl(255, 130, 198);
+
     static constexpr int kDisplayWidth = 240;
     static constexpr int kDisplayHeight = 240;
 
