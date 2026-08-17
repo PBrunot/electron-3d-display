@@ -8,8 +8,8 @@
 
 #include <cstdint>
 
-#include "orbitals.h"    // orb_real_t
-#include "pointcloud.h"  // OrbitalPoint, OrbitalSampler, XorShift32
+#include "orbitals.h"   // orb_real_t
+#include "pointcloud.h" // OrbitalPoint, OrbitalSampler, XorShift32
 
 // Static-scratch bound shared by orbital_presets.cpp's computeOrbitalLevels()/
 // scaleFromRadii(), and the point-budget ceiling orbital_view.h's N_POINTS must stay
@@ -37,7 +37,7 @@ uint16_t orbitalLevelToColor565(int level, int sign);
  *                      frozen reference so resampleOneOrbitalPoint() can bisect a new
  *                      point's rank without re-sorting the whole cloud.
  */
-void computeOrbitalLevels(const orb_real_t* psi2, int count, uint8_t* outLevels, orb_real_t* outPsi2Sorted);
+void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels, orb_real_t *outPsi2Sorted);
 
 // Point-turnover: fraction of the cloud resampled every kOrbitalCullRefreshFrames frames.
 constexpr orb_real_t kOrbitalCullFraction = orb_real_t(0.01);
@@ -51,8 +51,9 @@ constexpr orb_real_t kOrbitalBuzzFraction = orb_real_t(0.40);
  * turn, rather than a random choice leaving some indices stale indefinitely. Port of
  * cloud_common.ResampleState.
  */
-struct OrbitalResampleState {
-    const OrbitalSampler* sampler;
+struct OrbitalResampleState
+{
+    const OrbitalSampler *sampler;
     // XorShift32 has no default constructor (only an explicit-seed one, see pointcloud.h)
     // -- this default member initializer is what keeps OrbitalResampleState (and
     // OrbitalPresetState, which embeds one) default-constructible, since a member with
@@ -68,7 +69,8 @@ struct OrbitalResampleState {
     int cursor = 0;
 };
 
-struct ResampledOrbitalPoint {
+struct ResampledOrbitalPoint
+{
     int index;
     int level; // can exceed kOrbitalColorMaxLevel, see docstring below -- caller must clamp
     int sign;
@@ -85,9 +87,10 @@ struct ResampledOrbitalPoint {
  * long-running resample, not a bug); callers must clamp before comparing/encoding. Port of
  * one iteration of cloud_common.resample_levels()'s loop.
  */
-ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState* state, OrbitalPoint* points);
+ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState *state, OrbitalPoint *points);
 
-struct OrbitalScale {
+struct OrbitalScale
+{
     orb_real_t baseScale, zoomAmplitude, rRef;
 };
 
@@ -98,7 +101,7 @@ struct OrbitalScale {
  * "too far away" dot regardless of its physical size. Port of
  * cloud_common.scale_from_radii().
  */
-OrbitalScale scaleFromRadii(const OrbitalPoint* points, int count);
+OrbitalScale scaleFromRadii(const OrbitalPoint *points, int count);
 
 /**
  * Sample `count` points from the (n, ell, m) orbital's probability density (via
@@ -113,6 +116,6 @@ OrbitalScale scaleFromRadii(const OrbitalPoint* points, int count);
  * @param outPsi2/outSigns  [out] scratch only -- caller keeps these just long enough to
  *                          call computeOrbitalLevels() once, unlike outPoints/outRng/coeffs.
  */
-void buildOrbitalPointCloud(int n, int ell, int m, OrbitalPoint* outPoints, orb_real_t* outPsi2, int8_t* outSigns,
-                             int count, uint32_t seed, XorShift32* outRng, orb_real_t* outRadialCoeff,
-                             orb_real_t* outLegendreCoeff);
+void buildOrbitalPointCloud(int n, int ell, int m, OrbitalPoint *outPoints, orb_real_t *outPsi2, int8_t *outSigns,
+                            int count, uint32_t seed, XorShift32 *outRng, orb_real_t *outRadialCoeff,
+                            orb_real_t *outLegendreCoeff);

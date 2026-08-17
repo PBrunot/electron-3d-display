@@ -50,7 +50,8 @@
  * clouds produced by all three ports be compared for exact agreement rather
  * than just statistically.
  */
-struct XorShift32 {
+struct XorShift32
+{
     uint32_t state;
 
     /**
@@ -67,7 +68,8 @@ struct XorShift32 {
 };
 
 /** A single point of an orbital's point cloud, in Cartesian coordinates. */
-struct OrbitalPoint {
+struct OrbitalPoint
+{
     orb_real_t x, y, z;
 };
 
@@ -79,12 +81,13 @@ struct OrbitalPoint {
  * caller-convenience metadata (e.g. for a UI label) -- sampling itself never
  * needs them again once the tables below are built.
  */
-struct OrbitalSampler {
+struct OrbitalSampler
+{
     int n, ell, m;
     orb_real_t maxR;                             // r ranges over [0, maxR] (= 6*n*n, see orbitals.h).
-    orb_real_t invRTable[kOrbitalTableSize];      // Inverse CDF of [r*R(r)]^2: invRTable[k] = r at quantile k/(N-1).
-    orb_real_t invThetaTable[kOrbitalTableSize];  // Inverse CDF of P_l^m(theta)^2*sin(theta), same convention.
-    orb_real_t invPhiTable[kOrbitalTableSize];    // Inverse CDF of azimuthal(phi)^2, same convention.
+    orb_real_t invRTable[kOrbitalTableSize];     // Inverse CDF of [r*R(r)]^2: invRTable[k] = r at quantile k/(N-1).
+    orb_real_t invThetaTable[kOrbitalTableSize]; // Inverse CDF of P_l^m(theta)^2*sin(theta), same convention.
+    orb_real_t invPhiTable[kOrbitalTableSize];   // Inverse CDF of azimuthal(phi)^2, same convention.
 };
 
 /**
@@ -98,11 +101,13 @@ struct OrbitalSampler {
  * O(count log count) -- no per-point search survives into sampling either,
  * since invTable is later read directly via getValueFromLookupTable().
  */
-constexpr void buildInverseCdf(orb_real_t* weight, int count, orb_real_t domainMax, orb_real_t* invTable) {
+constexpr void buildInverseCdf(orb_real_t *weight, int count, orb_real_t domainMax, orb_real_t *invTable)
+{
     orb_real_t delta = domainMax / orb_real_t(count - 1);
 
     orb_real_t cumulative = orb_real_t(0);
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
+    {
         cumulative += weight[i];
         weight[i] = cumulative; // weight[] now holds the (unnormalized) CDF
     }
@@ -113,7 +118,8 @@ constexpr void buildInverseCdf(orb_real_t* weight, int count, orb_real_t domainM
         weight[i] /= total;
 
     int j = 0;
-    for (int k = 0; k < count; k++) {
+    for (int k = 0; k < count; k++)
+    {
         orb_real_t u = orb_real_t(k) / orb_real_t(count - 1);
         while (j < count - 1 && weight[j] < u)
             j++;
@@ -150,7 +156,8 @@ constexpr void buildInverseCdf(orb_real_t* weight, int count, orb_real_t domainM
  * @param m    Magnetic quantum number, -ell <= m <= ell.
  * @return     A fully-built OrbitalSampler, ready for sampleOrbitalPoint().
  */
-constexpr OrbitalSampler buildOrbitalSamplerConstexpr(int n, int ell, int m) {
+constexpr OrbitalSampler buildOrbitalSamplerConstexpr(int n, int ell, int m)
+{
     OrbitalSampler sampler{};
     sampler.n = n;
     sampler.ell = ell;
@@ -167,7 +174,8 @@ constexpr OrbitalSampler buildOrbitalSamplerConstexpr(int n, int ell, int m) {
     {
         orb_real_t weight[kOrbitalTableSize] = {};
         orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
-        for (int i = 0; i < kOrbitalTableSize; i++) {
+        for (int i = 0; i < kOrbitalTableSize; i++)
+        {
             orb_real_t r = orb_real_t(i) * deltaR;
             orb_real_t R = hydrogenRadialFunction(r, n, ell, radialCoeff);
             weight[i] = (r * R) * (r * R);
@@ -177,7 +185,8 @@ constexpr OrbitalSampler buildOrbitalSamplerConstexpr(int n, int ell, int m) {
     {
         orb_real_t weight[kOrbitalTableSize] = {};
         orb_real_t deltaTheta = kOrbitalPi / orb_real_t(kOrbitalTableSize - 1);
-        for (int i = 0; i < kOrbitalTableSize; i++) {
+        for (int i = 0; i < kOrbitalTableSize; i++)
+        {
             orb_real_t theta = orb_real_t(i) * deltaTheta;
             orb_real_t P = computePLM(theta, ell, m, legendreCoeff);
             weight[i] = P * P * std::sin(theta);
@@ -188,7 +197,8 @@ constexpr OrbitalSampler buildOrbitalSamplerConstexpr(int n, int ell, int m) {
         orb_real_t weight[kOrbitalTableSize] = {};
         orb_real_t twoPi = orb_real_t(2) * kOrbitalPi;
         orb_real_t deltaPhi = twoPi / orb_real_t(kOrbitalTableSize - 1);
-        for (int i = 0; i < kOrbitalTableSize; i++) {
+        for (int i = 0; i < kOrbitalTableSize; i++)
+        {
             orb_real_t phi = orb_real_t(i) * deltaPhi;
             orb_real_t azimuthal = (m >= 0) ? std::cos(orb_real_t(m) * phi) : std::sin(orb_real_t(-m) * phi);
             weight[i] = azimuthal * azimuthal; // m==0 -> constant 1, degenerates to a uniform phi distribution
@@ -212,7 +222,8 @@ constexpr OrbitalSampler buildOrbitalSamplerConstexpr(int n, int ell, int m) {
  * @param ell      Angular momentum quantum number, 0 <= ell <= n-1.
  * @param m        Magnetic quantum number, -ell <= m <= ell.
  */
-inline void initOrbitalSampler(OrbitalSampler* sampler, int n, int ell, int m) {
+inline void initOrbitalSampler(OrbitalSampler *sampler, int n, int ell, int m)
+{
     *sampler = buildOrbitalSamplerConstexpr(n, ell, m);
 }
 
@@ -231,7 +242,7 @@ inline void initOrbitalSampler(OrbitalSampler* sampler, int n, int ell, int m) {
  * @param rng      PRNG state, advanced by this call.
  * @return          A point in Cartesian coordinates.
  */
-OrbitalPoint sampleOrbitalPoint(const OrbitalSampler* sampler, XorShift32* rng);
+OrbitalPoint sampleOrbitalPoint(const OrbitalSampler *sampler, XorShift32 *rng);
 
 // --- Angular/radial split, for multi-element atom point clouds (see atom_cloud.h) ---
 //
@@ -245,7 +256,8 @@ OrbitalPoint sampleOrbitalPoint(const OrbitalSampler* sampler, XorShift32* rng);
 // combinations across 118 elements to embed them all).
 
 /** Angular-only tables for a given (ell, m), independent of n and Z_eff. */
-struct OrbitalAngularTables {
+struct OrbitalAngularTables
+{
     int ell, m;
     orb_real_t invThetaTable[kOrbitalTableSize];
     orb_real_t invPhiTable[kOrbitalTableSize];
@@ -255,7 +267,8 @@ struct OrbitalAngularTables {
  * Build the angular tables for (ell, m) -- constexpr/compile-time-embeddable, see
  * angular_library.h for the full ell<=3 set assigned to a `constexpr` global.
  */
-constexpr OrbitalAngularTables buildAngularTablesConstexpr(int ell, int m) {
+constexpr OrbitalAngularTables buildAngularTablesConstexpr(int ell, int m)
+{
     OrbitalAngularTables t{};
     t.ell = ell;
     t.m = m;
@@ -266,7 +279,8 @@ constexpr OrbitalAngularTables buildAngularTablesConstexpr(int ell, int m) {
     {
         orb_real_t weight[kOrbitalTableSize] = {};
         orb_real_t deltaTheta = kOrbitalPi / orb_real_t(kOrbitalTableSize - 1);
-        for (int i = 0; i < kOrbitalTableSize; i++) {
+        for (int i = 0; i < kOrbitalTableSize; i++)
+        {
             orb_real_t theta = orb_real_t(i) * deltaTheta;
             orb_real_t P = computePLM(theta, ell, m, legendreCoeff);
             weight[i] = P * P * std::sin(theta);
@@ -277,7 +291,8 @@ constexpr OrbitalAngularTables buildAngularTablesConstexpr(int ell, int m) {
         orb_real_t weight[kOrbitalTableSize] = {};
         orb_real_t twoPi = orb_real_t(2) * kOrbitalPi;
         orb_real_t deltaPhi = twoPi / orb_real_t(kOrbitalTableSize - 1);
-        for (int i = 0; i < kOrbitalTableSize; i++) {
+        for (int i = 0; i < kOrbitalTableSize; i++)
+        {
             orb_real_t phi = orb_real_t(i) * deltaPhi;
             orb_real_t azimuthal = (m >= 0) ? std::cos(orb_real_t(m) * phi) : std::sin(orb_real_t(-m) * phi);
             weight[i] = azimuthal * azimuthal;
@@ -288,7 +303,8 @@ constexpr OrbitalAngularTables buildAngularTablesConstexpr(int ell, int m) {
 }
 
 /** Radial-only table for a given (n, ell, zEff), built at runtime (see block comment above). */
-struct RadialTable {
+struct RadialTable
+{
     orb_real_t maxR;
     orb_real_t invRTable[kOrbitalTableSize];
 };
@@ -303,7 +319,8 @@ struct RadialTable {
  * Not reentrant/thread-safe (see the static scratch buffer below) -- fine for
  * atom_cloud.h's sequential per-group loop, not safe to call from multiple tasks/ISRs.
  */
-inline RadialTable buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff) {
+inline RadialTable buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff)
+{
     RadialTable rt{};
     orb_real_t radialCoeff[kOrbitalNMax] = {};
     laguerreCoeffs(n, ell, radialCoeff);
@@ -316,7 +333,8 @@ inline RadialTable buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff) {
     // THIS function genuinely runs on the target's real stack at runtime).
     static orb_real_t weight[kOrbitalTableSize];
     orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
-    for (int i = 0; i < kOrbitalTableSize; i++) {
+    for (int i = 0; i < kOrbitalTableSize; i++)
+    {
         orb_real_t r = orb_real_t(i) * deltaR;
         orb_real_t R = hydrogenRadialFunction(zEff * r, n, ell, radialCoeff);
         weight[i] = (r * R) * (r * R);
@@ -331,8 +349,9 @@ inline RadialTable buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff) {
  * sampleOrbitalPoint() -- used for a partially-filled subshell's individually-occupied
  * orbitals (Hund's rule groups, see atom_cloud.h).
  */
-inline OrbitalPoint sampleOrientedPoint(const RadialTable& radial, const OrbitalAngularTables& angular,
-                                         XorShift32* rng) {
+inline OrbitalPoint sampleOrientedPoint(const RadialTable &radial, const OrbitalAngularTables &angular,
+                                        XorShift32 *rng)
+{
     orb_real_t r = getValueFromLookupTable(rng->uniform01(), radial.invRTable, kOrbitalTableSize);
     orb_real_t theta = getValueFromLookupTable(rng->uniform01(), angular.invThetaTable, kOrbitalTableSize);
     orb_real_t phi = getValueFromLookupTable(rng->uniform01(), angular.invPhiTable, kOrbitalTableSize);
@@ -352,7 +371,8 @@ inline OrbitalPoint sampleOrientedPoint(const RadialTable& radial, const Orbital
  * over every m in a full subshell gives a constant). Port of
  * micropython/pointcloud.py's sample_isotropic_point().
  */
-inline OrbitalPoint sampleIsotropicPoint(const RadialTable& radial, XorShift32* rng) {
+inline OrbitalPoint sampleIsotropicPoint(const RadialTable &radial, XorShift32 *rng)
+{
     orb_real_t r = getValueFromLookupTable(rng->uniform01(), radial.invRTable, kOrbitalTableSize);
     orb_real_t cosTheta = orb_real_t(2) * rng->uniform01() - orb_real_t(1);
     orb_real_t phi = orb_real_t(2) * kOrbitalPi * rng->uniform01();

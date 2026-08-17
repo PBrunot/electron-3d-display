@@ -20,7 +20,7 @@ constexpr int kFontAdvanceY = 8; // glyph height + 1px spacing
  * matching every other draw function in this project. Unmapped characters (see
  * font.cpp's glyphFor()) draw as blank rather than erroring.
  */
-void drawChar(uint16_t* frameBuf, int x, int y, char c, uint16_t color);
+void drawChar(uint16_t *frameBuf, int x, int y, char c, uint16_t color);
 
 /**
  * Draw a null-terminated string left-to-right starting at (x, y), each glyph
@@ -31,7 +31,7 @@ void drawChar(uint16_t* frameBuf, int x, int y, char c, uint16_t color);
  * @return  The x coordinate just past the last glyph drawn, so a caller can continue a
  *          multi-color line (e.g. atom_view's shell-colored title segments) from there.
  */
-int drawText(uint16_t* frameBuf, int x, int y, const char* text, uint16_t color);
+int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color);
 
 /** Pixel width of `text` if drawn with drawText() -- for right-aligned/centered layout. */
-int textWidth(const char* text);
+int textWidth(const char *text);

@@ -26,9 +26,11 @@
 #include "color_test.h"
 #endif
 
-extern "C" void app_main(void) {
+extern "C" void app_main(void)
+{
 #ifdef ATOM_VALIDATION_TEST
-    while (1) {
+    while (1)
+    {
         runAtomValidationTest();
         vTaskDelay(pdMS_TO_TICKS(3000));
     }

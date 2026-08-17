@@ -28,7 +28,8 @@
 #include "display.h"
 
 template <size_t N>
-constexpr uint8_t rowBits(const char (&s)[N]) {
+constexpr uint8_t rowBits(const char (&s)[N])
+{
     static_assert(N == kFontGlyphWidth + 1, "font row must be exactly 5 chars ('#'/'.')");
     uint8_t bits = 0;
     for (int i = 0; i < kFontGlyphWidth; i++)
@@ -38,7 +39,8 @@ constexpr uint8_t rowBits(const char (&s)[N]) {
 }
 
 /** bit (kFontGlyphWidth-1-c) of rows[r] set = column c lit, row 0 = top. */
-struct Glyph {
+struct Glyph
+{
     uint8_t rows[kFontGlyphHeight];
 };
 
@@ -52,225 +54,230 @@ static constexpr Glyph kGlyphBlank = {{
     rowBits("....."),
 }};
 
-static constexpr Glyph glyphFor(char c) {
-    switch (c) {
-        case '0':
-            return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#..##"), rowBits("#.#.#"),
-                          rowBits("##..#"), rowBits("#...#"), rowBits(".###.")}};
-        case '1':
-            return Glyph{{rowBits("..#.."), rowBits(".##.."), rowBits("..#.."), rowBits("..#.."),
-                          rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
-        case '2':
-            return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("....#"), rowBits("...#."),
-                          rowBits("..#.."), rowBits(".#..."), rowBits("#####")}};
-        case '3':
-            return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("....#"), rowBits("..##."),
-                          rowBits("....#"), rowBits("#...#"), rowBits(".###.")}};
-        case '4':
-            return Glyph{{rowBits("...#."), rowBits("..##."), rowBits(".#.#."), rowBits("#..#."),
-                          rowBits("#####"), rowBits("...#."), rowBits("...#.")}};
-        case '5':
-            return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("####."), rowBits("....#"),
-                          rowBits("....#"), rowBits("#...#"), rowBits(".###.")}};
-        case '6':
-            return Glyph{{rowBits("..##."), rowBits(".#..."), rowBits("#...."), rowBits("####."),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-        case '7':
-            return Glyph{{rowBits("#####"), rowBits("....#"), rowBits("...#."), rowBits("..#.."),
-                          rowBits(".#..."), rowBits(".#..."), rowBits(".#...")}};
-        case '8':
-            return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits(".###."),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-        case '9':
-            return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits(".####"),
-                          rowBits("....#"), rowBits("...#."), rowBits(".##..")}};
-        case 'A':
-            return Glyph{{rowBits("..#.."), rowBits(".#.#."), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#####"), rowBits("#...#"), rowBits("#...#")}};
-        case 'B':
-            return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
-                          rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
-        case 'C':
-            return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits("#...."),
-                          rowBits("#...."), rowBits("#...."), rowBits(".####")}};
-        case 'D':
-            return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
-        case 'E':
-            return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("#...."), rowBits("####."),
-                          rowBits("#...."), rowBits("#...."), rowBits("#####")}};
-        case 'F':
-            return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("#...."), rowBits("####."),
-                          rowBits("#...."), rowBits("#...."), rowBits("#....")}};
-        case 'G':
-            return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits("#.###"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-        case 'H':
-            return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#####"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-        case 'I':
-            return Glyph{{rowBits("#####"), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
-                          rowBits("..#.."), rowBits("..#.."), rowBits("#####")}};
-        case 'J':
-            return Glyph{{rowBits("....#"), rowBits("....#"), rowBits("....#"), rowBits("....#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-        case 'K':
-            return Glyph{{rowBits("#...#"), rowBits("#..#."), rowBits("#.#.."), rowBits("##..."),
-                          rowBits("#.#.."), rowBits("#..#."), rowBits("#...#")}};
-        case 'L':
-            return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("#...."), rowBits("#...."),
-                          rowBits("#...."), rowBits("#...."), rowBits("#####")}};
-        case 'M':
-            return Glyph{{rowBits("#...#"), rowBits("##.##"), rowBits("#.#.#"), rowBits("#.#.#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-        case 'N':
-            return Glyph{{rowBits("#...#"), rowBits("##..#"), rowBits("#.#.#"), rowBits("#.#.#"),
-                          rowBits("#..##"), rowBits("#...#"), rowBits("#...#")}};
-        case 'O':
-            return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-        case 'P':
-            return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
-                          rowBits("#...."), rowBits("#...."), rowBits("#....")}};
-        case 'Q':
-            return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#.#.#"), rowBits("#..#."), rowBits(".##.#")}};
-        case 'R':
-            return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
-                          rowBits("#.#.."), rowBits("#..#."), rowBits("#...#")}};
-        case 'S':
-            return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits(".###."),
-                          rowBits("....#"), rowBits("....#"), rowBits("####.")}};
-        case 'T':
-            return Glyph{{rowBits("#####"), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
-                          rowBits("..#.."), rowBits("..#.."), rowBits("..#..")}};
-        case 'U':
-            return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-        case 'V':
-            return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits(".#.#."), rowBits("..#..")}};
-        case 'W':
-            return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#.#.#"),
-                          rowBits("#.#.#"), rowBits("##.##"), rowBits("#...#")}};
-        case 'X':
-            return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits(".#.#."), rowBits("..#.."),
-                          rowBits(".#.#."), rowBits("#...#"), rowBits("#...#")}};
-        case 'Y':
-            return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits(".#.#."), rowBits("..#.."),
-                          rowBits("..#.."), rowBits("..#.."), rowBits("..#..")}};
-        case 'Z':
-            return Glyph{{rowBits("#####"), rowBits("....#"), rowBits("...#."), rowBits("..#.."),
-                          rowBits(".#..."), rowBits("#...."), rowBits("#####")}};
-        case 'a':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("....#"),
-                          rowBits(".####"), rowBits("#...#"), rowBits(".####")}};
-        case 'b':
-            return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("####."), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
-        case 'c':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...."),
-                          rowBits("#...."), rowBits("#...."), rowBits(".####")}};
-        case 'd':
-            return Glyph{{rowBits("....#"), rowBits("....#"), rowBits(".####"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".####")}};
-        case 'e':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("#...#"),
-                          rowBits("#####"), rowBits("#...."), rowBits(".####")}};
-        case 'f':
-            return Glyph{{rowBits("..##."), rowBits(".#..."), rowBits("####."), rowBits(".#..."),
-                          rowBits(".#..."), rowBits(".#..."), rowBits(".#...")}};
-        case 'g':
-            return Glyph{{rowBits("....."), rowBits(".####"), rowBits("#...#"), rowBits("#...#"),
-                          rowBits(".####"), rowBits("....#"), rowBits(".###.")}};
-        case 'h':
-            return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("####."), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-        case 'i':
-            return Glyph{{rowBits("..#.."), rowBits("....."), rowBits(".##.."), rowBits("..#.."),
-                          rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
-        case 'j':
-            return Glyph{{rowBits("...#."), rowBits("....."), rowBits("..##."), rowBits("...#."),
-                          rowBits("...#."), rowBits("#..#."), rowBits(".##..")}};
-        case 'k':
-            return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("#..#."), rowBits("#.#.."),
-                          rowBits("##..."), rowBits("#.#.."), rowBits("#..#.")}};
-        case 'l':
-            return Glyph{{rowBits(".##.."), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
-                          rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
-        case 'm':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("##.#."), rowBits("#.#.#"),
-                          rowBits("#.#.#"), rowBits("#...#"), rowBits("#...#")}};
-        case 'n':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("####."), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-        case 'o':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-        case 'p':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("####."), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("####."), rowBits("#....")}};
-        case 'q':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits(".####"), rowBits("....#")}};
-        case 'r':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#.##."), rowBits("##..."),
-                          rowBits("#...."), rowBits("#...."), rowBits("#....")}};
-        case 's':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...."),
-                          rowBits(".###."), rowBits("....#"), rowBits("####.")}};
-        case 't':
-            return Glyph{{rowBits(".#..."), rowBits(".#..."), rowBits("####."), rowBits(".#..."),
-                          rowBits(".#..."), rowBits(".#..."), rowBits("..##.")}};
-        case 'u':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits("#...#"), rowBits(".####")}};
-        case 'v':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#...#"), rowBits(".#.#."), rowBits("..#..")}};
-        case 'w':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                          rowBits("#.#.#"), rowBits("#.#.#"), rowBits(".#.#.")}};
-        case 'x':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits(".#.#."),
-                          rowBits("..#.."), rowBits(".#.#."), rowBits("#...#")}};
-        case 'y':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                          rowBits(".####"), rowBits("....#"), rowBits(".###.")}};
-        case 'z':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#####"), rowBits("...#."),
-                          rowBits("..#.."), rowBits(".#..."), rowBits("#####")}};
-        case '.':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
-                          rowBits("....."), rowBits(".##.."), rowBits(".##..")}};
-        case '-':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("....."), rowBits("#####"),
-                          rowBits("....."), rowBits("....."), rowBits(".....")}};
-        case '(':
-            return Glyph{{rowBits("...#."), rowBits("..#.."), rowBits(".#..."), rowBits(".#..."),
-                          rowBits(".#..."), rowBits("..#.."), rowBits("...#.")}};
-        case ')':
-            return Glyph{{rowBits(".#..."), rowBits("..#.."), rowBits("...#."), rowBits("...#."),
-                          rowBits("...#."), rowBits("..#.."), rowBits(".#...")}};
-        case ':':
-            return Glyph{{rowBits("....."), rowBits(".##.."), rowBits(".##.."), rowBits("....."),
-                          rowBits(".##.."), rowBits(".##.."), rowBits(".....")}};
-        case '=':
-            return Glyph{{rowBits("....."), rowBits("....."), rowBits("#####"), rowBits("....."),
-                          rowBits("#####"), rowBits("....."), rowBits(".....")}};
-        default:
-            return kGlyphBlank;
+static constexpr Glyph glyphFor(char c)
+{
+    switch (c)
+    {
+    case '0':
+        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#..##"), rowBits("#.#.#"),
+                      rowBits("##..#"), rowBits("#...#"), rowBits(".###.")}};
+    case '1':
+        return Glyph{{rowBits("..#.."), rowBits(".##.."), rowBits("..#.."), rowBits("..#.."),
+                      rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
+    case '2':
+        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("....#"), rowBits("...#."),
+                      rowBits("..#.."), rowBits(".#..."), rowBits("#####")}};
+    case '3':
+        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("....#"), rowBits("..##."),
+                      rowBits("....#"), rowBits("#...#"), rowBits(".###.")}};
+    case '4':
+        return Glyph{{rowBits("...#."), rowBits("..##."), rowBits(".#.#."), rowBits("#..#."),
+                      rowBits("#####"), rowBits("...#."), rowBits("...#.")}};
+    case '5':
+        return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("####."), rowBits("....#"),
+                      rowBits("....#"), rowBits("#...#"), rowBits(".###.")}};
+    case '6':
+        return Glyph{{rowBits("..##."), rowBits(".#..."), rowBits("#...."), rowBits("####."),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
+    case '7':
+        return Glyph{{rowBits("#####"), rowBits("....#"), rowBits("...#."), rowBits("..#.."),
+                      rowBits(".#..."), rowBits(".#..."), rowBits(".#...")}};
+    case '8':
+        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits(".###."),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
+    case '9':
+        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits(".####"),
+                      rowBits("....#"), rowBits("...#."), rowBits(".##..")}};
+    case 'A':
+        return Glyph{{rowBits("..#.."), rowBits(".#.#."), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#####"), rowBits("#...#"), rowBits("#...#")}};
+    case 'B':
+        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
+                      rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
+    case 'C':
+        return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits("#...."),
+                      rowBits("#...."), rowBits("#...."), rowBits(".####")}};
+    case 'D':
+        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
+    case 'E':
+        return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("#...."), rowBits("####."),
+                      rowBits("#...."), rowBits("#...."), rowBits("#####")}};
+    case 'F':
+        return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("#...."), rowBits("####."),
+                      rowBits("#...."), rowBits("#...."), rowBits("#....")}};
+    case 'G':
+        return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits("#.###"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
+    case 'H':
+        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#####"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
+    case 'I':
+        return Glyph{{rowBits("#####"), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
+                      rowBits("..#.."), rowBits("..#.."), rowBits("#####")}};
+    case 'J':
+        return Glyph{{rowBits("....#"), rowBits("....#"), rowBits("....#"), rowBits("....#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
+    case 'K':
+        return Glyph{{rowBits("#...#"), rowBits("#..#."), rowBits("#.#.."), rowBits("##..."),
+                      rowBits("#.#.."), rowBits("#..#."), rowBits("#...#")}};
+    case 'L':
+        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("#...."), rowBits("#...."),
+                      rowBits("#...."), rowBits("#...."), rowBits("#####")}};
+    case 'M':
+        return Glyph{{rowBits("#...#"), rowBits("##.##"), rowBits("#.#.#"), rowBits("#.#.#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
+    case 'N':
+        return Glyph{{rowBits("#...#"), rowBits("##..#"), rowBits("#.#.#"), rowBits("#.#.#"),
+                      rowBits("#..##"), rowBits("#...#"), rowBits("#...#")}};
+    case 'O':
+        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
+    case 'P':
+        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
+                      rowBits("#...."), rowBits("#...."), rowBits("#....")}};
+    case 'Q':
+        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#.#.#"), rowBits("#..#."), rowBits(".##.#")}};
+    case 'R':
+        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
+                      rowBits("#.#.."), rowBits("#..#."), rowBits("#...#")}};
+    case 'S':
+        return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits(".###."),
+                      rowBits("....#"), rowBits("....#"), rowBits("####.")}};
+    case 'T':
+        return Glyph{{rowBits("#####"), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
+                      rowBits("..#.."), rowBits("..#.."), rowBits("..#..")}};
+    case 'U':
+        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
+    case 'V':
+        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits(".#.#."), rowBits("..#..")}};
+    case 'W':
+        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#.#.#"),
+                      rowBits("#.#.#"), rowBits("##.##"), rowBits("#...#")}};
+    case 'X':
+        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits(".#.#."), rowBits("..#.."),
+                      rowBits(".#.#."), rowBits("#...#"), rowBits("#...#")}};
+    case 'Y':
+        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits(".#.#."), rowBits("..#.."),
+                      rowBits("..#.."), rowBits("..#.."), rowBits("..#..")}};
+    case 'Z':
+        return Glyph{{rowBits("#####"), rowBits("....#"), rowBits("...#."), rowBits("..#.."),
+                      rowBits(".#..."), rowBits("#...."), rowBits("#####")}};
+    case 'a':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("....#"),
+                      rowBits(".####"), rowBits("#...#"), rowBits(".####")}};
+    case 'b':
+        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("####."), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
+    case 'c':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...."),
+                      rowBits("#...."), rowBits("#...."), rowBits(".####")}};
+    case 'd':
+        return Glyph{{rowBits("....#"), rowBits("....#"), rowBits(".####"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".####")}};
+    case 'e':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("#...#"),
+                      rowBits("#####"), rowBits("#...."), rowBits(".####")}};
+    case 'f':
+        return Glyph{{rowBits("..##."), rowBits(".#..."), rowBits("####."), rowBits(".#..."),
+                      rowBits(".#..."), rowBits(".#..."), rowBits(".#...")}};
+    case 'g':
+        return Glyph{{rowBits("....."), rowBits(".####"), rowBits("#...#"), rowBits("#...#"),
+                      rowBits(".####"), rowBits("....#"), rowBits(".###.")}};
+    case 'h':
+        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("####."), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
+    case 'i':
+        return Glyph{{rowBits("..#.."), rowBits("....."), rowBits(".##.."), rowBits("..#.."),
+                      rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
+    case 'j':
+        return Glyph{{rowBits("...#."), rowBits("....."), rowBits("..##."), rowBits("...#."),
+                      rowBits("...#."), rowBits("#..#."), rowBits(".##..")}};
+    case 'k':
+        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("#..#."), rowBits("#.#.."),
+                      rowBits("##..."), rowBits("#.#.."), rowBits("#..#.")}};
+    case 'l':
+        return Glyph{{rowBits(".##.."), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
+                      rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
+    case 'm':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("##.#."), rowBits("#.#.#"),
+                      rowBits("#.#.#"), rowBits("#...#"), rowBits("#...#")}};
+    case 'n':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("####."), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
+    case 'o':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
+    case 'p':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("####."), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("####."), rowBits("#....")}};
+    case 'q':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits(".####"), rowBits("....#")}};
+    case 'r':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#.##."), rowBits("##..."),
+                      rowBits("#...."), rowBits("#...."), rowBits("#....")}};
+    case 's':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...."),
+                      rowBits(".###."), rowBits("....#"), rowBits("####.")}};
+    case 't':
+        return Glyph{{rowBits(".#..."), rowBits(".#..."), rowBits("####."), rowBits(".#..."),
+                      rowBits(".#..."), rowBits(".#..."), rowBits("..##.")}};
+    case 'u':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits("#...#"), rowBits(".####")}};
+    case 'v':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#...#"), rowBits(".#.#."), rowBits("..#..")}};
+    case 'w':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
+                      rowBits("#.#.#"), rowBits("#.#.#"), rowBits(".#.#.")}};
+    case 'x':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits(".#.#."),
+                      rowBits("..#.."), rowBits(".#.#."), rowBits("#...#")}};
+    case 'y':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
+                      rowBits(".####"), rowBits("....#"), rowBits(".###.")}};
+    case 'z':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#####"), rowBits("...#."),
+                      rowBits("..#.."), rowBits(".#..."), rowBits("#####")}};
+    case '.':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+                      rowBits("....."), rowBits(".##.."), rowBits(".##..")}};
+    case '-':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("....."), rowBits("#####"),
+                      rowBits("....."), rowBits("....."), rowBits(".....")}};
+    case '(':
+        return Glyph{{rowBits("...#."), rowBits("..#.."), rowBits(".#..."), rowBits(".#..."),
+                      rowBits(".#..."), rowBits("..#.."), rowBits("...#.")}};
+    case ')':
+        return Glyph{{rowBits(".#..."), rowBits("..#.."), rowBits("...#."), rowBits("...#."),
+                      rowBits("...#."), rowBits("..#.."), rowBits(".#...")}};
+    case ':':
+        return Glyph{{rowBits("....."), rowBits(".##.."), rowBits(".##.."), rowBits("....."),
+                      rowBits(".##.."), rowBits(".##.."), rowBits(".....")}};
+    case '=':
+        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#####"), rowBits("....."),
+                      rowBits("#####"), rowBits("....."), rowBits(".....")}};
+    default:
+        return kGlyphBlank;
     }
 }
 
-void drawChar(uint16_t* frameBuf, int x, int y, char c, uint16_t color) {
+void drawChar(uint16_t *frameBuf, int x, int y, char c, uint16_t color)
+{
     Glyph g = glyphFor(c);
-    for (int row = 0; row < kFontGlyphHeight; row++) {
+    for (int row = 0; row < kFontGlyphHeight; row++)
+    {
         int py = y + row;
         if (py < 0 || py >= Display::kDisplayHeight)
             continue;
         uint8_t bits = g.rows[row];
-        for (int col = 0; col < kFontGlyphWidth; col++) {
+        for (int col = 0; col < kFontGlyphWidth; col++)
+        {
             if (!(bits & (uint8_t(1) << (kFontGlyphWidth - 1 - col))))
                 continue;
             int px = x + col;
@@ -281,18 +288,21 @@ void drawChar(uint16_t* frameBuf, int x, int y, char c, uint16_t color) {
     }
 }
 
-int drawText(uint16_t* frameBuf, int x, int y, const char* text, uint16_t color) {
+int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color)
+{
     int cursorX = x;
-    for (const char* p = text; *p; p++) {
+    for (const char *p = text; *p; p++)
+    {
         drawChar(frameBuf, cursorX, y, *p, color);
         cursorX += kFontAdvanceX;
     }
     return cursorX;
 }
 
-int textWidth(const char* text) {
+int textWidth(const char *text)
+{
     int n = 0;
-    for (const char* p = text; *p; p++)
+    for (const char *p = text; *p; p++)
         n++;
     return n * kFontAdvanceX;
 }
