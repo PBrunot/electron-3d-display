@@ -82,8 +82,7 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
             vTaskDelay(pdMS_TO_TICKS(kChooserPollDelayMs));
         }
 
-        tilt.setMapping(raw.axis, raw.sign, target.dir);
-        ESP_LOGI(kChooserTag, "calibrated %s -> axis=%d sign=%+d", tiltDirectionName(target.dir), raw.axis, raw.sign);
+        tilt.setMapping(raw.dirX, raw.dirY, raw.dirZ, target.dir);
 
         // Wait for release back to baseline before the next target, so the same
         // still-held tilt doesn't immediately roll into the next target's detection loop.

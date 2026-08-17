@@ -38,6 +38,7 @@ TiltGestureDetector::TiltGestureDetector(Qmi8658 &imu, const TiltGestureConfig &
 void TiltGestureDetector::calibrate()
 {
     orb_real_t sumX = orb_real_t(0), sumY = orb_real_t(0), sumZ = orb_real_t(0);
+    orb_real_t sumMag = orb_real_t(0), sumMagSq = orb_real_t(0);
     int ok = 0;
     for (int i = 0; i < cfg_.calibrationSamples; i++)
     {
@@ -47,6 +48,9 @@ void TiltGestureDetector::calibrate()
             sumX += x;
             sumY += y;
             sumZ += z;
+            orb_real_t mag = std::sqrt(x * x + y * y + z * z);
+            sumMag += mag;
+            sumMagSq += mag * mag;
             ok++;
         }
         vTaskDelay(pdMS_TO_TICKS(cfg_.calibrationSampleDelayMs));
@@ -57,16 +61,34 @@ void TiltGestureDetector::calibrate()
         baseY_ = sumY / orb_real_t(ok);
         baseZ_ = sumZ / orb_real_t(ok);
     }
-    ESP_LOGI(kTiltTag, "calibrated baseline (%d/%d samples ok): x=%.3fg y=%.3fg z=%.3fg", ok,
-             cfg_.calibrationSamples, double(baseX_), double(baseY_), double(baseZ_));
+
+    // Stddev of the samples' magnitude -- a battle-tested calibration sanity check (see
+    // this file's header comment): a high value means the board was moving/being handled
+    // during calibration, not resting flat, so the averaged baseline may not be
+    // trustworthy. Logged as a warning only -- there's no UI yet to ask the user to hold
+    // still and retry.
+    orb_real_t stdDev = orb_real_t(0);
+    if (ok > 1)
+    {
+        orb_real_t meanMag = sumMag / orb_real_t(ok);
+        orb_real_t variance = sumMagSq / orb_real_t(ok) - meanMag * meanMag;
+        stdDev = variance > orb_real_t(0) ? std::sqrt(variance) : orb_real_t(0);
+    }
+    ESP_LOGI(kTiltTag, "calibrated baseline (%d/%d samples ok): x=%.3fg y=%.3fg z=%.3fg, stddev=%.4fg", ok,
+             cfg_.calibrationSamples, double(baseX_), double(baseY_), double(baseZ_), double(stdDev));
+    if (stdDev > cfg_.calibrationMaxStdDevG)
+        ESP_LOGW(kTiltTag, "baseline stddev %.4fg exceeds %.4fg -- board may not have been held still/flat",
+                 double(stdDev), double(cfg_.calibrationMaxStdDevG));
 }
 
-void TiltGestureDetector::setMapping(int axis, int sign, TiltDirection dir)
+void TiltGestureDetector::setMapping(orb_real_t dirX, orb_real_t dirY, orb_real_t dirZ, TiltDirection dir)
 {
-    if (axis < 0 || axis > 2)
+    if (dir == TiltDirection::kNone)
         return;
-    axisSignMap_[axis][sign > 0 ? 1 : 0] = dir;
-    ESP_LOGI(kTiltTag, "mapping set: axis=%d sign=%+d -> %s", axis, sign, tiltDirectionName(dir));
+    int idx = int(dir) - 1;
+    directionRefs_[idx] = {dirX, dirY, dirZ, true};
+    ESP_LOGI(kTiltTag, "mapping set: dir=(%.2f, %.2f, %.2f) -> %s", double(dirX), double(dirY), double(dirZ),
+             tiltDirectionName(dir));
 }
 
 RawTiltEvent TiltGestureDetector::pollRaw()
@@ -75,43 +97,40 @@ RawTiltEvent TiltGestureDetector::pollRaw()
     if (!imu_.readAccelG(&x, &y, &z))
     {
         ESP_LOGW(kTiltTag, "IMU read failed, skipping this poll");
-        if (activeAxis_ < 0)
+        if (!active_)
             return RawTiltEvent{};
-        return RawTiltEvent{activeAxis_, activeSign_, TiltPhase::kHolding, nowMs() - holdStartMs_};
+        return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kHolding, nowMs() - holdStartMs_};
     }
 
     orb_real_t dx = x - baseX_, dy = y - baseY_, dz = z - baseZ_;
     orb_real_t mag = std::sqrt(dx * dx + dy * dy + dz * dz);
     uint32_t now = nowMs();
 
-    if (activeAxis_ < 0)
+    if (!active_)
     {
         if (mag < cfg_.thresholdG)
             return RawTiltEvent{};
 
-        orb_real_t devs[3] = {dx, dy, dz};
-        int axis = 0;
-        if (std::abs(double(devs[1])) > std::abs(double(devs[axis])))
-            axis = 1;
-        if (std::abs(double(devs[2])) > std::abs(double(devs[axis])))
-            axis = 2;
-        int sign = devs[axis] > orb_real_t(0) ? +1 : -1;
+        // Latch the normalized direction for the whole hold (recomputed continuously, a
+        // multi-second hold wouldn't stay perfectly steady) -- see this file's header
+        // comment for why a full 3D unit vector, not a single dominant axis.
+        activeDirX_ = dx / mag;
+        activeDirY_ = dy / mag;
+        activeDirZ_ = dz / mag;
+        ESP_LOGI(kTiltTag, "candidate: dir=(%.2f, %.2f, %.2f) mag=%.2fg", double(activeDirX_), double(activeDirY_),
+                 double(activeDirZ_), double(mag));
 
-        ESP_LOGI(kTiltTag, "candidate: axis=%d sign=%+d mag=%.2fg", axis, sign, double(mag));
-
-        activeAxis_ = axis;
-        activeSign_ = sign;
+        active_ = true;
         holdStartMs_ = now;
         confirmedFired_ = false;
-        return RawTiltEvent{axis, sign, TiltPhase::kHolding, 0};
+        return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kHolding, 0};
     }
 
     if (mag < cfg_.releaseG)
     {
-        ESP_LOGI(kTiltTag, "released axis=%d sign=%+d after %ums (mag=%.2fg)", activeAxis_, activeSign_,
-                 now - holdStartMs_, double(mag));
-        activeAxis_ = -1;
-        activeSign_ = 0;
+        ESP_LOGI(kTiltTag, "released dir=(%.2f, %.2f, %.2f) after %ums (mag=%.2fg)", double(activeDirX_),
+                 double(activeDirY_), double(activeDirZ_), now - holdStartMs_, double(mag));
+        active_ = false;
         return RawTiltEvent{};
     }
 
@@ -119,26 +138,41 @@ RawTiltEvent TiltGestureDetector::pollRaw()
     if (!confirmedFired_ && heldMs >= cfg_.holdConfirmMs)
     {
         confirmedFired_ = true;
-        ESP_LOGI(kTiltTag, "CONFIRMED axis=%d sign=%+d after %ums", activeAxis_, activeSign_, heldMs);
-        return RawTiltEvent{activeAxis_, activeSign_, TiltPhase::kConfirmed, heldMs};
+        ESP_LOGI(kTiltTag, "CONFIRMED dir=(%.2f, %.2f, %.2f) after %ums", double(activeDirX_), double(activeDirY_),
+                 double(activeDirZ_), heldMs);
+        return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kConfirmed, heldMs};
     }
-    return RawTiltEvent{activeAxis_, activeSign_, TiltPhase::kHolding, heldMs};
+    return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kHolding, heldMs};
 }
 
 TiltEvent TiltGestureDetector::poll()
 {
     RawTiltEvent raw = pollRaw();
-    if (raw.axis < 0)
+    if (raw.phase == TiltPhase::kIdle)
         return TiltEvent{};
 
-    TiltDirection dir = axisSignMap_[raw.axis][raw.sign > 0 ? 1 : 0];
-    if (dir == TiltDirection::kNone)
-        // Strong/held-enough deviation, but this axis/sign has no direction mapped yet
-        // (calibrateDirections() hasn't run, or missed this one) -- report nothing rather
-        // than guess, same as this file's header comment on the safe default.
+    // Nearest-direction match via cosine similarity (dot product of unit vectors) against
+    // every calibrated reference -- see this file's header comment for why this replaced
+    // "pick the single axis with the largest raw deviation". Below cfg.minDirectionSimilarity,
+    // report nothing rather than the best-of-a-bad-lot guess.
+    TiltDirection best = TiltDirection::kNone;
+    orb_real_t bestSim = cfg_.minDirectionSimilarity;
+    for (int i = 0; i < kTiltDirectionCount; i++)
+    {
+        if (!directionRefs_[i].valid)
+            continue;
+        orb_real_t sim =
+            raw.dirX * directionRefs_[i].x + raw.dirY * directionRefs_[i].y + raw.dirZ * directionRefs_[i].z;
+        if (sim > bestSim)
+        {
+            bestSim = sim;
+            best = TiltDirection(i + 1);
+        }
+    }
+    if (best == TiltDirection::kNone)
         return TiltEvent{};
 
-    return TiltEvent{dir, raw.phase, raw.holdMs};
+    return TiltEvent{best, raw.phase, raw.holdMs};
 }
 
 // Edge-function fill (standard barycentric-sign rasterization), bounds-checked against
