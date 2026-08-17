@@ -1,12 +1,13 @@
 // Exactly one of the four #define toggles below may be active at a time; with none
 // defined, app_main() boots the runtime chooser menu (the real default, see chooser.h) --
 // tilt UP launches the orbital viewer, tilt DOWN the element viewer, matching
-// micropython/chooser.py's role. ATOM_VIEW is currently active below for direct testing --
-// comment it out to reach the chooser instead.
+// micropython/chooser.py's role. COLOR_TEST is currently active below for direct
+// hardware color-mapping diagnosis (see color_calibration_test.h) -- comment it out
+// (and uncomment ATOM_VIEW) to reach the chooser instead.
 
 // #define ATOM_VALIDATION_TEST
 // #define ATOM_VIEW_TEST
-#define ATOM_VIEW
+// #define ATOM_VIEW
 // #define COLOR_TEST
 
 #include <cmath>
@@ -22,6 +23,10 @@
 
 #ifdef ATOM_VALIDATION_TEST
 #include "atom_validation_test.h"
+#endif
+
+#ifdef COLOR_TEST
+#include "color_calibration_test.h"
 #endif
 
 #include "atom_view_test.h"
@@ -101,6 +106,9 @@ extern "C" void app_main(void)
         runAtomValidationTest();
         vTaskDelay(pdMS_TO_TICKS(3000));
     }
+#elif defined(COLOR_TEST)
+    Display display{};
+    runColorCalibrationTest(display); // never returns
 #else
     Display display{};
 
