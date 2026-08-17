@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 # Target on-device size. Kept comfortably under the 240px display width so the backdrop has
 # margin on both sides; height sized for two stacked lines.
-WIDTH_PX = 216
+WIDTH_PX = 232
 HEIGHT_PX = 80
 DPI = 100
 
@@ -44,17 +44,35 @@ OUT_CPP = "/mnt/d/GitHub/electron-3d-display/src/equation_bitmap.cpp"
 
 
 def rasterize():
+    # "I can't see the equation" (feedback, 2026-08-17): bold weight + a larger size (was 11,
+    # regular) thickens the glyph strokes so they survive the panel + Pepper's Ghost prism's
+    # inherent contrast/brightness loss -- the thin anti-aliased strokes at the old size were
+    # apparently too fine to read even before accounting for the backdrop's dim gray color
+    # (bumped separately in orbital_view.cpp). Lowered alpha threshold (was 96) picks up more
+    # of the anti-aliased edge pixels too, effectively thickening strokes further.
     fig = plt.figure(figsize=(WIDTH_PX / DPI, HEIGHT_PX / DPI), dpi=DPI)
     fig.patch.set_alpha(0.0)
     for i, line in enumerate(LINES):
         y = 0.72 - i * 0.44
-        fig.text(0.5, y, line, ha="center", va="center", fontsize=11, color="white")
+        fig.text(0.5, y, line, ha="center", va="center", fontsize=12, fontweight="bold", color="white")
     fig.canvas.draw()
     buf = np.asarray(fig.canvas.buffer_rgba())  # HEIGHT_PXxWIDTH_PXx4, alpha channel = ink
     plt.close(fig)
     alpha = buf[:, :, 3]
-    mask = alpha > 96  # binarize -- True where a glyph was drawn
-    return mask
+    mask = alpha > 48  # binarize -- True where a glyph was drawn
+
+    # "still barely visible" (feedback, 2026-08-17, after the bold/larger regen + brighter
+    # gray still wasn't enough) -- morphological dilation (no scipy dependency: OR the mask
+    # with itself shifted 1px in each of the 4 cardinal directions), growing every stroke by
+    # a full pixel on each side. Bold mathtext alone barely thickens strokes at this pixel
+    # size; this is a much bigger, guaranteed effect since it works on the rasterized bitmap
+    # directly instead of hoping the font renderer's bold variant helps at ~12pt.
+    dilated = mask.copy()
+    dilated[1:, :] |= mask[:-1, :]
+    dilated[:-1, :] |= mask[1:, :]
+    dilated[:, 1:] |= mask[:, :-1]
+    dilated[:, :-1] |= mask[:, 1:]
+    return dilated
 
 
 def emit(mask):

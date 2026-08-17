@@ -122,14 +122,41 @@ constexpr bool isGroup3Member(int z)
     return false;
 }
 
+namespace periodic_grid_detail
+{
+// Every main-table element (row 1-7) whose col != 3, in Z order for that col -- Z order and
+// row order coincide within a single column of this table (higher Z means higher period),
+// so this is already row-sorted top to bottom. Group 3's own column is never built this way
+// -- see isGroup3Member()/kGroup3Column -- so col is never 3 here.
+inline int buildColumnMembers(int col, int *members)
+{
+    int count = 0;
+    for (int z = 1; z <= 118; z++)
+    {
+        ElementGridPos pos = kElementGrid[z - 1];
+        if (pos.row >= 1 && pos.row <= 7 && pos.col == col)
+            members[count++] = z;
+    }
+    return count;
+}
+} // namespace periodic_grid_detail
+
 /**
- * Step to the element directly above (deltaRows < 0) or below (deltaRows > 0) `currentZ` in
- * the periodic table, wrapping at the column's ends. Group 3 (Sc/Y/La/Ac, plus every
- * lanthanide/actinide -- see isGroup3Member()) steps within kGroup3Column's splice; every
- * other element scans kElementGrid for the same col across rows 1-7 (main table only, the
- * f-block rows are only reachable via the group-3 splice).
+ * Step `currentZ` by one position in the periodic table's "read down a column, then jump to
+ * the top of the next column" order (delta = +1 "forward"/"down", -1 "backward"/"up"),
+ * wrapping col 18 -> col 1 (and back). Backs AtomView's Up/Down tilt (see runAtomView()) --
+ * a single axis walks the WHOLE table in this one order, not an independent vertical/
+ * horizontal 2D grid (Left/Right are used for menu-return/dissection instead, see
+ * atom_view.cpp).
+ *
+ * Group 3 (Sc/Y/La/Ac) occupies col 3's slot in this order, but its own members span
+ * kGroup3Column's splice (Sc, Y, La, Ce..Lu, Ac, Th..Lr -- see that array's comment); reaching
+ * either end of the splice moves to col 2's or col 4's column exactly as if group 3 were a
+ * normal, if unusually tall, column. Every other column scans kElementGrid directly
+ * (buildColumnMembers() above). Each step is the exact inverse of the opposite-delta step
+ * from the resulting element, so alternating Up/Down always returns to where you started.
  */
-inline int periodicTableMoveVertical(int currentZ, int deltaRows)
+inline int periodicTableSnakeStep(int currentZ, int delta)
 {
     if (isGroup3Member(currentZ))
     {
@@ -137,62 +164,37 @@ inline int periodicTableMoveVertical(int currentZ, int deltaRows)
         for (int i = 0; i < kGroup3ColumnCount; i++)
             if (kGroup3Column[i] == currentZ)
                 idx = i;
-        idx = (idx + deltaRows + kGroup3ColumnCount) % kGroup3ColumnCount;
-        return kGroup3Column[idx];
+        int newIdx = idx + delta;
+        if (newIdx >= 0 && newIdx < kGroup3ColumnCount)
+            return kGroup3Column[newIdx];
+        // Exiting the splice at either end -- move into col 4 (forward) or col 2 (backward).
+        int members[18];
+        int count = periodic_grid_detail::buildColumnMembers(delta > 0 ? 4 : 2, members);
+        return delta > 0 ? members[0] : members[count - 1];
     }
 
     int col = kElementGrid[currentZ - 1].col;
-    int members[7];
-    int count = 0;
-    for (int z = 1; z <= 118; z++)
-    {
-        ElementGridPos pos = kElementGrid[z - 1];
-        if (pos.row >= 1 && pos.row <= 7 && pos.col == col)
-            members[count++] = z; // rows scanned in order, so members[] is already row-sorted
-    }
-    int idx = 0;
-    for (int i = 0; i < count; i++)
-        if (members[i] == currentZ)
-            idx = i;
-    idx = (idx + deltaRows + count) % count;
-    return members[idx];
-}
-
-/**
- * Step to the element directly left (deltaCols < 0) or right (deltaCols > 0) of `currentZ`
- * in its own row, wrapping at the row's ends. Works uniformly for every row 1-9, including
- * the two f-block rows (a lanthanide/actinide's own row), no special-casing needed here --
- * only vertical movement needs the group-3 splice.
- */
-inline int periodicTableMoveHorizontal(int currentZ, int deltaCols)
-{
-    int row = kElementGrid[currentZ - 1].row;
     int members[18];
-    int count = 0;
-    for (int z = 1; z <= 118; z++)
-    {
-        ElementGridPos pos = kElementGrid[z - 1];
-        if (pos.row == row)
-            members[count++] = z;
-    }
-    // Sort by col (rows are built in Z order above, which is already col-ascending within
-    // every row of this table, but sort defensively rather than relying on that).
-    for (int i = 1; i < count; i++)
-    {
-        int keyZ = members[i];
-        int keyCol = kElementGrid[keyZ - 1].col;
-        int j = i - 1;
-        while (j >= 0 && kElementGrid[members[j] - 1].col > keyCol)
-        {
-            members[j + 1] = members[j];
-            j--;
-        }
-        members[j + 1] = keyZ;
-    }
+    int count = periodic_grid_detail::buildColumnMembers(col, members);
     int idx = 0;
     for (int i = 0; i < count; i++)
         if (members[i] == currentZ)
             idx = i;
-    idx = (idx + deltaCols + count) % count;
-    return members[idx];
+    int newIdx = idx + delta;
+    if (newIdx >= 0 && newIdx < count)
+        return members[newIdx];
+
+    // Exiting this column at either end -- move to the adjacent column, wrapping 18<->1.
+    // col is never 3 here (group 3 members are handled above), so a plain +-1 step can only
+    // ever land exactly on 3 by arriving from col 2 (forward) or col 4 (backward): both
+    // correctly mean "enter group 3's splice", handled as a special case below.
+    int nextCol = col + delta;
+    if (nextCol < 1)
+        nextCol = 18;
+    else if (nextCol > 18)
+        nextCol = 1;
+    if (nextCol == 3)
+        return delta > 0 ? kGroup3Column[0] : kGroup3Column[kGroup3ColumnCount - 1];
+    int nextCount = periodic_grid_detail::buildColumnMembers(nextCol, members);
+    return delta > 0 ? members[0] : members[nextCount - 1];
 }
