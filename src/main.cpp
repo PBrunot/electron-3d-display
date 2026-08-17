@@ -19,17 +19,8 @@
 #include "atom_validation_test.h"
 #endif
 
-#ifdef ATOM_VIEW_TEST
 #include "atom_view_test.h"
-#endif
-
-#ifdef ATOM_VIEW
 #include "atom_view.h"
-#endif
-
-#ifdef COLOR_TEST
-#include "color_test.h"
-#endif
 
 extern "C" void app_main(void)
 {
@@ -39,24 +30,12 @@ extern "C" void app_main(void)
         runAtomValidationTest();
         vTaskDelay(pdMS_TO_TICKS(3000));
     }
-#elif defined(ATOM_VIEW_TEST)
-    Display display{};
-    runAtomViewTest(display);
-#elif defined(ATOM_VIEW)
-    Display display{};
-    Qmi8658 imu{};
-    TiltGestureDetector tilt{imu};
-    tilt.calibrate();
-    calibrateDirections(display, tilt);
-    runAtomView(display, tilt);
-#elif defined(COLOR_TEST)
-    Display display{};
-    runColorTest(display);
 #else
     Display display{};
     Qmi8658 imu{};
     TiltGestureDetector tilt{imu};
     tilt.calibrate();
+    calibrateDirections(display, tilt);
     runChooser(display, tilt);
 #endif
 }

@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "display.h"         // packColor565
+#include "esp_attr.h"        // EXT_RAM_BSS_ATTR
 #include "orbital_library.h" // findOrbitalSampler
 
 constexpr int kOrbitalColorMinLevel = 60; // keeps the dimmest points visible instead of fading to black
@@ -27,7 +28,7 @@ void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels,
     // Static, not stack-local: this project avoids large stack arrays after
     // pointcloud.h's buildRadialSamplerRuntime() already hit a real task stack overflow
     // with a much smaller (~4KB) local array.
-    static int order[kOrbitalMaxPoints];
+    static EXT_RAM_BSS_ATTR int order[kOrbitalMaxPoints];
     for (int i = 0; i < count; i++)
         order[i] = i;
     std::sort(order, order + count, [psi2](int a, int b)
@@ -92,7 +93,7 @@ static constexpr orb_real_t kOrbitalZoomAmplitudeFraction = orb_real_t(0.4);
 
 OrbitalScale scaleFromRadii(const OrbitalPoint *points, int count)
 {
-    static orb_real_t radii[kOrbitalMaxPoints]; // static scratch, see computeOrbitalLevels()'s comment
+    static EXT_RAM_BSS_ATTR orb_real_t radii[kOrbitalMaxPoints]; // static scratch, see computeOrbitalLevels()'s comment
     for (int i = 0; i < count; i++)
         radii[i] = std::sqrt(points[i].x * points[i].x + points[i].y * points[i].y + points[i].z * points[i].z);
     std::sort(radii, radii + count);

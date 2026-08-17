@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "esp_attr.h" // EXT_RAM_BSS_ATTR
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "font.h"
@@ -20,10 +21,12 @@ void OrbitalPresetState::load(int index)
     int64_t startUs = esp_timer_get_time();
 
     // Scratch only -- discarded once computeOrbitalLevels() below has consumed them, see
-    // buildOrbitalPointCloud()'s docstring.
-    static orb_real_t psi2[kOrbitalViewNumPoints];
-    static int8_t signs[kOrbitalViewNumPoints];
-    static uint8_t levels[kOrbitalViewNumPoints];
+    // buildOrbitalPointCloud()'s docstring. EXT_RAM_BSS_ATTR (PSRAM, see this file's
+    // `preset` below for why): CPU-only access, no DMA involved, so PSRAM's slightly
+    // higher access latency is a non-issue here.
+    static EXT_RAM_BSS_ATTR orb_real_t psi2[kOrbitalViewNumPoints];
+    static EXT_RAM_BSS_ATTR int8_t signs[kOrbitalViewNumPoints];
+    static EXT_RAM_BSS_ATTR uint8_t levels[kOrbitalViewNumPoints];
 
     buildOrbitalPointCloud(d.n, d.ell, d.m, points, psi2, signs, kOrbitalViewNumPoints, kOrbitalViewSeed,
                            &resample.rng, resample.radialCoeff, resample.legendreCoeff);
@@ -62,7 +65,20 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
 {
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
-    static OrbitalPresetState preset;
+    // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: this struct alone (points+colors+
+    // resample, ~3000 points) is tens of KB, and atom_view.cpp's sibling AtomPresetState
+    // (always linked in too, whichever view is actually running) is another ~66KB+ on top
+    // -- on real hardware, leaving both in the default internal-RAM .bss starved
+    // Display::Display()'s 112.5KB DMA frame-buffer allocation, which aborted at boot
+    // (twice -- see atom_view.cpp's compactDissectLevelInPlace() docstring for the first,
+    // smaller-scoped fix that wasn't enough on its own). CONFIG_SPIRAM_ALLOW_BSS_SEG_
+    // EXTERNAL_MEMORY is already enabled in this project's sdkconfig (confirmed via
+    // .pio/build/*/config/sdkconfig.json), it just wasn't being used anywhere -- CPU-only
+    // access here (rendering reads points every frame, no DMA touches this struct), so
+    // PSRAM's slightly higher access latency is a non-issue, unlike the frame buffer
+    // itself, which stays in internal DMA-capable RAM (display.cpp's MALLOC_CAP_DMA,
+    // untouched).
+    static EXT_RAM_BSS_ATTR OrbitalPresetState preset;
     static int presetIndex = -1;
     if (presetIndex < 0) // first-ever call this boot -- later calls (after a menu round-trip)
     {                    // keep whatever preset was last showing

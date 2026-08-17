@@ -1,8 +1,11 @@
 #include "atom_view.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
+#include "element_names_it.h"
+#include "esp_attr.h" // EXT_RAM_BSS_ATTR
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "font.h"
@@ -10,8 +13,15 @@
 #include "freertos/task.h"
 #include "overlay.h"
 #include "slater.h"
+#include "ticker.h"
 
 static const char* kAtomViewTag = "atom_view";
+
+// Shared "fun accent" color for the two scrolling tickers below (element-switch Italian
+// name, dissection-intro sentence) and the dissection view's big shell notation --
+// matches tilt_gesture.h's arrow color, tying this project's few highlight-colored UI
+// moments together instead of inventing a new one per feature.
+constexpr uint16_t kAccentColor = Display::packColor565(255, 210, 60);
 
 void AtomPresetState::load(int zIn) {
     ESP_LOGI(kAtomViewTag, "loading Z=%d (%s)...", zIn, elementSymbol(zIn));
@@ -57,6 +67,52 @@ void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig
         drawSegment(segBuf, Display::packColor565(base[0], base[1], base[2]));
     }
 }
+
+// --- Element-switch intro ticker (Right/Left tilt-hold) -------------------------------
+
+namespace {
+constexpr int kElementIntroNameScale = 2;
+constexpr int kElementIntroSymbolScale = 6; // big, static, pale watermark behind the scrolling name
+// Light/muted on purpose -- it's a background, not the star of the animation; the
+// scrolling name (kAccentColor) needs to stay the eye's focus on top of it.
+constexpr uint16_t kElementIntroSymbolColor = Display::packColor565(90, 90, 100);
+
+/**
+ * Scroll `nameIt` (the element's Italian name) right-to-left over a big, static, pale
+ * background watermark of `symbol` (its chemical symbol), with a static "Z=<z>" caption
+ * underneath the name -- shown before atom_view.cpp switches to a new element. Bespoke
+ * (not ticker.h's plain scrollTextOnce()) since it composites three layers instead of one
+ * plain scrolling line.
+ */
+void scrollElementIntro(Display& display, const char* nameIt, int z, const char* symbol, uint16_t nameColor) {
+    char zLabel[16];
+    std::snprintf(zLabel, sizeof(zLabel), "Z=%d", z);
+
+    int symbolWidth = textWidthScaled(symbol, kFontLarge, kElementIntroSymbolScale);
+    int symbolX = (Display::kDisplayWidth - symbolWidth) / 2;
+    int symbolY = (Display::kDisplayHeight - kFontLarge.height * kElementIntroSymbolScale) / 2;
+
+    int nameY = 90;
+    int zY = nameY + kFontLarge.height * kElementIntroNameScale + 6;
+    int zX = (Display::kDisplayWidth - textWidth(zLabel, kFontLarge)) / 2;
+
+    int nameWidth = textWidthScaled(nameIt, kFontLarge, kElementIntroNameScale);
+    int x = Display::kDisplayWidth;
+    int endX = -nameWidth;
+    while (x > endX) {
+        display.waitForFlushDone();
+        uint16_t* frameBuf = display.getFrameBuf();
+        std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
+        drawTextScaled(frameBuf, symbolX, symbolY, symbol, kElementIntroSymbolColor, kFontLarge,
+                        kElementIntroSymbolScale);
+        drawTextScaled(frameBuf, x, nameY, nameIt, nameColor, kFontLarge, kElementIntroNameScale);
+        drawText(frameBuf, zX, zY, zLabel, nameColor, kFontLarge);
+        display.presentFrame();
+
+        x -= kTickerDefaultPxPerFrame;
+    }
+}
+} // namespace
 
 // --- On-device shell dissection (Down tilt-hold) -- see atom_view.h's header comment ---
 //
@@ -122,14 +178,29 @@ int compactDissectLevelInPlace(AtomPoint* points, uint16_t* colors, int count, i
     return written;
 }
 
+// Feedback: "name of the electron shell should be bigger while dissecting" -- kFontLarge
+// is already this project's biggest baked font, so `bigLabel` (just "<n><subshell letter>",
+// e.g. "2p" -- always 2 chars, see slater.h's subshellLabelChar()) goes through
+// font.h's drawTextScaled() instead. `caption` (the fuller "Shell 2p (2/5)" line) stays
+// plain-size underneath it -- scaling THAT up too would overflow the 240px width.
+constexpr int kDissectBigScale = 3;
+
+/** Draw `bigLabel` scaled kDissectBigScale x, then `caption` underneath at plain size,
+ * both starting at (x, y) -- shared by the eased leg's flyOver() title callback and
+ * renderDissectFrame()'s real-time hold below, so both look identical. */
+void drawDissectTitle(uint16_t* frameBuf, int x, int y, uint16_t color, const char* bigLabel, const char* caption) {
+    drawTextScaled(frameBuf, x, y, bigLabel, color, kFontLarge, kDissectBigScale);
+    drawText(frameBuf, x, y + kFontLarge.height * kDissectBigScale + 4, caption, color, kFontLarge);
+}
+
 /** Render one frame at a fixed `scale` -- shared by the eased leg (via flyOver()) and the
  * real-time hold below, which isn't eased so doesn't go through flyOver(). */
 void renderDissectFrame(Display& display, const AtomPoint* points, const uint16_t* colors, int count,
                          uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, const CameraState& camera,
-                         orb_real_t scale, const char* label) {
+                         orb_real_t scale, const char* bigLabel, const char* caption) {
     display.waitForFlushDone();
     renderScene(display.getFrameBuf(), points, colors, count, protonColor, camera, scale);
-    drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, label, textColor, kFontLarge);
+    drawDissectTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor, bigLabel, caption);
     drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
     display.presentFrame();
 }
@@ -144,6 +215,10 @@ void renderDissectFrame(Display& display, const AtomPoint* points, const uint16_
  */
 void runDissectionSequence(Display& display, AtomPresetState& preset, CameraState& camera, uint16_t protonColor,
                             uint16_t textColor, uint16_t scaleBarColor) {
+    char introText[48];
+    std::snprintf(introText, sizeof(introText), "Configurazione elettronica di %s", elementSymbol(preset.z));
+    scrollTextOnce(display, introText, kFontLarge, 1, kAccentColor, 110);
+
     orb_real_t scale = preset.baseScale;
     int count = kAtomViewNumPoints;
 
@@ -152,10 +227,14 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
         count = compactDissectLevelInPlace(preset.points, preset.colors, count, level);
         AtomScale s = scaleForAtom(active.rRef);
 
-        char label[40];
-        std::snprintf(label, sizeof(label), "Shell %d%c (%d/%d)", active.n, subshellLabelChar(active.ell), level,
+        char bigLabel[8];
+        std::snprintf(bigLabel, sizeof(bigLabel), "%d%c", active.n, subshellLabelChar(active.ell));
+        char caption[40];
+        std::snprintf(caption, sizeof(caption), "Shell %d%c (%d/%d)", active.n, subshellLabelChar(active.ell), level,
                       dissectPlanCount);
-        auto title = [&](uint16_t* fb, int x, int y, uint16_t color) { drawText(fb, x, y, label, color, kFontLarge); };
+        auto title = [&](uint16_t* fb, int x, int y, uint16_t color) {
+            drawDissectTitle(fb, x, y, color, bigLabel, caption);
+        };
 
         ESP_LOGI(kAtomViewTag, "dissecting shell %d%c (%d pts, level %d/%d)", active.n, subshellLabelChar(active.ell),
                  count, level, dissectPlanCount);
@@ -167,7 +246,7 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
         int64_t holdStartUs = esp_timer_get_time();
         while (esp_timer_get_time() - holdStartUs < kDissectHoldUs) {
             renderDissectFrame(display, preset.points, preset.colors, count, protonColor, textColor, scaleBarColor,
-                                camera, scale, label);
+                                camera, scale, bigLabel, caption);
             stepCamera(&camera);
             vTaskDelay(pdMS_TO_TICKS(1));
         }
@@ -187,7 +266,10 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
 void runAtomView(Display& display, TiltGestureDetector& tilt) {
     ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxZ);
 
-    static AtomPresetState preset;
+    // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: see orbital_view.cpp's sibling `preset`
+    // for the full story (this struct, ~66KB+ of points+colors, is the bigger half of why
+    // Display::Display()'s DMA frame-buffer allocation aborted at boot on real hardware).
+    static EXT_RAM_BSS_ATTR AtomPresetState preset;
     if (preset.z == 0) // first-ever call this boot -- later calls (after a menu round-trip)
         preset.load(kAtomViewDefaultZ); // keep whatever element was last showing
     refreshDissectPlan(preset);
@@ -195,7 +277,6 @@ void runAtomView(Display& display, TiltGestureDetector& tilt) {
     constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
     constexpr uint16_t kTextColor = Display::kColorWhite;
     constexpr uint16_t kScaleBarColor = Display::kColorWhite;
-    constexpr uint16_t kArrowColor = Display::packColor565(255, 210, 60);
 
     // preset has static storage duration, so it's odr-usable without capturing -- see
     // orbital_view.cpp's drawTitle for the same pattern.
@@ -228,9 +309,10 @@ void runAtomView(Display& display, TiltGestureDetector& tilt) {
                     newZ = kMaxZ;
                 else if (newZ > kMaxZ)
                     newZ = 1;
-                ESP_LOGI(kAtomViewTag, "tilt %s confirmed -- switching element Z %d -> %d",
-                         tiltDirectionName(tiltEv.direction), preset.z, newZ);
+                ESP_LOGI(kAtomViewTag, "tilt %s confirmed -- switching element Z %d -> %d (%s)",
+                         tiltDirectionName(tiltEv.direction), preset.z, newZ, elementNameIt(newZ));
                 orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
+                scrollElementIntro(display, elementNameIt(newZ), newZ, elementSymbol(newZ), kAccentColor);
                 preset.load(newZ);
                 refreshDissectPlan(preset);
                 flyOver(display, preset.points, preset.colors, kAtomViewNumPoints, drawTitle, kProtonColor,
@@ -278,7 +360,7 @@ void runAtomView(Display& display, TiltGestureDetector& tilt) {
                       kFontLarge);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         if (tiltEv.phase != TiltPhase::kIdle)
-            drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kArrowColor);
+            drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);
         display.presentFrame();
 
         frameCount++;
