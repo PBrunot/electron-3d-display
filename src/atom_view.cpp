@@ -32,16 +32,17 @@ void AtomPresetState::load(int zIn) {
              double(baseScale), double(outer.rRef * baseScale));
 }
 
-void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig& config, uint16_t textColor) {
+void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig& config, uint16_t textColor,
+                    const Font& font) {
     int cursorX = x, cursorY = y;
 
     auto drawSegment = [&](const char* segment, uint16_t color) {
-        int segWidth = textWidth(segment);
+        int segWidth = textWidth(segment, font);
         if (cursorX > x && cursorX + segWidth > Display::kDisplayWidth) {
             cursorX = x;
-            cursorY += kFontAdvanceY;
+            cursorY += font.lineAdvance;
         }
-        cursorX = drawText(frameBuf, cursorX, cursorY, segment, color);
+        cursorX = drawText(frameBuf, cursorX, cursorY, segment, color, font);
     };
 
     char headSeg[24];
@@ -70,7 +71,7 @@ void runAtomView(Display& display) {
     // preset has static storage duration, so it's odr-usable without capturing --
     // GCC's -Werror rejects capturing a static local as a meaningless no-op capture.
     auto drawTitle = [](uint16_t* frameBuf, int x, int y, uint16_t color) {
-        drawAtomTitle(frameBuf, x, y, preset.z, preset.config, color);
+        drawAtomTitle(frameBuf, x, y, preset.z, preset.config, color, kFontLarge);
     };
 
     CameraState camera;
@@ -80,7 +81,6 @@ void runAtomView(Display& display) {
             kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, kIntroFrames);
 
     constexpr int kFpsUpdateInterval = 50;
-    char fpsText[16] = "FPS: --";
     int frameCount = 0;
     int64_t fpsWindowStartUs = esp_timer_get_time();
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
@@ -107,8 +107,8 @@ void runAtomView(Display& display) {
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
         renderScene(display.getFrameBuf(), preset.points, preset.colors, kAtomViewNumPoints, kProtonColor, camera,
                     scale);
-        drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, preset.config, kTextColor);
-        drawText(display.getFrameBuf(), kFpsTextX, kFpsTextY, fpsText, kTextColor);
+        drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, preset.config, kTextColor,
+                      kFontLarge);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         display.presentFrame();
 
@@ -117,8 +117,7 @@ void runAtomView(Display& display) {
             int64_t nowUs = esp_timer_get_time();
             double elapsedS = double(nowUs - fpsWindowStartUs) / 1e6;
             double fps = elapsedS > 0 ? double(frameCount) / elapsedS : 0.0;
-            std::snprintf(fpsText, sizeof(fpsText), "FPS: %.1f", fps);
-            ESP_LOGI(kAtomViewTag, "%s", fpsText);
+            ESP_LOGI(kAtomViewTag, "FPS: %.1f", fps);
             fpsWindowStartUs = nowUs;
             frameCount = 0;
         }

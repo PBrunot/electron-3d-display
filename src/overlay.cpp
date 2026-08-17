@@ -41,6 +41,7 @@ static constexpr int kScaleBarMarginX = 8;
 static constexpr int kScaleBarMarginY = 8;
 static constexpr orb_real_t kScaleBarMaxPx = orb_real_t(90);
 static constexpr int kScaleBarTickPx = 4;
+static constexpr int kScaleBarLabelGapPx = 2; // px between label bottom and the tick top
 
 /**
  * Largest candidate from kScaleBarCandidates whose on-screen length (value *
@@ -90,5 +91,5 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
 
     char text[32];
     std::snprintf(text, sizeof(text), "%s %s", len.label, unitLabel);
-    drawText(frameBuf, x0, y - kScaleBarTickPx - 12, text, textColor);
+    drawText(frameBuf, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontSmall.height, text, textColor, kFontSmall);
 }

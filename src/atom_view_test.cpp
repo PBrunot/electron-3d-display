@@ -65,7 +65,6 @@ void runAtomViewTest(Display& display) {
     constexpr int kFpsReportEveryNFrames = 60;
     int64_t reportWindowStartUs = esp_timer_get_time();
     int framesSinceReport = 0;
-    char fpsText[16] = "FPS: --";
 
     // Per-phase profiling: split each frame into (a) time blocked in waitForFlushDone()
     // waiting on the PREVIOUS frame's SPI DMA to finish, and (b) CPU render time (memset +
@@ -88,8 +87,7 @@ void runAtomViewTest(Display& display) {
         renderPointsUniform(display.getFrameBuf(), points, kNumPoints, Display::kColorWhite, trig, kScale);
         drawProtonMarker(display.getFrameBuf(), kProtonColor);
 
-        drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, titleText, kTextColor);
-        drawText(display.getFrameBuf(), kFpsTextX, kFpsTextY, fpsText, kTextColor);
+        drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, titleText, kTextColor, kFontLarge);
         drawScaleBar(display.getFrameBuf(), kScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
         display.presentFrame();
@@ -104,7 +102,6 @@ void runAtomViewTest(Display& display) {
             int64_t nowUs = esp_timer_get_time();
             double elapsedS = double(nowUs - reportWindowStartUs) / 1e6;
             double fps = double(framesSinceReport) / elapsedS;
-            std::snprintf(fpsText, sizeof(fpsText), "FPS: %.1f", fps);
             ESP_LOGI(kAtomViewTestTag, "FPS: %.1f (%d frames / %.3fs, %d points/frame)", fps, framesSinceReport,
                      elapsedS, kNumPoints);
             ESP_LOGI(kAtomViewTestTag, "  avg wait(prev DMA)=%.2fms avg render(CPU)=%.2fms",

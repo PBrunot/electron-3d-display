@@ -1,26 +1,19 @@
-// Glyph table + drawing for font.h's 5x7 bitmap font.
+// GENERATED FILE -- do not hand-edit. Regenerate with:
+//   python3 tools/font_gen/generate_font.py > src/font.cpp
+// See tools/font_gen/README.md for how to change fonts/sizes.
 //
-// No font asset exists anywhere in this repo to port from: the MicroPython overlays
-// (device_render_common.py etc.) draw text via framebuf.FrameBuffer.text(), whose glyph
-// bitmap lives inside the MicroPython firmware itself, not in this repo's source; the
-// only other font-related code here (st7789py.py's text()/font-module system) is unused
-// by every app in micropython/ and ships no font *data* either. So this table is authored
-// from scratch, not ported.
+// Source font: Jersey10-Regular.ttf, Copyright 2023 The Soft Type Project Authors
+// (https://github.com/scfried/soft-type-jersey), SIL Open Font License 1.1 -- full text
+// in tools/font_gen/fonts/Jersey10-OFL.txt. Two sizes baked in as constexpr tables:
+// kFontSmall for secondary/readout text (FPS counter, scale bar label), kFontLarge for
+// titles. Each glyph keeps the font's own proportional advance width (not a fixed cell,
+// unlike the original hand-drawn 5x7 font this replaces) -- see font.h for the Font
+// struct/drawText() API this feeds.
 //
-// Authored as literal ASCII-art (one 5-char "#"/"." string per row) rather than hand-typed
-// hex bytes, specifically so each glyph's shape is visible and checkable directly in this
-// file -- there is no on-device rendering pass available to verify a hand-encoded byte
-// table against before it reaches the board, so self-documenting source is the safety net.
-// rowBits() takes the string literal's length as a template parameter, so a row with the
-// wrong character count is a COMPILE ERROR, not a silently-corrupted glyph.
-//
-// Covers exactly the character set every current/planned overlay string needs (see the
-// parity plan's M2/M3/M4): space, 0-9, A-Z, a-z, and '.', '-', '(', ')', ':', '=' for
-// labels like "1s (n=1 l=0 m=0)", "Fe (Z=26)", "FPS: 42.7". Lowercase letters are drawn
-// x-height (rows 0-1 blank, no true ascenders/descenders) to keep every glyph in the same
-// 7-row cell -- a legibility simplification, not an attempt to reproduce any specific
-// existing font. Anything outside this set draws as blank (see glyphFor()'s default) --
-// add a case below if a future string needs one, rather than crashing.
+// Row bits are still '#'/'.' ASCII art literals fed through rowBits(), same convention
+// the original hand-authored table used, so each glyph's shape stays checkable by eye
+// here even though the table itself is machine-generated -- there is no on-device
+// rendering pass to verify against.
 #include "font.h"
 
 #include <cstddef>
@@ -28,257 +21,1193 @@
 #include "display.h"
 
 template <size_t N>
-constexpr uint8_t rowBits(const char (&s)[N])
+constexpr uint16_t rowBits(const char (&s)[N])
 {
-    static_assert(N == kFontGlyphWidth + 1, "font row must be exactly 5 chars ('#'/'.')");
-    uint8_t bits = 0;
-    for (int i = 0; i < kFontGlyphWidth; i++)
+    uint16_t bits = 0;
+    for (size_t i = 0; i + 1 < N; i++)
         if (s[i] == '#')
-            bits |= uint8_t(1) << (kFontGlyphWidth - 1 - i);
+            bits |= uint16_t(1) << (N - 2 - i);
     return bits;
 }
 
-/** bit (kFontGlyphWidth-1-c) of rows[r] set = column c lit, row 0 = top. */
-struct Glyph
+namespace
 {
-    uint8_t rows[kFontGlyphHeight];
+
+// ---- kFontSmall: Jersey10-Regular @ 10px, height=12 ----
+constexpr uint8_t kSmallWidths[95] = {
+    /* 'space' 0x20 */ 2,
+    /* 'bang' 0x21 */ 2,
+    /* 'dquote' 0x22 */ 3,
+    /* 'hash' 0x23 */ 6,
+    /* 'dollar' 0x24 */ 4,
+    /* 'percent' 0x25 */ 6,
+    /* 'amp' 0x26 */ 6,
+    /* 'quote' 0x27 */ 2,
+    /* 'lparen' 0x28 */ 3,
+    /* 'rparen' 0x29 */ 3,
+    /* 'star' 0x2A */ 3,
+    /* 'plus' 0x2B */ 4,
+    /* 'comma' 0x2C */ 2,
+    /* 'minus' 0x2D */ 4,
+    /* 'dot' 0x2E */ 2,
+    /* 'slash' 0x2F */ 3,
+    /* '0' 0x30 */ 4,
+    /* '1' 0x31 */ 2,
+    /* '2' 0x32 */ 4,
+    /* '3' 0x33 */ 4,
+    /* '4' 0x34 */ 4,
+    /* '5' 0x35 */ 4,
+    /* '6' 0x36 */ 4,
+    /* '7' 0x37 */ 4,
+    /* '8' 0x38 */ 4,
+    /* '9' 0x39 */ 4,
+    /* 'colon' 0x3A */ 2,
+    /* 'semi' 0x3B */ 2,
+    /* 'lt' 0x3C */ 5,
+    /* 'eq' 0x3D */ 4,
+    /* 'gt' 0x3E */ 5,
+    /* 'question' 0x3F */ 4,
+    /* 'at' 0x40 */ 6,
+    /* 'A' 0x41 */ 4,
+    /* 'B' 0x42 */ 4,
+    /* 'C' 0x43 */ 4,
+    /* 'D' 0x44 */ 4,
+    /* 'E' 0x45 */ 4,
+    /* 'F' 0x46 */ 4,
+    /* 'G' 0x47 */ 4,
+    /* 'H' 0x48 */ 4,
+    /* 'I' 0x49 */ 2,
+    /* 'J' 0x4A */ 4,
+    /* 'K' 0x4B */ 4,
+    /* 'L' 0x4C */ 3,
+    /* 'M' 0x4D */ 5,
+    /* 'N' 0x4E */ 5,
+    /* 'O' 0x4F */ 4,
+    /* 'P' 0x50 */ 4,
+    /* 'Q' 0x51 */ 4,
+    /* 'R' 0x52 */ 4,
+    /* 'S' 0x53 */ 4,
+    /* 'T' 0x54 */ 4,
+    /* 'U' 0x55 */ 4,
+    /* 'V' 0x56 */ 4,
+    /* 'W' 0x57 */ 6,
+    /* 'X' 0x58 */ 4,
+    /* 'Y' 0x59 */ 5,
+    /* 'Z' 0x5A */ 5,
+    /* 'lbrack' 0x5B */ 3,
+    /* 'backslash' 0x5C */ 3,
+    /* 'rbrack' 0x5D */ 3,
+    /* 'caret' 0x5E */ 4,
+    /* 'underscore' 0x5F */ 4,
+    /* 'backtick' 0x60 */ 2,
+    /* 'a' 0x61 */ 4,
+    /* 'b' 0x62 */ 4,
+    /* 'c' 0x63 */ 4,
+    /* 'd' 0x64 */ 4,
+    /* 'e' 0x65 */ 4,
+    /* 'f' 0x66 */ 3,
+    /* 'g' 0x67 */ 4,
+    /* 'h' 0x68 */ 4,
+    /* 'i' 0x69 */ 2,
+    /* 'j' 0x6A */ 2,
+    /* 'k' 0x6B */ 4,
+    /* 'l' 0x6C */ 2,
+    /* 'm' 0x6D */ 6,
+    /* 'n' 0x6E */ 4,
+    /* 'o' 0x6F */ 4,
+    /* 'p' 0x70 */ 4,
+    /* 'q' 0x71 */ 4,
+    /* 'r' 0x72 */ 4,
+    /* 's' 0x73 */ 4,
+    /* 't' 0x74 */ 3,
+    /* 'u' 0x75 */ 4,
+    /* 'v' 0x76 */ 4,
+    /* 'w' 0x77 */ 6,
+    /* 'x' 0x78 */ 4,
+    /* 'y' 0x79 */ 4,
+    /* 'z' 0x7A */ 4,
+    /* 'lbrace' 0x7B */ 3,
+    /* 'pipe' 0x7C */ 2,
+    /* 'rbrace' 0x7D */ 3,
+    /* 'tilde' 0x7E */ 4,
 };
 
-static constexpr Glyph kGlyphBlank = {{
-    rowBits("....."),
-    rowBits("....."),
-    rowBits("....."),
-    rowBits("....."),
-    rowBits("....."),
-    rowBits("....."),
-    rowBits("....."),
-}};
+constexpr uint16_t kSmallRows[95 * 12] = {
+    /* 'space' 0x20 */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'bang' 0x21 */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits("#."),
+    rowBits("#."), rowBits("#."), rowBits("#."), rowBits(".."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'dquote' 0x22 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("#.#"),
+    rowBits("#.#"), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'hash' 0x23 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("..#.#."),
+    rowBits(".#####"), rowBits(".##.#."), rowBits(".#.#.."), rowBits("#####."),
+    rowBits("##.#.."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'dollar' 0x24 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits(".##."),
+    rowBits("####"), rowBits("#..."), rowBits("####"), rowBits(".###"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'percent' 0x25 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits(".#...."),
+    rowBits("###.#."), rowBits(".###.."), rowBits("..#.#."), rowBits(".#.###"),
+    rowBits("....#."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'amp' 0x26 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("###..."),
+    rowBits("#.#..."), rowBits(".##..."), rowBits("#.###."), rowBits("#.###."),
+    rowBits(".##.#."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'quote' 0x27 */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits("#."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'lparen' 0x28 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits(".#."),
+    rowBits("#.."), rowBits("#.."), rowBits("#.."), rowBits("#.."),
+    rowBits("#.."), rowBits(".#."), rowBits("..."), rowBits("..."),
+    /* 'rparen' 0x29 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("##."),
+    rowBits(".#."), rowBits(".#."), rowBits(".#."), rowBits(".#."),
+    rowBits(".#."), rowBits("#.."), rowBits("..."), rowBits("..."),
+    /* 'star' 0x2A */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("###"),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'plus' 0x2B */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".#.."), rowBits(".#.."), rowBits("###."), rowBits(".#.."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'comma' 0x2C */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits("#."), rowBits("#."), rowBits(".."), rowBits(".."),
+    /* 'minus' 0x2D */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("###."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'dot' 0x2E */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'slash' 0x2F */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..#"),
+    rowBits(".##"), rowBits(".#."), rowBits(".#."), rowBits(".#."),
+    rowBits("#.."), rowBits("#.."), rowBits("..."), rowBits("..."),
+    /* '0' 0x30 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits("#.#."), rowBits("#.#."), rowBits("#.#."), rowBits("#.#."),
+    rowBits(".##."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '1' 0x31 */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits("##"),
+    rowBits("##"), rowBits(".#"), rowBits(".#"), rowBits(".#"),
+    rowBits(".#"), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* '2' 0x32 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("...#"), rowBits("..#."), rowBits(".#.."), rowBits("##.."),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '3' 0x33 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("..##"), rowBits(".##."), rowBits("...#"), rowBits("#..#"),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '4' 0x34 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("..#."),
+    rowBits(".##."), rowBits("#.#."), rowBits("#.#."), rowBits("###."),
+    rowBits("..#."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '5' 0x35 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits("#..."), rowBits("###."), rowBits("..#."), rowBits("#.#."),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '6' 0x36 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#..."), rowBits("###."), rowBits("#..#"), rowBits("#..#"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '7' 0x37 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits("..#."), rowBits("..#."), rowBits(".##."), rowBits(".#.."),
+    rowBits(".#.."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '8' 0x38 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#.##"), rowBits(".##."), rowBits("#..#"), rowBits("#..#"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '9' 0x39 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#.##"), rowBits("####"), rowBits("...#"), rowBits("#..#"),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'colon' 0x3A */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'semi' 0x3B */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits("#."), rowBits("#."), rowBits(".."), rowBits(".."),
+    /* 'lt' 0x3C */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("...#."),
+    rowBits("..#.."), rowBits("##..."), rowBits("##..."), rowBits(".##.."),
+    rowBits("...#."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'eq' 0x3D */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("###."), rowBits("...."), rowBits("###."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'gt' 0x3E */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("##..."),
+    rowBits(".##.."), rowBits("..##."), rowBits("..##."), rowBits(".###."),
+    rowBits("##..."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'question' 0x3F */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits("..#."), rowBits(".##."), rowBits(".#.."), rowBits("...."),
+    rowBits(".#.."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'at' 0x40 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits(".####."),
+    rowBits("##..##"), rowBits("#.##.#"), rowBits("#.##.#"), rowBits("#.#.#."),
+    rowBits(".####."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'A' 0x41 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits(".##."),
+    rowBits(".##."), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits("#..#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'B' 0x42 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#.##"), rowBits("###."), rowBits("#..#"), rowBits("#..#"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'C' 0x43 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#..."), rowBits("#..."), rowBits("#..."), rowBits("##.#"),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'D' 0x44 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#.##"), rowBits("#..#"), rowBits("#..#"), rowBits("#.##"),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'E' 0x45 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits("#..."), rowBits("###."), rowBits("#..."), rowBits("#..."),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'F' 0x46 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits("#..."), rowBits("###."), rowBits("#..."), rowBits("#..."),
+    rowBits("#..."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'G' 0x47 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#..."), rowBits("#.##"), rowBits("#..#"), rowBits("##.#"),
+    rowBits(".##."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'H' 0x48 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#..#"),
+    rowBits("#..#"), rowBits("####"), rowBits("#..#"), rowBits("#..#"),
+    rowBits("#..#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'I' 0x49 */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits("#."),
+    rowBits("#."), rowBits("#."), rowBits("#."), rowBits("#."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'J' 0x4A */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("..#."),
+    rowBits("..#."), rowBits("..#."), rowBits("..#."), rowBits("###."),
+    rowBits(".##."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'K' 0x4B */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#.#."),
+    rowBits("#.#."), rowBits("##.."), rowBits("###."), rowBits("#.#."),
+    rowBits("#.#."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'L' 0x4C */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("#.."),
+    rowBits("#.."), rowBits("#.."), rowBits("#.."), rowBits("#.."),
+    rowBits("###"), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'M' 0x4D */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("##.##"),
+    rowBits("##.##"), rowBits("#.#.#"), rowBits("#...#"), rowBits("#...#"),
+    rowBits("#...#"), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'N' 0x4E */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("##.#."),
+    rowBits("##.#."), rowBits("####."), rowBits("#.##."), rowBits("#.##."),
+    rowBits("#..#."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'O' 0x4F */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("####"), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits(".##."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'P' 0x50 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#..#"), rowBits("#..#"), rowBits("###."), rowBits("#..."),
+    rowBits("#..."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'Q' 0x51 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("####"), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits(".##."), rowBits("..##"), rowBits("...."), rowBits("...."),
+    /* 'R' 0x52 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits("#..#"), rowBits("#..#"), rowBits("###."), rowBits("#..#"),
+    rowBits("#..#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'S' 0x53 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("####"),
+    rowBits("#..."), rowBits("####"), rowBits("...#"), rowBits("#..#"),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'T' 0x54 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("###."),
+    rowBits(".#.."), rowBits(".#.."), rowBits(".#.."), rowBits(".#.."),
+    rowBits(".#.."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'U' 0x55 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#..#"),
+    rowBits("#..#"), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits(".##."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'V' 0x56 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#..#"),
+    rowBits("#..#"), rowBits("#..#"), rowBits("####"), rowBits(".##."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'W' 0x57 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("#.#.#."),
+    rowBits("#.#.#."), rowBits("#.#.#."), rowBits("#.#.#."), rowBits("#####."),
+    rowBits(".#...."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'X' 0x58 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#..#"),
+    rowBits("####"), rowBits(".##."), rowBits("###."), rowBits("#..#"),
+    rowBits("#..#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'Y' 0x59 */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("#..#."),
+    rowBits("#..#."), rowBits("##.#."), rowBits(".###."), rowBits("..#.."),
+    rowBits("..#.."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'Z' 0x5A */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("####."),
+    rowBits("...#."), rowBits("..#.."), rowBits(".#..."), rowBits("##..."),
+    rowBits("####."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'lbrack' 0x5B */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("##."),
+    rowBits("#.."), rowBits("#.."), rowBits("#.."), rowBits("#.."),
+    rowBits("#.."), rowBits("#.."), rowBits("##."), rowBits("..."),
+    /* 'backslash' 0x5C */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("#.."),
+    rowBits("##."), rowBits(".#."), rowBits(".#."), rowBits(".#."),
+    rowBits("..#"), rowBits("..#"), rowBits("..."), rowBits("..."),
+    /* 'rbrack' 0x5D */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("##."),
+    rowBits(".#."), rowBits(".#."), rowBits(".#."), rowBits(".#."),
+    rowBits(".#."), rowBits(".#."), rowBits("##."), rowBits("..."),
+    /* 'caret' 0x5E */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".##."), rowBits("#.##"), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'underscore' 0x5F */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("####"), rowBits("...."), rowBits("...."),
+    /* 'backtick' 0x60 */
+    rowBits(".."), rowBits(".."), rowBits("#."), rowBits(".."),
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'a' 0x61 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".##."), rowBits("..##"), rowBits("####"), rowBits("####"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'b' 0x62 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#..."),
+    rowBits("#.#."), rowBits("####"), rowBits("#..#"), rowBits("#..#"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'c' 0x63 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".##."), rowBits("#..#"), rowBits("#..."), rowBits("#..#"),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'd' 0x64 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...#"),
+    rowBits("####"), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'e' 0x65 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".##."), rowBits("#.##"), rowBits("####"), rowBits("##.."),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'f' 0x66 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits(".##"),
+    rowBits(".#."), rowBits("###"), rowBits("##."), rowBits(".#."),
+    rowBits(".#."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'g' 0x67 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".###"), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits("####"), rowBits("###."), rowBits("...."), rowBits("...."),
+    /* 'h' 0x68 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#..."),
+    rowBits("#.#."), rowBits("####"), rowBits("#..#"), rowBits("#..#"),
+    rowBits("#..#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'i' 0x69 */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits("#."),
+    rowBits(".."), rowBits("#."), rowBits("#."), rowBits("#."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'j' 0x6A */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits(".#"),
+    rowBits("##"), rowBits(".#"), rowBits(".#"), rowBits(".#"),
+    rowBits("##"), rowBits("#."), rowBits(".."), rowBits(".."),
+    /* 'k' 0x6B */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("#..."),
+    rowBits("#.#."), rowBits("#.#."), rowBits("##.."), rowBits("#.#."),
+    rowBits("#.#."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'l' 0x6C */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits("#."),
+    rowBits("#."), rowBits("#."), rowBits("#."), rowBits("#."),
+    rowBits("#."), rowBits(".."), rowBits(".."), rowBits(".."),
+    /* 'm' 0x6D */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("#.#.#."), rowBits("#####."), rowBits("#.#.#."), rowBits("#.#.#."),
+    rowBits("#.#.#."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'n' 0x6E */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("#.#."), rowBits("####"), rowBits("#..#"), rowBits("#..#"),
+    rowBits("#..#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'o' 0x6F */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".##."), rowBits("#..#"), rowBits("#..#"), rowBits("#..#"),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'p' 0x70 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("####"), rowBits("#..#"), rowBits("#..#"), rowBits("#..#"),
+    rowBits("###."), rowBits("#..."), rowBits("...."), rowBits("...."),
+    /* 'q' 0x71 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("####"), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits("####"), rowBits("...#"), rowBits("...."), rowBits("...."),
+    /* 'r' 0x72 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("#.#."), rowBits("###."), rowBits("#..."), rowBits("#..."),
+    rowBits("#..."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 's' 0x73 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".##."), rowBits("###."), rowBits("###."), rowBits("###."),
+    rowBits("###."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 't' 0x74 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits(".#."),
+    rowBits(".#."), rowBits("###"), rowBits("##."), rowBits(".#."),
+    rowBits(".##"), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'u' 0x75 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("#..#"), rowBits("#..#"), rowBits("#..#"), rowBits("####"),
+    rowBits(".#.#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'v' 0x76 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("#..#"), rowBits("#..#"), rowBits("####"), rowBits(".##."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'w' 0x77 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("#.#.#."), rowBits("#.#.#."), rowBits("#.#.#."), rowBits("#####."),
+    rowBits(".#.#.."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'x' 0x78 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("#..#"), rowBits("###."), rowBits(".##."), rowBits("####"),
+    rowBits("#..#"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'y' 0x79 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("#.#."), rowBits("#.#."), rowBits("###."), rowBits(".##."),
+    rowBits("##.."), rowBits("#..."), rowBits("...."), rowBits("...."),
+    /* 'z' 0x7A */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("####"), rowBits("..##"), rowBits(".##."), rowBits("##.."),
+    rowBits("####"), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'lbrace' 0x7B */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits(".#."),
+    rowBits(".#."), rowBits(".#."), rowBits("#.."), rowBits("##."),
+    rowBits(".#."), rowBits(".#."), rowBits("..."), rowBits("..."),
+    /* 'pipe' 0x7C */
+    rowBits(".."), rowBits(".."), rowBits(".."), rowBits("#."),
+    rowBits("#."), rowBits("#."), rowBits("#."), rowBits("#."),
+    rowBits("#."), rowBits("#."), rowBits(".."), rowBits(".."),
+    /* 'rbrace' 0x7D */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("##."),
+    rowBits(".#."), rowBits(".#."), rowBits(".#."), rowBits(".#."),
+    rowBits(".#."), rowBits("#.."), rowBits("..."), rowBits("..."),
+    /* 'tilde' 0x7E */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits(".#.."), rowBits("####"), rowBits("#.#."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+};
 
-static constexpr Glyph glyphFor(char c)
-{
-    switch (c)
-    {
-    case '0':
-        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#..##"), rowBits("#.#.#"),
-                      rowBits("##..#"), rowBits("#...#"), rowBits(".###.")}};
-    case '1':
-        return Glyph{{rowBits("..#.."), rowBits(".##.."), rowBits("..#.."), rowBits("..#.."),
-                      rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
-    case '2':
-        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("....#"), rowBits("...#."),
-                      rowBits("..#.."), rowBits(".#..."), rowBits("#####")}};
-    case '3':
-        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("....#"), rowBits("..##."),
-                      rowBits("....#"), rowBits("#...#"), rowBits(".###.")}};
-    case '4':
-        return Glyph{{rowBits("...#."), rowBits("..##."), rowBits(".#.#."), rowBits("#..#."),
-                      rowBits("#####"), rowBits("...#."), rowBits("...#.")}};
-    case '5':
-        return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("####."), rowBits("....#"),
-                      rowBits("....#"), rowBits("#...#"), rowBits(".###.")}};
-    case '6':
-        return Glyph{{rowBits("..##."), rowBits(".#..."), rowBits("#...."), rowBits("####."),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-    case '7':
-        return Glyph{{rowBits("#####"), rowBits("....#"), rowBits("...#."), rowBits("..#.."),
-                      rowBits(".#..."), rowBits(".#..."), rowBits(".#...")}};
-    case '8':
-        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits(".###."),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-    case '9':
-        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits(".####"),
-                      rowBits("....#"), rowBits("...#."), rowBits(".##..")}};
-    case 'A':
-        return Glyph{{rowBits("..#.."), rowBits(".#.#."), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#####"), rowBits("#...#"), rowBits("#...#")}};
-    case 'B':
-        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
-                      rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
-    case 'C':
-        return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits("#...."),
-                      rowBits("#...."), rowBits("#...."), rowBits(".####")}};
-    case 'D':
-        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
-    case 'E':
-        return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("#...."), rowBits("####."),
-                      rowBits("#...."), rowBits("#...."), rowBits("#####")}};
-    case 'F':
-        return Glyph{{rowBits("#####"), rowBits("#...."), rowBits("#...."), rowBits("####."),
-                      rowBits("#...."), rowBits("#...."), rowBits("#....")}};
-    case 'G':
-        return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits("#.###"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-    case 'H':
-        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#####"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-    case 'I':
-        return Glyph{{rowBits("#####"), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
-                      rowBits("..#.."), rowBits("..#.."), rowBits("#####")}};
-    case 'J':
-        return Glyph{{rowBits("....#"), rowBits("....#"), rowBits("....#"), rowBits("....#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-    case 'K':
-        return Glyph{{rowBits("#...#"), rowBits("#..#."), rowBits("#.#.."), rowBits("##..."),
-                      rowBits("#.#.."), rowBits("#..#."), rowBits("#...#")}};
-    case 'L':
-        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("#...."), rowBits("#...."),
-                      rowBits("#...."), rowBits("#...."), rowBits("#####")}};
-    case 'M':
-        return Glyph{{rowBits("#...#"), rowBits("##.##"), rowBits("#.#.#"), rowBits("#.#.#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-    case 'N':
-        return Glyph{{rowBits("#...#"), rowBits("##..#"), rowBits("#.#.#"), rowBits("#.#.#"),
-                      rowBits("#..##"), rowBits("#...#"), rowBits("#...#")}};
-    case 'O':
-        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-    case 'P':
-        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
-                      rowBits("#...."), rowBits("#...."), rowBits("#....")}};
-    case 'Q':
-        return Glyph{{rowBits(".###."), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#.#.#"), rowBits("#..#."), rowBits(".##.#")}};
-    case 'R':
-        return Glyph{{rowBits("####."), rowBits("#...#"), rowBits("#...#"), rowBits("####."),
-                      rowBits("#.#.."), rowBits("#..#."), rowBits("#...#")}};
-    case 'S':
-        return Glyph{{rowBits(".####"), rowBits("#...."), rowBits("#...."), rowBits(".###."),
-                      rowBits("....#"), rowBits("....#"), rowBits("####.")}};
-    case 'T':
-        return Glyph{{rowBits("#####"), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
-                      rowBits("..#.."), rowBits("..#.."), rowBits("..#..")}};
-    case 'U':
-        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-    case 'V':
-        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits(".#.#."), rowBits("..#..")}};
-    case 'W':
-        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits("#...#"), rowBits("#.#.#"),
-                      rowBits("#.#.#"), rowBits("##.##"), rowBits("#...#")}};
-    case 'X':
-        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits(".#.#."), rowBits("..#.."),
-                      rowBits(".#.#."), rowBits("#...#"), rowBits("#...#")}};
-    case 'Y':
-        return Glyph{{rowBits("#...#"), rowBits("#...#"), rowBits(".#.#."), rowBits("..#.."),
-                      rowBits("..#.."), rowBits("..#.."), rowBits("..#..")}};
-    case 'Z':
-        return Glyph{{rowBits("#####"), rowBits("....#"), rowBits("...#."), rowBits("..#.."),
-                      rowBits(".#..."), rowBits("#...."), rowBits("#####")}};
-    case 'a':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("....#"),
-                      rowBits(".####"), rowBits("#...#"), rowBits(".####")}};
-    case 'b':
-        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("####."), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits("####.")}};
-    case 'c':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...."),
-                      rowBits("#...."), rowBits("#...."), rowBits(".####")}};
-    case 'd':
-        return Glyph{{rowBits("....#"), rowBits("....#"), rowBits(".####"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".####")}};
-    case 'e':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("#...#"),
-                      rowBits("#####"), rowBits("#...."), rowBits(".####")}};
-    case 'f':
-        return Glyph{{rowBits("..##."), rowBits(".#..."), rowBits("####."), rowBits(".#..."),
-                      rowBits(".#..."), rowBits(".#..."), rowBits(".#...")}};
-    case 'g':
-        return Glyph{{rowBits("....."), rowBits(".####"), rowBits("#...#"), rowBits("#...#"),
-                      rowBits(".####"), rowBits("....#"), rowBits(".###.")}};
-    case 'h':
-        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("####."), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-    case 'i':
-        return Glyph{{rowBits("..#.."), rowBits("....."), rowBits(".##.."), rowBits("..#.."),
-                      rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
-    case 'j':
-        return Glyph{{rowBits("...#."), rowBits("....."), rowBits("..##."), rowBits("...#."),
-                      rowBits("...#."), rowBits("#..#."), rowBits(".##..")}};
-    case 'k':
-        return Glyph{{rowBits("#...."), rowBits("#...."), rowBits("#..#."), rowBits("#.#.."),
-                      rowBits("##..."), rowBits("#.#.."), rowBits("#..#.")}};
-    case 'l':
-        return Glyph{{rowBits(".##.."), rowBits("..#.."), rowBits("..#.."), rowBits("..#.."),
-                      rowBits("..#.."), rowBits("..#.."), rowBits(".###.")}};
-    case 'm':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("##.#."), rowBits("#.#.#"),
-                      rowBits("#.#.#"), rowBits("#...#"), rowBits("#...#")}};
-    case 'n':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("####."), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits("#...#")}};
-    case 'o':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".###."), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".###.")}};
-    case 'p':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("####."), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("####."), rowBits("#....")}};
-    case 'q':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits(".####"), rowBits("....#")}};
-    case 'r':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#.##."), rowBits("##..."),
-                      rowBits("#...."), rowBits("#...."), rowBits("#....")}};
-    case 's':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits(".####"), rowBits("#...."),
-                      rowBits(".###."), rowBits("....#"), rowBits("####.")}};
-    case 't':
-        return Glyph{{rowBits(".#..."), rowBits(".#..."), rowBits("####."), rowBits(".#..."),
-                      rowBits(".#..."), rowBits(".#..."), rowBits("..##.")}};
-    case 'u':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits("#...#"), rowBits(".####")}};
-    case 'v':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#...#"), rowBits(".#.#."), rowBits("..#..")}};
-    case 'w':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                      rowBits("#.#.#"), rowBits("#.#.#"), rowBits(".#.#.")}};
-    case 'x':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits(".#.#."),
-                      rowBits("..#.."), rowBits(".#.#."), rowBits("#...#")}};
-    case 'y':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#...#"), rowBits("#...#"),
-                      rowBits(".####"), rowBits("....#"), rowBits(".###.")}};
-    case 'z':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#####"), rowBits("...#."),
-                      rowBits("..#.."), rowBits(".#..."), rowBits("#####")}};
-    case '.':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
-                      rowBits("....."), rowBits(".##.."), rowBits(".##..")}};
-    case '-':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("....."), rowBits("#####"),
-                      rowBits("....."), rowBits("....."), rowBits(".....")}};
-    case '(':
-        return Glyph{{rowBits("...#."), rowBits("..#.."), rowBits(".#..."), rowBits(".#..."),
-                      rowBits(".#..."), rowBits("..#.."), rowBits("...#.")}};
-    case ')':
-        return Glyph{{rowBits(".#..."), rowBits("..#.."), rowBits("...#."), rowBits("...#."),
-                      rowBits("...#."), rowBits("..#.."), rowBits(".#...")}};
-    case ':':
-        return Glyph{{rowBits("....."), rowBits(".##.."), rowBits(".##.."), rowBits("....."),
-                      rowBits(".##.."), rowBits(".##.."), rowBits(".....")}};
-    case '=':
-        return Glyph{{rowBits("....."), rowBits("....."), rowBits("#####"), rowBits("....."),
-                      rowBits("#####"), rowBits("....."), rowBits(".....")}};
-    default:
-        return kGlyphBlank;
-    }
-}
+// ---- kFontLarge: Jersey10-Regular @ 18px, height=20 ----
+constexpr uint8_t kLargeWidths[95] = {
+    /* 'space' 0x20 */ 4,
+    /* 'bang' 0x21 */ 3,
+    /* 'dquote' 0x22 */ 6,
+    /* 'hash' 0x23 */ 12,
+    /* 'dollar' 0x24 */ 8,
+    /* 'percent' 0x25 */ 12,
+    /* 'amp' 0x26 */ 11,
+    /* 'quote' 0x27 */ 3,
+    /* 'lparen' 0x28 */ 5,
+    /* 'rparen' 0x29 */ 5,
+    /* 'star' 0x2A */ 6,
+    /* 'plus' 0x2B */ 7,
+    /* 'comma' 0x2C */ 3,
+    /* 'minus' 0x2D */ 7,
+    /* 'dot' 0x2E */ 3,
+    /* 'slash' 0x2F */ 6,
+    /* '0' 0x30 */ 7,
+    /* '1' 0x31 */ 4,
+    /* '2' 0x32 */ 8,
+    /* '3' 0x33 */ 8,
+    /* '4' 0x34 */ 7,
+    /* '5' 0x35 */ 7,
+    /* '6' 0x36 */ 8,
+    /* '7' 0x37 */ 7,
+    /* '8' 0x38 */ 8,
+    /* '9' 0x39 */ 8,
+    /* 'colon' 0x3A */ 3,
+    /* 'semi' 0x3B */ 3,
+    /* 'lt' 0x3C */ 9,
+    /* 'eq' 0x3D */ 7,
+    /* 'gt' 0x3E */ 9,
+    /* 'question' 0x3F */ 7,
+    /* 'at' 0x40 */ 12,
+    /* 'A' 0x41 */ 8,
+    /* 'B' 0x42 */ 8,
+    /* 'C' 0x43 */ 8,
+    /* 'D' 0x44 */ 8,
+    /* 'E' 0x45 */ 7,
+    /* 'F' 0x46 */ 7,
+    /* 'G' 0x47 */ 8,
+    /* 'H' 0x48 */ 8,
+    /* 'I' 0x49 */ 3,
+    /* 'J' 0x4A */ 7,
+    /* 'K' 0x4B */ 7,
+    /* 'L' 0x4C */ 6,
+    /* 'M' 0x4D */ 10,
+    /* 'N' 0x4E */ 9,
+    /* 'O' 0x4F */ 8,
+    /* 'P' 0x50 */ 8,
+    /* 'Q' 0x51 */ 8,
+    /* 'R' 0x52 */ 8,
+    /* 'S' 0x53 */ 8,
+    /* 'T' 0x54 */ 7,
+    /* 'U' 0x55 */ 8,
+    /* 'V' 0x56 */ 8,
+    /* 'W' 0x57 */ 11,
+    /* 'X' 0x58 */ 8,
+    /* 'Y' 0x59 */ 9,
+    /* 'Z' 0x5A */ 9,
+    /* 'lbrack' 0x5B */ 5,
+    /* 'backslash' 0x5C */ 6,
+    /* 'rbrack' 0x5D */ 5,
+    /* 'caret' 0x5E */ 8,
+    /* 'underscore' 0x5F */ 8,
+    /* 'backtick' 0x60 */ 3,
+    /* 'a' 0x61 */ 8,
+    /* 'b' 0x62 */ 8,
+    /* 'c' 0x63 */ 8,
+    /* 'd' 0x64 */ 8,
+    /* 'e' 0x65 */ 8,
+    /* 'f' 0x66 */ 6,
+    /* 'g' 0x67 */ 8,
+    /* 'h' 0x68 */ 8,
+    /* 'i' 0x69 */ 3,
+    /* 'j' 0x6A */ 4,
+    /* 'k' 0x6B */ 7,
+    /* 'l' 0x6C */ 3,
+    /* 'm' 0x6D */ 11,
+    /* 'n' 0x6E */ 8,
+    /* 'o' 0x6F */ 8,
+    /* 'p' 0x70 */ 8,
+    /* 'q' 0x71 */ 8,
+    /* 'r' 0x72 */ 7,
+    /* 's' 0x73 */ 7,
+    /* 't' 0x74 */ 6,
+    /* 'u' 0x75 */ 8,
+    /* 'v' 0x76 */ 8,
+    /* 'w' 0x77 */ 11,
+    /* 'x' 0x78 */ 8,
+    /* 'y' 0x79 */ 7,
+    /* 'z' 0x7A */ 8,
+    /* 'lbrace' 0x7B */ 5,
+    /* 'pipe' 0x7C */ 3,
+    /* 'rbrace' 0x7D */ 5,
+    /* 'tilde' 0x7E */ 8,
+};
 
-void drawChar(uint16_t *frameBuf, int x, int y, char c, uint16_t color)
+constexpr uint16_t kLargeRows[95 * 20] = {
+    /* 'space' 0x20 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'bang' 0x21 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'dquote' 0x22 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("##.##."), rowBits("##.##."), rowBits("##.##."),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'hash' 0x23 */
+    rowBits("............"), rowBits("............"), rowBits("............"), rowBits("............"),
+    rowBits("............"), rowBits("....##..##.."), rowBits("....##..##.."), rowBits("..#########."),
+    rowBits("...##..##..."), rowBits("...##..##..."), rowBits("..##..##...."), rowBits("..##..##...."),
+    rowBits("#########..."), rowBits(".##..##....."), rowBits(".##..##....."), rowBits("............"),
+    rowBits("............"), rowBits("............"), rowBits("............"), rowBits("............"),
+    /* 'dollar' 0x24 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("...#...."), rowBits(".#####.."), rowBits("#######."), rowBits("##.#.##."),
+    rowBits("##.#...."), rowBits("######.."), rowBits(".######."), rowBits("...#.##."),
+    rowBits("##.#.##."), rowBits("#######."), rowBits(".#####.."), rowBits("...#...."),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'percent' 0x25 */
+    rowBits("............"), rowBits("............"), rowBits("............"), rowBits("............"),
+    rowBits("............"), rowBits("..#......#.."), rowBits(".###....##.."), rowBits("##.##..##..."),
+    rowBits(".###..##...."), rowBits("..#..##....."), rowBits("....##..#..."), rowBits("...##..###.."),
+    rowBits("..##..##.##."), rowBits(".##....###.."), rowBits(".#......#..."), rowBits("............"),
+    rowBits("............"), rowBits("............"), rowBits("............"), rowBits("............"),
+    /* 'amp' 0x26 */
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    rowBits("..........."), rowBits(".####......"), rowBits("######....."), rowBits("##..##....."),
+    rowBits("##..##....."), rowBits(".####......"), rowBits("######.##.."), rowBits("##..#####.."),
+    rowBits("##...###..."), rowBits("#########.."), rowBits(".#####.###."), rowBits("..........."),
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    /* 'quote' 0x27 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'lparen' 0x28 */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    rowBits("....."), rowBits("..##."), rowBits(".##.."), rowBits("##..."),
+    rowBits("##..."), rowBits("##..."), rowBits("##..."), rowBits("##..."),
+    rowBits("##..."), rowBits("##..."), rowBits("##..."), rowBits(".##.."),
+    rowBits("..##."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'rparen' 0x29 */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    rowBits("....."), rowBits("##..."), rowBits(".##.."), rowBits("..##."),
+    rowBits("..##."), rowBits("..##."), rowBits("..##."), rowBits("..##."),
+    rowBits("..##."), rowBits("..##."), rowBits("..##."), rowBits(".##.."),
+    rowBits("##..."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'star' 0x2A */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("..#..."), rowBits("#.#.#."), rowBits("..#..."),
+    rowBits(".#.#.."), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'plus' 0x2B */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("..##..."),
+    rowBits("..##..."), rowBits("######."), rowBits("######."), rowBits("..##..."),
+    rowBits("..##..."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'comma' 0x2C */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits(".#."),
+    rowBits("#.."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'minus' 0x2D */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("######."), rowBits("######."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'dot' 0x2E */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'slash' 0x2F */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("...##."), rowBits("...##."), rowBits("...##."),
+    rowBits("..##.."), rowBits("..##.."), rowBits("..##.."), rowBits(".##..."),
+    rowBits(".##..."), rowBits(".##..."), rowBits("##...."), rowBits("##...."),
+    rowBits("##...."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* '0' 0x30 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits(".####.."), rowBits("######."), rowBits("##..##."),
+    rowBits("##..##."), rowBits("##..##."), rowBits("##..##."), rowBits("##..##."),
+    rowBits("##..##."), rowBits("######."), rowBits(".####.."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* '1' 0x31 */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits("###."), rowBits("###."), rowBits(".##."),
+    rowBits(".##."), rowBits(".##."), rowBits(".##."), rowBits(".##."),
+    rowBits(".##."), rowBits(".##."), rowBits(".##."), rowBits("...."),
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* '2' 0x32 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("....###."), rowBits("...###.."), rowBits("..###..."), rowBits(".###...."),
+    rowBits("###....."), rowBits("#######."), rowBits("#######."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* '3' 0x33 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("##...##."),
+    rowBits(".....##."), rowBits("..####.."), rowBits("..####.."), rowBits(".....##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* '4' 0x34 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("....##."), rowBits("...###."), rowBits("..####."),
+    rowBits(".##.##."), rowBits("##..##."), rowBits("##..##."), rowBits("######."),
+    rowBits("######."), rowBits("....##."), rowBits("....##."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* '5' 0x35 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("######."), rowBits("######."), rowBits("##....."),
+    rowBits("##....."), rowBits("#####.."), rowBits(".#####."), rowBits("....##."),
+    rowBits("##..##."), rowBits("######."), rowBits(".####.."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* '6' 0x36 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##......"), rowBits("######.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* '7' 0x37 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("######."), rowBits("######."), rowBits("....##."),
+    rowBits("....##."), rowBits("...###."), rowBits("..###.."), rowBits("..###.."),
+    rowBits("..##..."), rowBits("..##..."), rowBits("..##..."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* '8' 0x38 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits(".#####.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* '9' 0x39 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".######."), rowBits(".....##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'colon' 0x3A */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("##."),
+    rowBits("##."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'semi' 0x3B */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("##."),
+    rowBits("##."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits(".#."),
+    rowBits("#.."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'lt' 0x3C */
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    rowBits("........."), rowBits("........."), rowBits(".....###."), rowBits("...#####."),
+    rowBits(".#####..."), rowBits("####....."), rowBits("###......"), rowBits("####....."),
+    rowBits(".#####..."), rowBits("...#####."), rowBits(".....###."), rowBits("........."),
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    /* 'eq' 0x3D */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("######."), rowBits("######."), rowBits("......."), rowBits("######."),
+    rowBits("######."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'gt' 0x3E */
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    rowBits("........."), rowBits("........."), rowBits("###......"), rowBits("#####...."),
+    rowBits("..#####.."), rowBits("....####."), rowBits(".....###."), rowBits("....####."),
+    rowBits("..#####.."), rowBits("#####...."), rowBits("###......"), rowBits("........."),
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    /* 'question' 0x3F */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits(".####.."), rowBits("######."), rowBits("##..##."),
+    rowBits("...###."), rowBits("..###.."), rowBits("..##..."), rowBits("..##..."),
+    rowBits("......."), rowBits("..##..."), rowBits("..##..."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'at' 0x40 */
+    rowBits("............"), rowBits("............"), rowBits("............"), rowBits("............"),
+    rowBits("............"), rowBits("..#######..."), rowBits(".#########.."), rowBits("###.....###."),
+    rowBits("##..####.##."), rowBits("##.#####.##."), rowBits("##.##.##.##."), rowBits("##.#####.##."),
+    rowBits("##..##.###.."), rowBits("###........."), rowBits(".########..."), rowBits("..######...."),
+    rowBits("............"), rowBits("............"), rowBits("............"), rowBits("............"),
+    /* 'A' 0x41 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("...#...."), rowBits("..###..."), rowBits(".#####.."),
+    rowBits("###.###."), rowBits("##...##."), rowBits("##...##."), rowBits("#######."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'B' 0x42 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("######.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("######.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits("######.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'C' 0x43 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("###..##."),
+    rowBits("##......"), rowBits("##......"), rowBits("##......"), rowBits("##......"),
+    rowBits("###..##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'D' 0x44 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("######.."), rowBits("#######."), rowBits("##..###."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##..###."), rowBits("#######."), rowBits("######.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'E' 0x45 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("######."), rowBits("######."), rowBits("##....."),
+    rowBits("##....."), rowBits("#####.."), rowBits("#####.."), rowBits("##....."),
+    rowBits("##....."), rowBits("######."), rowBits("######."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'F' 0x46 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("######."), rowBits("######."), rowBits("##....."),
+    rowBits("##....."), rowBits("#####.."), rowBits("#####.."), rowBits("##....."),
+    rowBits("##....."), rowBits("##....."), rowBits("##....."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'G' 0x47 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("###..##."),
+    rowBits("##......"), rowBits("##.####."), rowBits("##.####."), rowBits("##...##."),
+    rowBits("###..##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'H' 0x48 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'I' 0x49 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'J' 0x4A */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("....##."), rowBits("....##."), rowBits("....##."),
+    rowBits("....##."), rowBits("....##."), rowBits("....##."), rowBits("....##."),
+    rowBits("##.###."), rowBits("######."), rowBits(".####.."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'K' 0x4B */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("##..##."), rowBits("##..##."), rowBits("##..##."),
+    rowBits("##.##.."), rowBits("####..."), rowBits("#####.."), rowBits("##.###."),
+    rowBits("##..##."), rowBits("##..##."), rowBits("##..##."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'L' 0x4C */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("##...."), rowBits("##...."), rowBits("##...."),
+    rowBits("##...."), rowBits("##...."), rowBits("##...."), rowBits("##...."),
+    rowBits("##...."), rowBits("#####."), rowBits("#####."), rowBits("......"),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'M' 0x4D */
+    rowBits(".........."), rowBits(".........."), rowBits(".........."), rowBits(".........."),
+    rowBits(".........."), rowBits("##.....##."), rowBits("###...###."), rowBits("####.####."),
+    rowBits("#########."), rowBits("##.###.##."), rowBits("##..#..##."), rowBits("##.....##."),
+    rowBits("##.....##."), rowBits("##.....##."), rowBits("##.....##."), rowBits(".........."),
+    rowBits(".........."), rowBits(".........."), rowBits(".........."), rowBits(".........."),
+    /* 'N' 0x4E */
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    rowBits("........."), rowBits("###...##."), rowBits("###...##."), rowBits("####..##."),
+    rowBits("####..##."), rowBits("#####.##."), rowBits("##.##.##."), rowBits("##.#####."),
+    rowBits("##..####."), rowBits("##..####."), rowBits("##...###."), rowBits("........."),
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    /* 'O' 0x4F */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("###.###."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("###.###."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'P' 0x50 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("######.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("#######."), rowBits("######.."),
+    rowBits("##......"), rowBits("##......"), rowBits("##......"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'Q' 0x51 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("###.###."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("###.###."), rowBits("#######."), rowBits(".####..."), rowBits("...####."),
+    rowBits("....###."), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'R' 0x52 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("######.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("######.."), rowBits("#######."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'S' 0x53 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".#####.."), rowBits("#######."), rowBits("##...##."),
+    rowBits("##......"), rowBits("######.."), rowBits(".######."), rowBits(".....##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'T' 0x54 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("######."), rowBits("######."), rowBits("..##..."),
+    rowBits("..##..."), rowBits("..##..."), rowBits("..##..."), rowBits("..##..."),
+    rowBits("..##..."), rowBits("..##..."), rowBits("..##..."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'U' 0x55 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("###.###."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'V' 0x56 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("###.###."),
+    rowBits(".#####.."), rowBits("..###..."), rowBits("...#...."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'W' 0x57 */
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    rowBits("..........."), rowBits("##..##..##."), rowBits("##..##..##."), rowBits("##..##..##."),
+    rowBits("##..##..##."), rowBits("##..##..##."), rowBits("##..##..##."), rowBits("##..##..##."),
+    rowBits("##########."), rowBits(".###..###.."), rowBits("..#....#..."), rowBits("..........."),
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    /* 'X' 0x58 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("##...##."), rowBits("##...##."), rowBits("###.###."),
+    rowBits(".#####.."), rowBits("..###..."), rowBits(".#####.."), rowBits("###.###."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'Y' 0x59 */
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    rowBits("........."), rowBits("##....##."), rowBits("##....##."), rowBits("##....##."),
+    rowBits("##....##."), rowBits("###..###."), rowBits(".######.."), rowBits("..####..."),
+    rowBits("...##...."), rowBits("...##...."), rowBits("...##...."), rowBits("........."),
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    /* 'Z' 0x5A */
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    rowBits("........."), rowBits("########."), rowBits("########."), rowBits(".....###."),
+    rowBits("....###.."), rowBits("...###..."), rowBits("..###...."), rowBits(".###....."),
+    rowBits("###......"), rowBits("########."), rowBits("########."), rowBits("........."),
+    rowBits("........."), rowBits("........."), rowBits("........."), rowBits("........."),
+    /* 'lbrack' 0x5B */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    rowBits("....."), rowBits("####."), rowBits("##..."), rowBits("##..."),
+    rowBits("##..."), rowBits("##..."), rowBits("##..."), rowBits("##..."),
+    rowBits("##..."), rowBits("##..."), rowBits("##..."), rowBits("####."),
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'backslash' 0x5C */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("##...."), rowBits("##...."), rowBits("##...."),
+    rowBits(".##..."), rowBits(".##..."), rowBits(".##..."), rowBits("..##.."),
+    rowBits("..##.."), rowBits("..##.."), rowBits("...##."), rowBits("...##."),
+    rowBits("...##."), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'rbrack' 0x5D */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    rowBits("....."), rowBits("####."), rowBits("..##."), rowBits("..##."),
+    rowBits("..##."), rowBits("..##."), rowBits("..##."), rowBits("..##."),
+    rowBits("..##."), rowBits("..##."), rowBits("..##."), rowBits("####."),
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'caret' 0x5E */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("..###..."), rowBits(".#####.."),
+    rowBits("###.###."), rowBits("##...##."), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'underscore' 0x5F */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("#######."),
+    rowBits("#######."), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'backtick' 0x60 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("#.."),
+    rowBits("##."), rowBits(".##"), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'a' 0x61 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits(".#####.."),
+    rowBits("#######."), rowBits(".....##."), rowBits(".######."), rowBits("#######."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".###.##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'b' 0x62 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("##......"), rowBits("##......"), rowBits("##.###.."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits("######.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'c' 0x63 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits(".#####.."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##......"), rowBits("##......"),
+    rowBits("##...##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'd' 0x64 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits(".....##."), rowBits(".....##."), rowBits(".######."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".###.##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'e' 0x65 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits(".#####.."),
+    rowBits("#######."), rowBits("##...##."), rowBits("#######."), rowBits("#######."),
+    rowBits("##......"), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'f' 0x66 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("..###."), rowBits(".####."), rowBits(".##..."),
+    rowBits("#####."), rowBits("#####."), rowBits(".##..."), rowBits(".##..."),
+    rowBits(".##..."), rowBits(".##..."), rowBits(".##..."), rowBits("......"),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'g' 0x67 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits(".######."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("#######."), rowBits(".###.##."), rowBits(".....##."), rowBits("#######."),
+    rowBits(".#####.."), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'h' 0x68 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("##......"), rowBits("##......"), rowBits("##.###.."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'i' 0x69 */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("..."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'j' 0x6A */
+    rowBits("...."), rowBits("...."), rowBits("...."), rowBits("...."),
+    rowBits("...."), rowBits(".##."), rowBits(".##."), rowBits("...."),
+    rowBits(".##."), rowBits(".##."), rowBits(".##."), rowBits(".##."),
+    rowBits(".##."), rowBits(".##."), rowBits(".##."), rowBits("###."),
+    rowBits("##.."), rowBits("...."), rowBits("...."), rowBits("...."),
+    /* 'k' 0x6B */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("##....."), rowBits("##....."), rowBits("##..##."),
+    rowBits("##..##."), rowBits("##.##.."), rowBits("####..."), rowBits("##.##.."),
+    rowBits("##..##."), rowBits("##..##."), rowBits("##..##."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'l' 0x6C */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("..."),
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'm' 0x6D */
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("##.##..##.."),
+    rowBits("##########."), rowBits("##..##..##."), rowBits("##..##..##."), rowBits("##..##..##."),
+    rowBits("##..##..##."), rowBits("##..##..##."), rowBits("##..##..##."), rowBits("..........."),
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    /* 'n' 0x6E */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("##.###.."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'o' 0x6F */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits(".#####.."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".#####.."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'p' 0x70 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("##.###.."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits("######.."), rowBits("##......"),
+    rowBits("##......"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'q' 0x71 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits(".######."),
+    rowBits("#######."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".###.##."), rowBits(".....##."),
+    rowBits(".....##."), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'r' 0x72 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("##.##.."),
+    rowBits("######."), rowBits("###.#.."), rowBits("##....."), rowBits("##....."),
+    rowBits("##....."), rowBits("##....."), rowBits("##....."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 's' 0x73 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits(".####.."),
+    rowBits("######."), rowBits("##....."), rowBits("#####.."), rowBits(".#####."),
+    rowBits("....##."), rowBits("######."), rowBits(".####.."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 't' 0x74 */
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    rowBits("......"), rowBits("..#..."), rowBits(".##..."), rowBits(".##..."),
+    rowBits("#####."), rowBits("#####."), rowBits(".##..."), rowBits(".##..."),
+    rowBits(".##..."), rowBits(".####."), rowBits("..###."), rowBits("......"),
+    rowBits("......"), rowBits("......"), rowBits("......"), rowBits("......"),
+    /* 'u' 0x75 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("##...##."),
+    rowBits("##...##."), rowBits("#######."), rowBits(".###.##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'v' 0x76 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("##...##."),
+    rowBits("##...##."), rowBits("##...##."), rowBits("##...##."), rowBits("###.###."),
+    rowBits(".#####.."), rowBits("..###..."), rowBits("...#...."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'w' 0x77 */
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("##..##..##."),
+    rowBits("##..##..##."), rowBits("##..##..##."), rowBits("##..##..##."), rowBits("##..##..##."),
+    rowBits("###.##.###."), rowBits(".########.."), rowBits("..##..##..."), rowBits("..........."),
+    rowBits("..........."), rowBits("..........."), rowBits("..........."), rowBits("..........."),
+    /* 'x' 0x78 */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("##...##."),
+    rowBits("###.###."), rowBits(".#####.."), rowBits("..###..."), rowBits(".#####.."),
+    rowBits("###.###."), rowBits("##...##."), rowBits("##...##."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'y' 0x79 */
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("......."),
+    rowBits("......."), rowBits("......."), rowBits("......."), rowBits("##..##."),
+    rowBits("##..##."), rowBits("##..##."), rowBits("##..##."), rowBits("###.##."),
+    rowBits(".#####."), rowBits("..###.."), rowBits(".###..."), rowBits("###...."),
+    rowBits("##....."), rowBits("......."), rowBits("......."), rowBits("......."),
+    /* 'z' 0x7A */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("#######."),
+    rowBits("#######."), rowBits("....###."), rowBits("...###.."), rowBits("..###..."),
+    rowBits(".###...."), rowBits("#######."), rowBits("#######."), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    /* 'lbrace' 0x7B */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    rowBits("....."), rowBits("..##."), rowBits(".##.."), rowBits(".##.."),
+    rowBits(".##.."), rowBits(".##.."), rowBits("##..."), rowBits("##..."),
+    rowBits(".##.."), rowBits(".##.."), rowBits(".##.."), rowBits(".##.."),
+    rowBits("..##."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'pipe' 0x7C */
+    rowBits("..."), rowBits("..."), rowBits("..."), rowBits("..."),
+    rowBits("..."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("##."), rowBits("##."), rowBits("##."),
+    rowBits("##."), rowBits("..."), rowBits("..."), rowBits("..."),
+    /* 'rbrace' 0x7D */
+    rowBits("....."), rowBits("....."), rowBits("....."), rowBits("....."),
+    rowBits("....."), rowBits("##..."), rowBits(".##.."), rowBits(".##.."),
+    rowBits(".##.."), rowBits(".##.."), rowBits("..##."), rowBits("..##."),
+    rowBits(".##.."), rowBits(".##.."), rowBits(".##.."), rowBits(".##.."),
+    rowBits("##..."), rowBits("....."), rowBits("....."), rowBits("....."),
+    /* 'tilde' 0x7E */
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits(".###..#."), rowBits("#######."), rowBits("#######."), rowBits("#..###.."),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+    rowBits("........"), rowBits("........"), rowBits("........"), rowBits("........"),
+};
+
+} // namespace
+
+extern const Font kFontSmall = { kSmallWidths, kSmallRows, 95, ' ', 12, 13, 1 };
+extern const Font kFontLarge = { kLargeWidths, kLargeRows, 95, ' ', 20, 22, 1 };
+
+void drawChar(uint16_t *frameBuf, int x, int y, char c, uint16_t color, const Font &font)
 {
-    Glyph g = glyphFor(c);
-    for (int row = 0; row < kFontGlyphHeight; row++)
+    int index = int(uint8_t(c)) - int(uint8_t(font.firstChar));
+    if (index < 0 || index >= font.glyphCount)
+        return;
+    uint8_t width = font.glyphWidths[index];
+    const uint16_t *rows = font.glyphRows + size_t(index) * font.height;
+    for (int row = 0; row < font.height; row++)
     {
         int py = y + row;
         if (py < 0 || py >= Display::kDisplayHeight)
             continue;
-        uint8_t bits = g.rows[row];
-        for (int col = 0; col < kFontGlyphWidth; col++)
+        uint16_t bits = rows[row];
+        for (int col = 0; col < width; col++)
         {
-            if (!(bits & (uint8_t(1) << (kFontGlyphWidth - 1 - col))))
+            if (!(bits & (uint16_t(1) << (width - 1 - col))))
                 continue;
             int px = x + col;
             if (px < 0 || px >= Display::kDisplayWidth)
@@ -288,21 +1217,29 @@ void drawChar(uint16_t *frameBuf, int x, int y, char c, uint16_t color)
     }
 }
 
-int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color)
+static uint8_t glyphAdvance(const Font &font, char c)
+{
+    int index = int(uint8_t(c)) - int(uint8_t(font.firstChar));
+    uint8_t w = (index >= 0 && index < font.glyphCount) ? font.glyphWidths[index] : 0;
+    return w + font.spacing;
+}
+
+int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font)
 {
     int cursorX = x;
     for (const char *p = text; *p; p++)
     {
-        drawChar(frameBuf, cursorX, y, *p, color);
-        cursorX += kFontAdvanceX;
+        drawChar(frameBuf, cursorX, y, *p, color, font);
+        cursorX += glyphAdvance(font, *p);
     }
     return cursorX;
 }
 
-int textWidth(const char *text)
+int textWidth(const char *text, const Font &font)
 {
-    int n = 0;
+    int total = 0;
     for (const char *p = text; *p; p++)
-        n++;
-    return n * kFontAdvanceX;
+        total += glyphAdvance(font, *p);
+    return total;
 }
+
