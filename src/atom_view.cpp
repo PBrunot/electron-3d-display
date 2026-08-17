@@ -71,20 +71,41 @@ void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig
 // --- Element-switch intro ticker (Right/Left tilt-hold) -------------------------------
 
 namespace {
-constexpr int kElementIntroNameScale = 2;
-constexpr int kElementIntroSymbolScale = 6; // big, static, pale watermark behind the scrolling name
+constexpr int kElementIntroMaxNameScale = 4; // "bigger" (feedback, 2026-08-17) -- the biggest
+constexpr int kElementIntroMinNameScale = 2; // that still fits is picked per-name, see pickNameScale()
+constexpr int kElementIntroNameMarginPx = 10; // side margin so a centered name isn't flush to the edges
+constexpr int kElementIntroSymbolScale = 6;   // big, static, pale watermark behind the scrolling name
 // Light/muted on purpose -- it's a background, not the star of the animation; the
 // scrolling name (kAccentColor) needs to stay the eye's focus on top of it.
 constexpr uint16_t kElementIntroSymbolColor = Display::packColor565(90, 90, 100);
 
+// Feedback (2026-08-17): the original single-pass scroll at ticker.h's default speed read
+// as "too fast" -- slower here, plus a real pause instead of a continuous scroll-through.
+constexpr int kElementIntroPxPerFrame = 6;
+constexpr uint32_t kElementIntroHoldMs = 500;
+
+/** Largest scale in [kElementIntroMinNameScale, kElementIntroMaxNameScale] whose scaled
+ * width still leaves kElementIntroNameMarginPx clear on each side when centered -- longer
+ * Italian names (e.g. "Praseodimio") don't fit as big as short ones (e.g. "Boro") without
+ * clipping at the pause, so this is picked per-name rather than a single fixed scale. */
+int pickNameScale(const char* name) {
+    int maxWidth = Display::kDisplayWidth - 2 * kElementIntroNameMarginPx;
+    for (int scale = kElementIntroMaxNameScale; scale > kElementIntroMinNameScale; scale--)
+        if (textWidthScaled(name, kFontLarge, scale) <= maxWidth)
+            return scale;
+    return kElementIntroMinNameScale;
+}
+
 /**
- * Scroll `nameIt` (the element's Italian name) right-to-left over a big, static, pale
- * background watermark of `symbol` (its chemical symbol), with a static "Z=<z>" caption
- * underneath the name -- shown before atom_view.cpp switches to a new element. Bespoke
- * (not ticker.h's plain scrollTextOnce()) since it composites three layers instead of one
- * plain scrolling line.
+ * Slide `nameIt` (the element's Italian name) in from the right over a big, static, pale
+ * background watermark of `symbol` (its chemical symbol), pause centered for
+ * kElementIntroHoldMs, then slide back out to the left -- shown before atom_view.cpp
+ * switches to a new element. A static "Z=<z>" caption sits underneath the name throughout.
+ * Bespoke (not ticker.h's plain scrollTextOnce()) since it composites three layers and a
+ * pause instead of one plain continuous scroll.
  */
 void scrollElementIntro(Display& display, const char* nameIt, int z, const char* symbol, uint16_t nameColor) {
+    int nameScale = pickNameScale(nameIt);
     char zLabel[16];
     std::snprintf(zLabel, sizeof(zLabel), "Z=%d", z);
 
@@ -93,24 +114,31 @@ void scrollElementIntro(Display& display, const char* nameIt, int z, const char*
     int symbolY = (Display::kDisplayHeight - kFontLarge.height * kElementIntroSymbolScale) / 2;
 
     int nameY = 90;
-    int zY = nameY + kFontLarge.height * kElementIntroNameScale + 6;
+    int zY = nameY + kFontLarge.height * nameScale + 6;
     int zX = (Display::kDisplayWidth - textWidth(zLabel, kFontLarge)) / 2;
 
-    int nameWidth = textWidthScaled(nameIt, kFontLarge, kElementIntroNameScale);
-    int x = Display::kDisplayWidth;
-    int endX = -nameWidth;
-    while (x > endX) {
+    int nameWidth = textWidthScaled(nameIt, kFontLarge, nameScale);
+    int centerX = (Display::kDisplayWidth - nameWidth) / 2;
+
+    auto renderAt = [&](int x) {
         display.waitForFlushDone();
         uint16_t* frameBuf = display.getFrameBuf();
         std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
         drawTextScaled(frameBuf, symbolX, symbolY, symbol, kElementIntroSymbolColor, kFontLarge,
                         kElementIntroSymbolScale);
-        drawTextScaled(frameBuf, x, nameY, nameIt, nameColor, kFontLarge, kElementIntroNameScale);
+        drawTextScaled(frameBuf, x, nameY, nameIt, nameColor, kFontLarge, nameScale);
         drawText(frameBuf, zX, zY, zLabel, nameColor, kFontLarge);
         display.presentFrame();
+    };
 
-        x -= kTickerDefaultPxPerFrame;
-    }
+    for (int x = Display::kDisplayWidth; x > centerX; x -= kElementIntroPxPerFrame)
+        renderAt(x);
+
+    renderAt(centerX); // land exactly centered -- the loop above may step past it
+    vTaskDelay(pdMS_TO_TICKS(kElementIntroHoldMs)); // panel keeps showing the last frame on its own
+
+    for (int x = centerX; x > -nameWidth; x -= kElementIntroPxPerFrame)
+        renderAt(x);
 }
 } // namespace
 
@@ -186,15 +214,15 @@ int compactDissectLevelInPlace(AtomPoint* points, uint16_t* colors, int count, i
 constexpr int kDissectBigScale = 3;
 
 /** Draw `bigLabel` scaled kDissectBigScale x, then `caption` underneath at plain size,
- * both starting at (x, y) -- shared by the eased leg's flyOver() title callback and
+ * both starting at (x, y) -- shared by the eased leg's easeScaleTimed() title callback and
  * renderDissectFrame()'s real-time hold below, so both look identical. */
 void drawDissectTitle(uint16_t* frameBuf, int x, int y, uint16_t color, const char* bigLabel, const char* caption) {
     drawTextScaled(frameBuf, x, y, bigLabel, color, kFontLarge, kDissectBigScale);
     drawText(frameBuf, x, y + kFontLarge.height * kDissectBigScale + 4, caption, color, kFontLarge);
 }
 
-/** Render one frame at a fixed `scale` -- shared by the eased leg (via flyOver()) and the
- * real-time hold below, which isn't eased so doesn't go through flyOver(). */
+/** Render one frame at a fixed `scale` -- shared by the eased leg (via easeScaleTimed())
+ * and the real-time hold below, which holds a constant scale so doesn't need easing. */
 void renderDissectFrame(Display& display, const AtomPoint* points, const uint16_t* colors, int count,
                          uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, const CameraState& camera,
                          orb_real_t scale, const char* bigLabel, const char* caption) {
@@ -205,22 +233,96 @@ void renderDissectFrame(Display& display, const AtomPoint* points, const uint16_
     display.presentFrame();
 }
 
+// Feedback (2026-08-17): camera.h's flyOver() eases over a FIXED FRAME COUNT
+// (kSwitchTransitionFrames), which reads as a different real-world speed depending on the
+// achieved FPS -- this project's own perf work (CLAUDE.md's "35.7 -> 62.5 FPS" commit)
+// sped it up enough that dissection's shell-to-shell zooms started feeling rushed instead
+// of like "moving inside the atom". easeScaleTimed() below paces by real elapsed time
+// (esp_timer) instead, at a fixed physical speed (kDissectFlySpeedPmPerSec) over the
+// ACTUAL radial distance between the two shells' reference radii -- a hop between two
+// closely-spaced shells is quick, a hop across a big radius gap takes longer, matching how
+// flying past physical distance would feel, and staying independent of render FPS.
+constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(150);
+// Floor so a ~zero-distance hop (e.g. entering dissection at level 1, already framed by
+// the full-atom view -- see runDissectionSequence()'s `prevRRef` seeding) still eases
+// briefly instead of cutting instantly.
+constexpr uint32_t kDissectFlyMinMs = 150;
+
+/** Real-time duration (ms) to fly between two shells' reference radii at
+ * kDissectFlySpeedPmPerSec, floored at kDissectFlyMinMs -- see the comment above. */
+uint32_t dissectFlyDurationMs(orb_real_t fromRRef, orb_real_t toRRef) {
+    orb_real_t deltaRRef = toRRef - fromRRef;
+    orb_real_t distancePm = (deltaRRef < orb_real_t(0) ? -deltaRRef : deltaRRef) * kPmPerBohr;
+    uint32_t ms = uint32_t(double(distancePm / kDissectFlySpeedPmPerSec) * 1000.0);
+    return ms < kDissectFlyMinMs ? kDissectFlyMinMs : ms;
+}
+
+/**
+ * Like camera.h's flyOver(), but eases `startScale` -> `endScale` over `durationMs` of
+ * REAL time (esp_timer) instead of a fixed frame count -- see kDissectFlySpeedPmPerSec's
+ * comment above for why. Template (over the title-drawing callable) for the same reason
+ * flyOver() is: needs to be visible at each call site, but since every call site is in
+ * this one file, it stays .cpp-local instead of needing a header (unlike flyOver(), which
+ * orbital_view.cpp/atom_view.cpp both instantiate).
+ */
+template <typename TitleDrawFn>
+void easeScaleTimed(Display& display, const AtomPoint* points, const uint16_t* colors, int count,
+                     TitleDrawFn drawTitle, uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor,
+                     CameraState& camera, orb_real_t startScale, orb_real_t endScale, uint32_t durationMs) {
+    int64_t startUs = esp_timer_get_time();
+    int64_t durationUs = int64_t(durationMs) * 1000;
+    for (;;) {
+        int64_t elapsedUs = esp_timer_get_time() - startUs;
+        orb_real_t t = durationUs > 0 ? orb_real_t(double(elapsedUs) / double(durationUs)) : orb_real_t(1);
+        if (t > orb_real_t(1))
+            t = orb_real_t(1);
+        orb_real_t scale = startScale + (endScale - startScale) * t;
+
+        display.waitForFlushDone();
+        renderScene(display.getFrameBuf(), points, colors, count, protonColor, camera, scale);
+        drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
+        drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
+        display.presentFrame();
+
+        stepCamera(&camera);
+        if (t >= orb_real_t(1))
+            break;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
 /**
  * Automatically peel through every occupied subshell, outer to inner: for each level, ease
- * the camera in (flyOver()) to frame that subshell (scaleForAtom(active.rRef)) with its
- * label, hold for kDissectHoldUs while continuing to tumble, then move to the next level.
- * Ends by rebuilding the full cloud fresh (preset.load()) and easing back out to
- * preset.baseScale. Blocking -- no tilt polling during the sequence, matching
- * pc/atom_view_pc.py's own one-shot blocking sequence (no abort gesture defined here).
+ * the camera in (easeScaleTimed(), paced by real time/pm-per-second -- see its comment) to
+ * frame that subshell (scaleForAtom(active.rRef)) with its label, hold for kDissectHoldUs
+ * while continuing to tumble, then move to the next level. Ends by rebuilding the full
+ * cloud fresh (preset.load()) and easing back out to preset.baseScale. Blocking -- no tilt
+ * polling during the sequence, matching pc/atom_view_pc.py's own one-shot blocking
+ * sequence (no abort gesture defined here).
  */
+// "same for dissection ... small pause, large characters" (feedback, 2026-08-17) --
+// matches scrollElementIntro()'s slide-in/pause/slide-out shape, just without its
+// background-watermark/Z-caption layers (this is one sentence, not a single word). Shorter
+// hold than kElementIntroHoldMs: this phrase is long enough it's read partly in motion
+// (see ticker.h's scrollTextPauseOnce() docstring on "centered" for text wider than the
+// screen), not meant to fully stop and be absorbed like the short element name is.
+constexpr int kDissectIntroScale = 2;
+constexpr uint32_t kDissectIntroHoldMs = 400;
+
 void runDissectionSequence(Display& display, AtomPresetState& preset, CameraState& camera, uint16_t protonColor,
                             uint16_t textColor, uint16_t scaleBarColor) {
     char introText[48];
     std::snprintf(introText, sizeof(introText), "Configurazione elettronica di %s", elementSymbol(preset.z));
-    scrollTextOnce(display, introText, kFontLarge, 1, kAccentColor, 110);
+    scrollTextPauseOnce(display, introText, kFontLarge, kDissectIntroScale, kAccentColor, 110, kDissectIntroHoldMs);
 
     orb_real_t scale = preset.baseScale;
     int count = kAtomViewNumPoints;
+    // Seeded to dissectPlan[0]'s own radius (the outermost shell) -- numerically the same
+    // reference outerSubshellRRef() used for preset.baseScale, so the very first hop
+    // (level 1, already framed by the full-atom view) computes a ~zero distance and just
+    // hits dissectFlyDurationMs()'s floor, not a spurious "long flight" to somewhere we're
+    // already looking at.
+    orb_real_t prevRRef = dissectPlanCount > 0 ? dissectPlan[0].rRef : orb_real_t(1);
 
     for (int level = 1; level <= dissectPlanCount; level++) {
         DissectionEntry active = dissectPlan[level - 1];
@@ -236,12 +338,14 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
             drawDissectTitle(fb, x, y, color, bigLabel, caption);
         };
 
-        ESP_LOGI(kAtomViewTag, "dissecting shell %d%c (%d pts, level %d/%d)", active.n, subshellLabelChar(active.ell),
-                 count, level, dissectPlanCount);
+        uint32_t flyMs = dissectFlyDurationMs(prevRRef, active.rRef);
+        ESP_LOGI(kAtomViewTag, "dissecting shell %d%c (%d pts, level %d/%d, fly %ums)", active.n,
+                 subshellLabelChar(active.ell), count, level, dissectPlanCount, flyMs);
 
-        flyOver(display, preset.points, preset.colors, count, title, protonColor, textColor, scaleBarColor, &camera,
-                scale, s.baseScale, kSwitchTransitionFrames);
+        easeScaleTimed(display, preset.points, preset.colors, count, title, protonColor, textColor, scaleBarColor,
+                       camera, scale, s.baseScale, flyMs);
         scale = s.baseScale;
+        prevRRef = active.rRef;
 
         int64_t holdStartUs = esp_timer_get_time();
         while (esp_timer_get_time() - holdStartUs < kDissectHoldUs) {
@@ -253,13 +357,15 @@ void runDissectionSequence(Display& display, AtomPresetState& preset, CameraStat
     }
 
     // Rebuild the full cloud fresh (undoes every level's in-place compaction above) and
-    // ease back out to it.
+    // ease back out to it, at the same fixed pm/s pace (a single hop covering the full
+    // innermost-to-outermost distance, since we're returning straight to the full view).
+    uint32_t returnFlyMs = dissectFlyDurationMs(prevRRef, dissectPlanCount > 0 ? dissectPlan[0].rRef : prevRRef);
     preset.load(preset.z);
     auto fullTitle = [&](uint16_t* fb, int x, int y, uint16_t color) {
         drawAtomTitle(fb, x, y, preset.z, preset.config, color, kFontLarge);
     };
-    flyOver(display, preset.points, preset.colors, kAtomViewNumPoints, fullTitle, protonColor, textColor,
-            scaleBarColor, &camera, scale, preset.baseScale, kSwitchTransitionFrames);
+    easeScaleTimed(display, preset.points, preset.colors, kAtomViewNumPoints, fullTitle, protonColor, textColor,
+                   scaleBarColor, camera, scale, preset.baseScale, returnFlyMs);
 }
 } // namespace
 
