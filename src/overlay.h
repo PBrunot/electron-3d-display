@@ -1,4 +1,5 @@
-// On-screen text overlays: FPS counter, title, and the physical-size scale bar. Port of
+// On-screen text overlays: title and the physical-size scale bar (FPS is serial-logged
+// only, not drawn -- see the ESP_LOGI calls in atom_view.cpp/orbital_view.cpp). Port of
 // micropython/cloud_common.py's SCALE_BAR_CANDIDATES/pick_scale_bar_length() +
 // micropython/device_render_common.py's draw_scale_bar(), on top of font.h's bitmap text
 // instead of framebuf. Panel-native coordinates, NOT prism-mirror-corrected -- same "not
@@ -26,9 +27,7 @@ constexpr orb_real_t kPmPerBohr = orb_real_t(52.9177210903);
 void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unitLabel, uint16_t barColor,
                   uint16_t textColor);
 
-// Overlay text layout, matching device_render_common.py's TITLE_TEXT_POS/LOADING_TEXT_POS
-// and orbital_view.py/atom_view.py's FPS_TEXT_POS.
-constexpr int kTitleTextX = 2, kTitleTextY = 12;
-constexpr int kFpsTextX = 2, kFpsTextY = 2;
+// Overlay text layout, matching device_render_common.py's TITLE_TEXT_POS/LOADING_TEXT_POS.
+constexpr int kTitleTextX = 2, kTitleTextY = 2;
 constexpr int kLoadingTextX = 2, kLoadingTextY = 22;
 constexpr const char *kLoadingText = "Loading...";

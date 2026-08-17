@@ -74,7 +74,7 @@ void runOrbitalView(Display &display)
     // GCC's -Werror rejects capturing a static local as a meaningless no-op capture.
     auto drawTitle = [](uint16_t *frameBuf, int x, int y, uint16_t color)
     {
-        drawText(frameBuf, x, y, preset.title, color);
+        drawText(frameBuf, x, y, preset.title, color, kFontLarge);
     };
 
     CameraState camera;
@@ -85,7 +85,6 @@ void runOrbitalView(Display &display)
             kBuzzThreshold);
 
     constexpr int kFpsUpdateInterval = 50;
-    char fpsText[16] = "FPS: --";
     int frameCount = 0;
     int64_t fpsWindowStartUs = esp_timer_get_time();
 
@@ -127,8 +126,7 @@ void runOrbitalView(Display &display)
         renderScene(display.getFrameBuf(), preset.points, preset.colors, kOrbitalViewNumPoints, kProtonColor, camera,
                     scale, buzzFrame, kBuzzThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
-        drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor);
-        drawText(display.getFrameBuf(), kFpsTextX, kFpsTextY, fpsText, kTextColor);
+        drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontLarge);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         display.presentFrame();
 
@@ -138,8 +136,7 @@ void runOrbitalView(Display &display)
             int64_t nowUs = esp_timer_get_time();
             double elapsedS = double(nowUs - fpsWindowStartUs) / 1e6;
             double fps = elapsedS > 0 ? double(frameCount) / elapsedS : 0.0;
-            std::snprintf(fpsText, sizeof(fpsText), "FPS: %.1f", fps);
-            ESP_LOGI(kOrbitalViewTag, "%s", fpsText);
+            ESP_LOGI(kOrbitalViewTag, "FPS: %.1f", fps);
             fpsWindowStartUs = nowUs;
             frameCount = 0;
         }

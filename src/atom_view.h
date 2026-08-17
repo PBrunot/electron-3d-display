@@ -20,6 +20,7 @@
 #include "atom_cloud.h"
 #include "camera.h"
 #include "display.h"
+#include "font.h"
 
 constexpr int kAtomViewNumPoints = 3000; // matches atom_view.py's N_POINTS (device budget)
 static_assert(kAtomViewNumPoints <= kAtomMaxPoints,
@@ -48,10 +49,11 @@ struct AtomPresetState {
 /**
  * Draw "<Symbol> (Z=<z>) " in `textColor`, then each subshell of `config` (e.g. "2p2")
  * colored by its own shell (shellBaseRgb(n)) -- so the on-screen label and the rendered
- * cloud read as one color language. Wraps to a new line instead of running off the right
- * edge. Port of atom_view.py's _draw_atom_title().
+ * cloud read as one color language. Wraps to a new line (using `font`'s lineAdvance)
+ * instead of running off the right edge. Port of atom_view.py's _draw_atom_title().
  */
-void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig& config, uint16_t textColor);
+void drawAtomTitle(uint16_t* frameBuf, int x, int y, int z, const ElectronConfig& config, uint16_t textColor,
+                    const Font& font);
 
 /**
  * Run the atom viewer, forever (see this file's header comment on why it never returns
