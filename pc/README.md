@@ -221,14 +221,17 @@ ported here idea-for-idea, re-implemented per platform:
 
 - **Brighter electrons / longer persistence**: `ELECTRON_ALPHA` 0.8→0.92,
   `PERSISTENCE_DECAY` 100→150 then 120 (see the constants sections above).
-- **Per-orbital bright color pairs**: each of the 16 orbital presets now
-  carries its own vivid positive/negative color pair (see
-  `micropython/cloud_common.py`'s `ORBITAL_PHASE_COLORS`, mirrored in
-  `src/orbital_library.h`'s `OrbitalDescriptor`) so consecutive orbitals are
-  distinguishable at a glance — same values on PC, device, and web. The
-  dim-point floor was raised too (`COLOR_MIN_LEVEL` 60→80, and the C++'s
-  `kOrbitalColorMinLevel`). The classic orange/blue pair stays on the
-  default preset, 2p_z.
+- **Sign-based phase coloring, classic vibrant orange/blue**: every one of
+  the 16 orbital presets colors positive/negative lobes of psi_real with
+  the same classic vibrant orange/blue pair ("all orbitals should be
+  colored according to sign of psi_Real with the classical blue/orange
+  vibrant colors", 2026-08-17) -- a consistent sign→color mapping across
+  the whole library, rather than each preset having its own distinguishing
+  hue (an earlier, since-superseded scheme). Defined once in
+  `micropython/cloud_common.py` (`ORBITAL_PHASE_COLORS`, used by PC + web),
+  mirrored in `src/orbital_library.h`'s `OrbitalDescriptor` for the device.
+  The dim-point floor was raised too (`COLOR_MIN_LEVEL` 60→80, and the
+  C++'s `kOrbitalColorMinLevel`).
 - **Proton always visible**: bigger (14px) and drawn on top of the cloud
   every frame.
 - **Bigger scale bar** with a 2× label font.
@@ -266,11 +269,24 @@ ported here idea-for-idea, re-implemented per platform:
   dissection closes it and returns to the full element.
 - **30 fps**: the per-point Python render loop was the whole bottleneck
   (~140ms/frame at 20000 points). With numpy installed the shared render
-  core (`viewer_common._blend_points_np`) is fully vectorized — rotation,
-  projection, 2×2 blocks, and the exact sequential alpha blend (per-pixel
-  "rounds", same semantics as the Python loop, verified pixel-equal within
-  rounding) — bringing a 5000-point frame to ~30ms (measured ~36 fps on the
-  dev machine). The pure-Python loops remain as the no-numpy fallback.
+  core (`pc/render_core.py` -- also imported by the web port under Pyodide,
+  see below) is fully vectorized -- rotation, projection, 2×2 blocks, and
+  the exact sequential alpha blend (per-pixel "rounds", same semantics as
+  the Python loop, verified pixel-equal within rounding) -- bringing a
+  5000-point frame to ~30ms (measured ~36 fps on the dev machine). The
+  pure-Python loops remain as the no-numpy fallback.
+- **Web parity via the shared render core**: the browser demo
+  (web/py/web_common.py) imports the SAME `pc/render_core.py` module (it's
+  fetched into Pyodide per web/index.html's PY_FILES, alongside the already-
+  shared micropython/ model files), so the web now shows the same look as
+  the PC -- 2×2 electrons at alpha 0.92, the 14px on-top nucleus, the
+  doubled scale bar, and the per-orbital colors (which already flowed
+  through `cloud_common.ORBITAL_PHASE_COLORS`). Its chooser got the same
+  treatment (plain "Orbitals"/"Atoms", no title; it keeps its tumbling
+  backdrop since Pyodide has no JPEG decoder for the static splash image),
+  and its dissection HUD/labels match the device-style triple. The full
+  animation features (quantum-number reveal, element/dissection intros,
+  idle auto-advance) remain PC/device-only.
 
 Orbital-name fix: the (n=5, l=2, m=0) preset was mislabeled "5p_z3"/"5pz3"
 in `micropython/cloud_common.py` and `src/orbital_library.h` (a d orbital,
@@ -289,7 +305,7 @@ stay documented without turning the source into prose.
 ### Display geometry (`viewer_common.py`, except `N_POINTS`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `WIDTH` / `HEIGHT` | 480 / 480 | Logical render resolution (2× the device's 240×240 panel) |
 | `CENTER` | `WIDTH // 2` | Screen center |
 | `DISPLAY_SCALE` | 2 | The tkinter window is `WIDTH*DISPLAY_SCALE` square; all math stays at `WIDTH`/`HEIGHT` |
@@ -299,7 +315,7 @@ stay documented without turning the source into prose.
 ### Camera motion (`viewer_common.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `ANGLE_STEP` | 0.030 | Yaw (about Y) angular speed per frame |
 | `TILT_ANGLE_STEP` | 0.023 | Tilt (about X) angular speed per frame |
 | `ROLL_ANGLE_STEP` | 0.017 | Roll (about Z) angular speed per frame |
@@ -325,7 +341,7 @@ boot isn't axis-locked.
 ### Intro / orbital-switch transitions (`viewer_common.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `INTRO_START_SCALE_FACTOR` | 12.0 | Startup fly-over starts at 12× base scale |
 | `INTRO_FRAMES` | 70 | Startup fly-over duration |
 | `SWITCH_START_SCALE_FACTOR` | 10.0 | Orbital/Z-switch fly-over starts at 10× base scale |
@@ -334,7 +350,7 @@ boot isn't axis-locked.
 ### Random zoom excursions (`viewer_common.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `ZOOM_EXCURSION_MIN_INTERVAL_FRAMES` | 150 | Minimum frames between dives |
 | `ZOOM_EXCURSION_MAX_INTERVAL_FRAMES` | 400 | Maximum frames between dives |
 | `ZOOM_EXCURSION_SCALE_MIN_FACTOR` | 0.35 | Dive target, as a factor of base scale (min) |
@@ -351,7 +367,7 @@ individual points into the electron cloud, not just a bigger breath.
 ### Bounding sphere + rotation marker (`viewer_common.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `BOUNDING_SPHERE_COLOR` | `(70, 70, 90)` | Sphere outline color |
 | `MARKER_TEXT` | `"H"` | Marker glyph (the atom viewer passes the element symbol instead) |
 | `MARKER_FONT_SIZE` | 15 | Marker glyph size |
@@ -374,8 +390,8 @@ flat gray), which reads much stronger than just dimming the same gray-blue.
 ### Nucleus (`viewer_common.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
-| `PROTON_SIZE` | 14 | Nucleus marker size (px) |
+| --- | --- | --- |
+| `PROTON_SIZE` | 4 | Nucleus marker size (px) |
 | `PROTON_COLOR` | `(255, 0, 0)` | Nucleus marker color |
 
 14px, not the device's 7: the PC buffer is 480×480 = 2× the 240 panel, so 2×
@@ -388,7 +404,7 @@ redraws the proton on top every frame for the same reason).
 ### Electron point rendering (`viewer_common.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `ELECTRON_ALPHA` | 0.92 | Per-point blend fraction toward the point's own color |
 | `ELECTRON_SIZE` | 2 | Electron point size (px per side, square block) |
 | `ENABLE_PERSISTENCE` | True | Fade previous frame instead of clearing (PC-only) |
@@ -441,7 +457,7 @@ be. Lower `PERSISTENCE_DECAY` = shorter trails; 256 = never fades.
 ### Scale bar (`viewer_common.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `SCALE_BAR_MARGIN_X` / `_Y` | 16 / 16 | Bottom-left margin (px) |
 | `SCALE_BAR_MAX_PX` | 180 | Longest allowed bar |
 | `SCALE_BAR_TICK_PX` | 8 | End-tick length |
@@ -464,7 +480,7 @@ scale.
 ### HUD positions (`viewer_common.py`) and debug switches (`orbital_view_pc.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `TITLE_POS` | `(2, 2)` | Title text position |
 | `SUBTITLE_POS` | `(2, 12)` | Second-line text position |
 | `DEBUG_DISABLE_CULL` | False | Set True to disable point-turnover (resample) |
@@ -478,7 +494,7 @@ the picture.
 ### Multi-electron viewer (`atom_view_pc.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `N_POINTS` | 10000 | Sampled points per element |
 | `DEFAULT_Z` | 6 | Carbon — the simplest element with an interesting (non-full, non-empty) p subshell |
 | `ZOOM_FACTOR_MIN` / `_MAX` | 0.15 / 8.0 | Manual zoom multiplier bounds |
@@ -494,7 +510,7 @@ in or out.
 ### Shell-dissection sequence (`atom_view_pc.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `DISSECT_TARGET_PX` | 100.0 | On-screen p90 radius each shell's disc is zoomed to fill |
 | `DISSECT_SHADE_GRAY` | `(70, 70, 70)` | Flat gray for every non-active shell's points |
 | `ACTIVE_SUBSHELL_ALPHA` | 1.0 | Opaque — the exploded subshell ignores `ELECTRON_ALPHA` |
@@ -550,7 +566,7 @@ spoke/text.
 ### Keyboard IMU (`keyboard_imu.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `SPIKE_MAGNITUDE_G` | 0.6 | Spike amplitude per keypress — comfortably over `nudge.NUDGE_THRESHOLD_G` (0.35) |
 | `SPIKE_DECAY` | 0.5 | Fraction of the remaining spike kept per `read_accel_g()` call |
 
@@ -586,7 +602,7 @@ never wraps within any timeframe this program runs.
 ### Validation harness (`validate_atoms.py`)
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `ISOTROPY_SAMPLES` | 20000 | Points sampled per isotropy/anisotropy check |
 | `ISOTROPY_TOL` | 0.05 | Max \|<x²>/<r²> − 1/3\| tolerated |
 | `H_AND_HE_TOL` | 0.03 | Model/lit radius ratio tolerance for H and He |
@@ -602,4 +618,3 @@ subshell among the highest-n occupied ones (e.g. carbon's 2p, iron's 4s),
 and "model radius" = the mode of r²·R(z_eff·r)² using the same
 `z_eff_radial()` the point cloud is built with (Clementi-Raimondi where the
 table covers the subshell, else Slater's rules rescaled by n/n*).
-

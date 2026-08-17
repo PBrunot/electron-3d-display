@@ -14,18 +14,19 @@ single-threaded event loop:
     frame, and the JS driver (see index.html) calls next() on whichever
     generator is active once per animation frame. web_atom.py's dissection
     sequence follows the same pattern.
-  - render_frame()/draw_nucleus()/rotate_yaw_tilt_roll() needed no changes
-    at all -- they only ever touched a plain RGB bytearray, never PIL, so
-    they're copied here verbatim. Only the overlay drawing (bounding circle,
-    rotating marker, scale bar) and the final blit had to be rewritten
-    against the Canvas 2D API instead of PIL's ImageDraw/ImageTk.
+  - The point-rendering core is NOT copied here anymore: render_frame() and
+    the dissection render share pc/render_core.py with the PC simulator
+    (fetched into Pyodide as render_core.py, see index.html's PY_FILES) -- a
+    numpy-vectorized core that runs under both CPython and Pyodide. Only the
+    overlay drawing (bounding circle, rotating marker, scale bar) and the
+    final blit are rewritten here against the Canvas 2D API.
 
 WIDTH/HEIGHT/CENTER intentionally match pc/viewer_common.py's (480/480/240)
 so every tuned camera constant below (INTRO_*, ZOOM_*) carries over from the
 PC viewer unchanged -- no rescaling to re-derive or re-tune for a different
-canvas size. N_POINTS is trimmed on the caller's side instead (see
-web_atom.py) since Pyodide's interpreted per-point loop, not canvas
-resolution, is the real per-frame cost in a browser tab.
+canvas size. The render-style constants (PROTON_SIZE, ELECTRON_ALPHA, ...)
+match pc/viewer_common.py's too, so the web shows the same look (big
+on-top nucleus, bright alpha-blended 2x2 electrons, doubled scale bar).
 """
 
 import math
@@ -34,6 +35,8 @@ import random
 import numpy as np
 import js
 from pyodide.ffi import to_js
+
+import render_core  # shared with pc/viewer_common.py -- see the module docstring
 
 # --- Display geometry --------------------------------------------------------
 WIDTH = 480
@@ -48,7 +51,8 @@ ROLL_ANGLE_STEP = 0.017
 ZOOM_ANGLE_STEP = 0.016
 _TILT_ANGLE_START = 0.9
 _ROLL_ANGLE_START = 2.1
-FRAME_DELAY_MS = 20  # target frame interval; index.html's rAF loop throttles to this
+FRAME_DELAY_MS = 5  # target frame interval; index.html's rAF loop throttles to this
+# (matches pc/viewer_common.py's pacing with the numpy render)
 
 # --- Intro / preset-switch transitions ----------------------------------------
 INTRO_START_SCALE_FACTOR = 1.0
@@ -63,11 +67,19 @@ ZOOM_INNER_RADIUS_FACTOR = 0.35
 
 
 def outer_bound_scale(outer_r_ref, scale_factor=1.0):
-    return scale_factor * ZOOM_BOUNDS_TARGET_PX / max(outer_r_ref * ZOOM_OUTER_RADIUS_FACTOR, 1e-6)
+    return (
+        scale_factor
+        * ZOOM_BOUNDS_TARGET_PX
+        / max(outer_r_ref * ZOOM_OUTER_RADIUS_FACTOR, 1e-6)
+    )
 
 
 def inner_bound_scale(inner_r_ref, scale_factor=1.0):
-    return scale_factor * ZOOM_BOUNDS_TARGET_PX / max(inner_r_ref * ZOOM_INNER_RADIUS_FACTOR, 1e-6)
+    return (
+        scale_factor
+        * ZOOM_BOUNDS_TARGET_PX
+        / max(inner_r_ref * ZOOM_INNER_RADIUS_FACTOR, 1e-6)
+    )
 
 
 def shell_count_frames(base_frames, per_shell_frames, shell_count):
@@ -89,23 +101,31 @@ MARKER_COLOR_BEHIND = (110, 110, 110)
 MARKER_COLOR_FRONT = (255, 220, 40)
 
 # --- Nucleus -------------------------------------------------------------------
-PROTON_SIZE = 3
+# Same values as pc/viewer_common.py -- 14px (2x the device's 7 on the 240
+# panel) and drawn ON TOP of the cloud (see render_frame()), so it's always a
+# fully-opaque bright-red point.
+PROTON_SIZE = 4
 PROTON_COLOR = (255, 0, 0)
 
 # --- Electron point rendering ---------------------------------------------------
-ELECTRON_ALPHA = 0.8
+# Same values as pc/viewer_common.py: 2x2 blocks at alpha ~0.92 with
+# persistence decay 120/256 (see that module's comments for the rationale).
+ELECTRON_ALPHA = 0.92
+ELECTRON_SIZE = 1
 
 ENABLE_PERSISTENCE = True
-PERSISTENCE_DECAY = 100
+PERSISTENCE_DECAY = 120
 _PERSISTENCE_TABLE = bytes((i * PERSISTENCE_DECAY) // 256 for i in range(256))
 
 # --- Scale bar -------------------------------------------------------------------
-SCALE_BAR_MARGIN_X = 8
-SCALE_BAR_MARGIN_Y = 8
-SCALE_BAR_MAX_PX = 90
-SCALE_BAR_TICK_PX = 4
+# Doubled like pc/viewer_common.py's (margins, max length, tick, label font).
+SCALE_BAR_MARGIN_X = 16
+SCALE_BAR_MARGIN_Y = 16
+SCALE_BAR_MAX_PX = 180
+SCALE_BAR_TICK_PX = 8
+SCALE_BAR_LINE_WIDTH = 2
 SCALE_BAR_COLOR = (210, 210, 210)
-SCALE_BAR_FONT_PX = 12
+SCALE_BAR_FONT_PX = 22
 
 # --- HUD text positions -----------------------------------------------------------
 TITLE_POS = (4, 4)
@@ -114,12 +134,15 @@ TITLE_FONT_PX = 15
 
 
 def next_zoom_excursion_countdown():
-    return random.randint(ZOOM_EXCURSION_MIN_INTERVAL_FRAMES, ZOOM_EXCURSION_MAX_INTERVAL_FRAMES)
+    return random.randint(
+        ZOOM_EXCURSION_MIN_INTERVAL_FRAMES, ZOOM_EXCURSION_MAX_INTERVAL_FRAMES
+    )
 
 
 def draw_nucleus(buf):
-    """Verbatim copy of pc/viewer_common.py's draw_nucleus() -- pure
-    bytearray writes, no PIL involved there either.
+    """Pure-Python draw_nucleus() -- the no-numpy fallback path only (the
+    numpy path uses render_core.draw_nucleus()). Same fully-opaque square at
+    center, drawn on top of the cloud.
     """
     proton_x0 = CENTER - PROTON_SIZE // 2
     proton_y0 = CENTER - PROTON_SIZE // 2
@@ -132,7 +155,9 @@ def draw_nucleus(buf):
                     buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
 
 
-def rotate_yaw_tilt_roll(x, y, z, cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll):
+def rotate_yaw_tilt_roll(
+    x, y, z, cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll
+):
     """Verbatim copy of pc/viewer_common.py's rotate_yaw_tilt_roll()."""
     rx1 = x * cos_yaw + z * sin_yaw
     rz1 = z * cos_yaw - x * sin_yaw
@@ -144,13 +169,40 @@ def rotate_yaw_tilt_roll(x, y, z, cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll
 
 
 def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fraction=0.0):
-    """Verbatim copy of pc/viewer_common.py's render_frame()."""
+    """Same look as pc/viewer_common.py's render_frame(): fade (or clear),
+    alpha-blend every point as ELECTRON_SIZE blocks at ELECTRON_ALPHA, then
+    draw the nucleus on top -- via the SHARED numpy core
+    (render_core.render_frame_np, the PC uses the exact same function). The
+    pure-Python loop below is the no-numpy fallback (1px blocks).
+    """
+    if render_core._HAS_NUMPY:
+        arr = render_core.preset_np(preset)
+        if arr is not None:
+            render_core.render_frame_np(
+                buf,
+                preset,
+                arr,
+                angle,
+                tilt_angle,
+                roll_angle,
+                scale,
+                WIDTH,
+                HEIGHT,
+                CENTER,
+                ELECTRON_SIZE,
+                ELECTRON_ALPHA,
+                PERSISTENCE_DECAY,
+                PROTON_SIZE,
+                PROTON_COLOR,
+                buzz_fraction=buzz_fraction,
+                enable_persistence=ENABLE_PERSISTENCE,
+            )
+            return
+
     if ENABLE_PERSISTENCE:
         buf[:] = buf.translate(_PERSISTENCE_TABLE)
     else:
         buf[:] = bytes(len(buf))
-
-    draw_nucleus(buf)
 
     cos_yaw = math.cos(angle)
     sin_yaw = math.sin(angle)
@@ -163,8 +215,17 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
         if buzz_fraction and random.random() < buzz_fraction:
             continue
 
-        rx3, ry3, _rz = rotate_yaw_tilt_roll(xs[i], ys[i], zs[i],
-                                             cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll)
+        rx3, ry3, _rz = rotate_yaw_tilt_roll(
+            xs[i],
+            ys[i],
+            zs[i],
+            cos_yaw,
+            sin_yaw,
+            cos_tilt,
+            sin_tilt,
+            cos_roll,
+            sin_roll,
+        )
         px = CENTER + round(rx3 * scale)
         py = CENTER - round(ry3 * scale)
 
@@ -174,6 +235,8 @@ def render_frame(buf, preset, angle, tilt_angle, roll_angle, scale, buzz_fractio
             buf[idx] = buf[idx] + int((cr - buf[idx]) * ELECTRON_ALPHA)
             buf[idx + 1] = buf[idx + 1] + int((cg - buf[idx + 1]) * ELECTRON_ALPHA)
             buf[idx + 2] = buf[idx + 2] + int((cb - buf[idx + 2]) * ELECTRON_ALPHA)
+
+    draw_nucleus(buf)  # on top -- same order as the numpy path
 
 
 def advance_rotation(app):
@@ -199,19 +262,28 @@ def fly_over_gen(app, start_scale, end_scale, frames):
     unresponsive. See zoom_excursion_gen()'s docstring for how this composes
     across that function's own leg boundaries too.
     """
-    z0 = getattr(app, 'zoom_factor', 1.0)
+    z0 = getattr(app, "zoom_factor", 1.0)
     for i in range(frames):
         t = i / (frames - 1) if frames > 1 else 1.0
         base = start_scale + (end_scale - start_scale) * t
-        scale = base * (getattr(app, 'zoom_factor', 1.0) / z0)
-        render_frame(app.buf, app.preset, app.angle, app.tilt_angle, app.roll_angle, scale)
+        scale = base * (getattr(app, "zoom_factor", 1.0) / z0)
+        render_frame(
+            app.buf, app.preset, app.angle, app.tilt_angle, app.roll_angle, scale
+        )
         app.blit(scale)
         advance_rotation(app)
         yield
 
 
-def zoom_excursion_gen(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_ref,
-                        shell_count=1, scale_factor=1.0):
+def zoom_excursion_gen(
+    app,
+    base_scale,
+    zoom_amplitude,
+    outer_r_ref,
+    inner_r_ref,
+    shell_count=1,
+    scale_factor=1.0,
+):
     """Generator version of pc/viewer_common.py's maybe_zoom_excursion(),
     minus the countdown gate (the caller checks app.zoom_excursion_countdown
     itself and only starts this generator once it's due -- see
@@ -224,13 +296,22 @@ def zoom_excursion_gen(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_ref
     a zoom press mid-excursion lands smoothly at the next leg boundary
     instead of popping back to the stale snapshot.
     """
+
     def _live(value):
-        return value * (getattr(app, 'zoom_factor', scale_factor) / scale_factor) if scale_factor else value
+        return (
+            value * (getattr(app, "zoom_factor", scale_factor) / scale_factor)
+            if scale_factor
+            else value
+        )
 
     current_scale = base_scale + zoom_amplitude * math.sin(app.zoom_angle)
     outer_scale = outer_bound_scale(outer_r_ref, scale_factor)
     inner_scale = inner_bound_scale(inner_r_ref, scale_factor)
-    frames = shell_count_frames(ZOOM_EXCURSION_EASE_FRAMES_BASE, ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL, shell_count)
+    frames = shell_count_frames(
+        ZOOM_EXCURSION_EASE_FRAMES_BASE,
+        ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL,
+        shell_count,
+    )
     yield from fly_over_gen(app, current_scale, _live(outer_scale), frames)
     yield from fly_over_gen(app, _live(outer_scale), _live(inner_scale), frames)
     yield from fly_over_gen(app, _live(inner_scale), _live(base_scale), frames)
@@ -258,7 +339,7 @@ def bind_canvas(canvas_id):
     canvas = js.document.getElementById(canvas_id)
     canvas.width = WIDTH
     canvas.height = HEIGHT
-    _ctx = canvas.getContext('2d')
+    _ctx = canvas.getContext("2d")
     _image_data = _ctx.createImageData(WIDTH, HEIGHT)
     return _ctx
 
@@ -294,8 +375,15 @@ def draw_bounding_circle_canvas(r_ref, scale, outline_color=BOUNDING_SPHERE_COLO
     _ctx.stroke()
 
 
-def draw_orbit_marker_canvas(r_ref, scale, angle, tilt_angle, roll_angle, marker_text,
-                              outline_color=BOUNDING_SPHERE_COLOR):
+def draw_orbit_marker_canvas(
+    r_ref,
+    scale,
+    angle,
+    tilt_angle,
+    roll_angle,
+    marker_text,
+    outline_color=BOUNDING_SPHERE_COLOR,
+):
     """Canvas counterpart of pc/viewer_common.py's draw_orbit_marker()."""
     draw_bounding_circle_canvas(r_ref, scale, outline_color)
 
@@ -304,15 +392,20 @@ def draw_orbit_marker_canvas(r_ref, scale, angle, tilt_angle, roll_angle, marker
     cos_yaw, sin_yaw = math.cos(angle), math.sin(angle)
     cos_tilt, sin_tilt = math.cos(tilt_angle), math.sin(tilt_angle)
     cos_roll, sin_roll = math.cos(roll_angle), math.sin(roll_angle)
-    rx3, ry3, rz = rotate_yaw_tilt_roll(horizontal_r, y0, 0.0,
-                                        cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll)
+    rx3, ry3, rz = rotate_yaw_tilt_roll(
+        horizontal_r, y0, 0.0, cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll
+    )
     marker_x = CENTER + rx3 * scale
     marker_y = CENTER - ry3 * scale
 
     depth_frac = (rz / r_ref + 1.0) / 2.0 if r_ref > 1e-6 else 0.5
     marker_color = tuple(
-        int(MARKER_COLOR_BEHIND[c] + depth_frac * (MARKER_COLOR_FRONT[c] - MARKER_COLOR_BEHIND[c]))
-        for c in range(3))
+        int(
+            MARKER_COLOR_BEHIND[c]
+            + depth_frac * (MARKER_COLOR_FRONT[c] - MARKER_COLOR_BEHIND[c])
+        )
+        for c in range(3)
+    )
     css = rgb_css(marker_color)
 
     _ctx.strokeStyle = css
@@ -328,11 +421,18 @@ def draw_orbit_marker_canvas(r_ref, scale, angle, tilt_angle, roll_angle, marker
     _ctx.fillText(marker_text, marker_x, marker_y)
 
 
-def draw_scale_bar_canvas(cloud_common_mod, pixels_per_unit, unit_label,
-                           canvas_height=HEIGHT, max_bar_px=SCALE_BAR_MAX_PX):
-    """Canvas counterpart of pc/viewer_common.py's draw_scale_bar(). Takes
-    the cloud_common module explicitly (rather than importing it here) so
-    this module has no hard dependency on the model layer.
+def draw_scale_bar_canvas(
+    cloud_common_mod,
+    pixels_per_unit,
+    unit_label,
+    canvas_height=HEIGHT,
+    max_bar_px=SCALE_BAR_MAX_PX,
+):
+    """Canvas counterpart of pc/viewer_common.py's draw_scale_bar() -- same
+    doubled dimensions (margins, max length, tick, 2px lines, 22px label) so
+    the web bar reads like the PC/device one. Takes the cloud_common module
+    explicitly (rather than importing it here) so this module has no hard
+    dependency on the model layer.
     """
     if pixels_per_unit <= 0:
         return
@@ -345,6 +445,7 @@ def draw_scale_bar_canvas(cloud_common_mod, pixels_per_unit, unit_label,
 
     css = rgb_css(SCALE_BAR_COLOR)
     _ctx.strokeStyle = css
+    _ctx.lineWidth = SCALE_BAR_LINE_WIDTH
     _ctx.beginPath()
     _ctx.moveTo(x0, y)
     _ctx.lineTo(x1, y)
@@ -358,10 +459,12 @@ def draw_scale_bar_canvas(cloud_common_mod, pixels_per_unit, unit_label,
     _ctx.font = "%dpx sans-serif" % SCALE_BAR_FONT_PX
     _ctx.textAlign = "left"
     _ctx.textBaseline = "bottom"
-    _ctx.fillText("%s %s" % (label, unit_label), x0, y - SCALE_BAR_TICK_PX - 2)
+    _ctx.fillText("%s %s" % (label, unit_label), x0, y - SCALE_BAR_TICK_PX - 4)
 
 
-def draw_text_canvas(x, y, text, color, font_px=TITLE_FONT_PX, align='left', baseline='top'):
+def draw_text_canvas(
+    x, y, text, color, font_px=TITLE_FONT_PX, align="left", baseline="top"
+):
     """Plain single-color text overlay -- dissection labels, the Z=n note,
     web_atom.py's multi-color title helper (one segment at a time), and
     web_app.py's chooser button/title labels (align='center').

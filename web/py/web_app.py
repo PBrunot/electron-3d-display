@@ -40,21 +40,28 @@ CHOICE_ORBITALS = 'orbitals'
 CHOICE_ATOM = 'atom'
 CHOICE_ORDER = [CHOICE_ORBITALS, CHOICE_ATOM]
 CHOICE_LABELS = {
-    CHOICE_ORBITALS: 'Hydrogen Orbitals',
-    CHOICE_ATOM: 'Element Explorer',
+    # Plain names, matching pc/launcher.py -- the browser also navigates with
+    # arrow keys, not gestures, so no UP/DOWN prefixes ("on PC we dont use
+    # UP/DOWN only Orbitals or Atoms", 2026-08-17).
+    CHOICE_ORBITALS: 'Orbitals',
+    CHOICE_ATOM: 'Atoms',
 }
 
 # Same fractions as pc/launcher.py -- see that module's comment for why the
 # chooser's proportions are defined as fractions of the canvas rather than
 # fixed pixel counts (this canvas is WIDTH x HEIGHT = 480 x 480, nowhere
-# near PC's 960x960 window, so a literal port of PC's old pixel constants
-# would have been badly oversized here).
-BUTTON_WIDTH_FRAC = 0.44
-BUTTON_HEIGHT_FRAC = 0.0875
-BUTTON_FONT_FRAC = 0.027
-TITLE_FONT_FRAC = 0.017
+# near PC's 960x960 window, so a literal port of PC's pixel constants would
+# have been badly oversized here). No title text over the backdrop, matching
+# PC ("remove atom cube text from the splash screen", 2026-08-17 -- the web
+# keeps its tumbling backdrop instead of the static image: Pyodide has no
+# JPEG decoder, so the splash image can't be loaded in-browser without a JS
+# decode bridge).
+BUTTON_WIDTH_FRAC = 0.50
+BUTTON_HEIGHT_FRAC = 0.10
+BUTTON_FONT_FRAC = 0.042
 HINT_FONT_FRAC = 0.0135
-TITLE_GAP_FRAC = 0.052
+BUTTON1_Y_FRAC = 0.4375   # device kChooserOption1Y=105 on 240 -> fraction of the canvas height
+BUTTON2_Y_FRAC = 0.6875   # device kChooserOption2Y=165 on 240
 
 COLOR_NORMAL_TEXT = (200, 200, 200)
 COLOR_NORMAL_BG = (20, 20, 20)
@@ -64,16 +71,12 @@ COLOR_SELECTED_BG = (255, 220, 40)
 COLOR_SELECTED_OUTLINE = (255, 220, 40)
 COLOR_HINT = (136, 136, 136)
 
-TITLE_TEXT = 'Choose a viewer'
-
 ZOOM_FACTOR_STEP = 1.1  # mirrors atom_view_pc.ZOOM_FACTOR_STEP -- see on_wheel()/on_key()
 
 
 def _button_rects():
-    """(x0, y0, x1, y1) per choice, centered on the 1/3 and 2/3 height
-    marks -- same reasoning as pc/launcher.py's _create_widgets(): keeps
-    the tumbling backdrop's densest (vertical-center) region visible
-    between the two buttons instead of covered by them. Recomputed (not
+    """(x0, y0, x1, y1) per choice, at the device/PC chooser's option
+    heights (BUTTON1_Y_FRAC/BUTTON2_Y_FRAC of the canvas). Recomputed (not
     cached) each call -- cheap, and keeps this the single source of truth
     for both drawing and click hit-testing.
     """
@@ -81,8 +84,8 @@ def _button_rects():
     button_height = round(HEIGHT * BUTTON_HEIGHT_FRAC)
     x0 = CENTER - button_width // 2
     x1 = CENTER + button_width // 2
-    y1 = HEIGHT // 3 - button_height // 2
-    y2 = HEIGHT * 2 // 3 - button_height // 2
+    y1 = round(HEIGHT * BUTTON1_Y_FRAC)
+    y2 = round(HEIGHT * BUTTON2_Y_FRAC)
     return {
         CHOICE_ORBITALS: (x0, y1, x1, y1 + button_height),
         CHOICE_ATOM: (x0, y2, x1, y2 + button_height),
@@ -93,7 +96,8 @@ class ChooserScene:
     """Backdrop-tumble + two-button chooser -- browser counterpart of
     pc/launcher.py's ChooserScene. No canvas ITEMS to create/delete here
     (the 2D canvas API is immediate-mode): every tick() redraws the
-    backdrop, then the buttons and title on top, from scratch.
+    backdrop, then the buttons on top, from scratch. No title text (see the
+    constants comment).
     """
 
     def __init__(self, on_choice):
@@ -137,13 +141,7 @@ class ChooserScene:
         self.angle = (self.angle + ANGLE_STEP) % self.two_pi
 
     def _draw_widgets(self):
-        title_font = round(HEIGHT * TITLE_FONT_FRAC)
         button_font = round(HEIGHT * BUTTON_FONT_FRAC)
-        gap = round(HEIGHT * TITLE_GAP_FRAC)
-
-        top_y0 = self.rects[CHOICE_ORBITALS][1]
-        wc.draw_text_canvas(CENTER, top_y0 - gap, TITLE_TEXT, COLOR_HINT, font_px=title_font,
-                             align='center', baseline='bottom')
 
         for choice in CHOICE_ORDER:
             x0, y0, x1, y1 = self.rects[choice]

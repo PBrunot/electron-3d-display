@@ -43,6 +43,8 @@ import atom_cloud
 import cloud_common
 import slater
 
+import render_core  # shared numpy render core (same module pc/atom_view_pc.py uses)
+
 import web_common as wc
 from web_common import (
     WIDTH, HEIGHT, CENTER,
@@ -50,7 +52,7 @@ from web_common import (
     _TILT_ANGLE_START, _ROLL_ANGLE_START,
     INTRO_FRAMES, INTRO_START_SCALE_FACTOR,
     SWITCH_TRANSITION_FRAMES, SWITCH_START_SCALE_FACTOR,
-    PROTON_SIZE, ELECTRON_ALPHA,
+    PROTON_SIZE, PROTON_COLOR, ELECTRON_ALPHA, ELECTRON_SIZE,
     TITLE_POS, SUBTITLE_POS, TITLE_FONT_PX,
     render_frame, draw_nucleus, rotate_yaw_tilt_roll, advance_rotation,
     fly_over_gen, zoom_excursion_gen, next_zoom_excursion_countdown,
@@ -85,25 +87,44 @@ DISSECT_CLIP_OPEN = 0.0
 DISSECT_CLIP_CLOSED = 1.0e6
 DISSECT_ORIENT_FRAMES = 55
 DISSECT_ZOOM_FRAMES = 55
-DISSECT_HOLD_FRAMES = 100  # ~2s at FRAME_DELAY_MS=20 -- a frame count, not wall-clock seconds
+# Port of the PC/device dissection pacing change (shell-to-shell hops ~2x as
+# long, "every shell-to-shell hop now takes ~2x as long", 2026-08-17) -- only
+# the per-shell zoom legs are slowed.
+DISSECT_ZOOM_SLOWDOWN = 2.0
+DISSECT_HOLD_FRAMES = 100  # ~2s at FRAME_DELAY_MS=5 -- a frame count, not wall-clock seconds
                             # (see module docstring: there's no blocking sleep to pace against)
 DISSECT_CLOSE_FRAMES = 100
 DISSECT_FRAMES_PER_SHELL = 8
 
-DISSECT_LABEL_COLOR = (255, 255, 0)
+# Device-style dissection HUD (see pc/atom_view_pc.py's matching constants):
+# a big subshell label ("2p"), a plain-size caption ("Fe (2/5)", the element symbol) and a
+# small "<occ>e-" note in the top-right corner.
+DISSECT_BIG_FONT_PX = 72
+DISSECT_CAPTION_FONT_PX = 28
+DISSECT_OCC_FONT_PX = 24
+DISSECT_TITLE_COLOR = (255, 255, 255)
+DISSECT_OCC_MARGIN_PX = 8
 Z_NOTE_COLOR = (255, 140, 140)
-# Shown for the WHOLE sequence (unlike the per-subshell `label`, which is
-# None during the open/close/overview legs) -- see
-# pc/atom_view_pc.py's matching constant.
-DISSECT_BANNER_TEXT = "DISSECTING..."
-DISSECT_BANNER_COLOR = (255, 110, 40)
 
 
 def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
                              dim_color=DISSECT_SHADE_GRAY):
-    """Unchanged from pc/atom_view_pc.py -- see that module for the full
-    docstring on the two-pass dim/highlight drawing and the clip plane.
+    """Same two-pass dim/highlight + clip rendering as pc/atom_view_pc.py's
+    render_dissection_frame() -- see that module for the full docstring. With
+    numpy (always present in Pyodide) this takes the SHARED vectorized core
+    (render_core.render_dissection_frame_np, the same function the PC uses);
+    the pure-Python loop below is the no-numpy fallback.
     """
+    if render_core._HAS_NUMPY and ELECTRON_SIZE in (1, 2):
+        arr = render_core.preset_np(preset)
+        if arr is not None:
+            render_core.render_dissection_frame_np(
+                buf, preset, arr, angle, tilt_angle, roll_angle, scale,
+                clip_z, active_subshell, dim_color,
+                WIDTH, HEIGHT, CENTER, ELECTRON_SIZE, ELECTRON_ALPHA, ACTIVE_SUBSHELL_ALPHA,
+                PROTON_SIZE, PROTON_COLOR)
+            return
+
     buf[:] = bytes(len(buf))
 
     cos_yaw = math.cos(angle)
@@ -234,26 +255,39 @@ class WebAtomApp:
         draw_scale_bar_canvas(cloud_common, scale / atom_cloud.PM_PER_BOHR, "pm")
         draw_atom_title_canvas(TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
 
-    def blit_dissection(self, scale, r_ref, label):
+    def blit_dissection(self, scale, r_ref, title):
+        """Device-style dissection HUD (same as pc/atom_view_pc.py's
+        _blit_dissection): plain gray bounding circle, scale bar, a big
+        subshell label ("2p") with a plain-size caption ("Fe (2/5)", the
+        element symbol) underneath, a small "<occ>e-" note in the top-right corner, and the
+        red Z note by the nucleus. `title` is a (big_label, caption, occ)
+        tuple or None.
+        """
         wc.blit_buf(self.buf)
         draw_bounding_circle_canvas(r_ref, scale)
         draw_scale_bar_canvas(cloud_common, scale / atom_cloud.PM_PER_BOHR, "pm")
-        draw_atom_title_canvas(TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
-        banner_x = WIDTH - measure_text_canvas(DISSECT_BANNER_TEXT) - TITLE_POS[0]
-        draw_text_canvas(banner_x, TITLE_POS[1], DISSECT_BANNER_TEXT, DISSECT_BANNER_COLOR)
-        if label:
-            draw_text_canvas(SUBTITLE_POS[0], SUBTITLE_POS[1], label, DISSECT_LABEL_COLOR)
+        if title is not None:
+            big_label, caption, occ = title
+            draw_text_canvas(TITLE_POS[0], TITLE_POS[1], big_label, DISSECT_TITLE_COLOR,
+                             font_px=DISSECT_BIG_FONT_PX)
+            draw_text_canvas(TITLE_POS[0], TITLE_POS[1] + DISSECT_BIG_FONT_PX + 6, caption,
+                             DISSECT_TITLE_COLOR, font_px=DISSECT_CAPTION_FONT_PX)
+            occ_text = "%de-" % occ
+            occ_x = WIDTH - measure_text_canvas(occ_text, font_px=DISSECT_OCC_FONT_PX) - DISSECT_OCC_MARGIN_PX
+            draw_text_canvas(occ_x, DISSECT_OCC_MARGIN_PX, occ_text, DISSECT_TITLE_COLOR,
+                             font_px=DISSECT_OCC_FONT_PX)
         draw_text_canvas(CENTER + PROTON_SIZE, CENTER - PROTON_SIZE, "Z=%d" % self.z, Z_NOTE_COLOR)
 
     def dissect_tumble(self):
         self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
-    def dissect_ease_gen(self, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, label=None,
+    def dissect_ease_gen(self, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, title=None,
                           full_tumble=False):
         """See pc/atom_view_pc.py's _dissect_ease() docstring for
         full_tumble's meaning -- same "clip is CLOSED throughout this leg,
         so full 3-axis tumble is safe" reasoning, used the same way by
-        dissection_sequence()'s Phase 0/5.
+        dissection_sequence()'s Phase 0/5. `title` is the (big_label,
+        caption, occ) triple for blit_dissection(), or None.
         """
         for i in range(frames):
             t = i / (frames - 1) if frames > 1 else 1.0
@@ -261,18 +295,18 @@ class WebAtomApp:
             clip = clip0 + (clip1 - clip0) * t
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
-            self.blit_dissection(scale, r_ref, label)
+            self.blit_dissection(scale, r_ref, title)
             if full_tumble:
                 advance_rotation(self)
             else:
                 self.dissect_tumble()
             yield
 
-    def dissect_hold_gen(self, scale, clip, active_subshell, r_ref, frames, label):
+    def dissect_hold_gen(self, scale, clip, active_subshell, r_ref, frames, title):
         for _ in range(frames):
             render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
                                      scale, clip, active_subshell)
-            self.blit_dissection(scale, r_ref, label)
+            self.blit_dissection(scale, r_ref, title)
             self.dissect_tumble()
             yield
 
@@ -286,7 +320,9 @@ class WebAtomApp:
 
         shell_count = self.preset.shell_count
         orient_frames = shell_count_frames(DISSECT_ORIENT_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
-        zoom_frames = shell_count_frames(DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+        # Shell-to-shell hops paced ~2x slower (see DISSECT_ZOOM_SLOWDOWN).
+        zoom_frames = int(shell_count_frames(DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+                          * DISSECT_ZOOM_SLOWDOWN)
         close_frames = shell_count_frames(DISSECT_CLOSE_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
 
         resting_scale = self.effective_base_scale() + self.effective_zoom_amplitude() * math.sin(self.zoom_angle)
@@ -306,15 +342,18 @@ class WebAtomApp:
 
         # Phase 2: outermost subshell to innermost; the last one is pinned to
         # inner_scale (deeper than its own radius), the rest fill DISSECT_TARGET_PX.
+        # Title is the device-style triple: big "2p" + "Fe (k/N)" caption
+        # (element symbol, not the shell notation already shown by the big
+        # label) + corner "<occ>e-" note (see blit_dissection()).
         prev_scale = outer_scale
         for i, (n, ell, letter, subshell_str, electron_count, r_ref) in enumerate(plan):
             target_scale = inner_scale if i == len(plan) - 1 else DISSECT_TARGET_PX / max(r_ref, 1e-6)
-            label = "%s: n=%d, l=%d (%s shell) -- %d electron%s" % (
-                subshell_str, n, ell, letter, electron_count, "" if electron_count == 1 else "s")
+            subshell = slater.subshell_label(n, ell)
+            title = (subshell, "%s (%d/%d)" % (slater.element_symbol(self.z), i + 1, len(plan)), electron_count)
             yield from self.dissect_ease_gen(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                                              (n, ell), r_ref, zoom_frames, label)
+                                              (n, ell), r_ref, zoom_frames, title)
             yield from self.dissect_hold_gen(target_scale, DISSECT_CLIP_OPEN, (n, ell), r_ref,
-                                              DISSECT_HOLD_FRAMES, label)
+                                              DISSECT_HOLD_FRAMES, title)
             prev_scale = target_scale
 
         # Phase 3: back out to the overview scale, still open.

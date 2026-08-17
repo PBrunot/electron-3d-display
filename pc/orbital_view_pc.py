@@ -54,7 +54,7 @@ from viewer_common import (
 
 import tkinter as tk
 
-N_POINTS = 5000  # more than the device's 3000 -- a desktop CPU has the headroom
+N_POINTS = 10000  # more than the device's 3000 -- a desktop CPU has the headroom
 
 # --- Debug isolation switches -----------------------------------------------
 # Set False to disable point-turnover (resample) or per-frame "buzz" flicker,

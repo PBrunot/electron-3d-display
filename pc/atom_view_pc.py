@@ -48,7 +48,7 @@ from viewer_common import (
     SWITCH_START_SCALE_FACTOR, SWITCH_TRANSITION_FRAMES,
     FRAME_DELAY_MS, ZOOM_ANGLE_STEP, ROLL_ANGLE_STEP,
     _TILT_ANGLE_START, _ROLL_ANGLE_START,
-    PROTON_SIZE, ELECTRON_ALPHA, ELECTRON_SIZE,
+    PROTON_SIZE, PROTON_COLOR, ELECTRON_ALPHA, ELECTRON_SIZE,
     TITLE_POS,
     render_frame, draw_orbit_marker, draw_bounding_circle, draw_scale_bar,
     draw_nucleus, rotate_yaw_tilt_roll, advance_rotation, blend_electron,
@@ -58,13 +58,12 @@ from viewer_common import (
     _HAS_NUMPY, _preset_np, _blend_points_np, _draw_nucleus_np,
 )
 
-if _HAS_NUMPY:
-    import numpy as np  # noqa: F401 -- used by _render_dissection_frame_np()
+import render_core  # shared numpy render core (also imported by web/py/web_common.py)
 
 import tkinter as tk
 
 # --- Cloud / defaults -------------------------------------------------------
-N_POINTS = 5000
+N_POINTS = 10000
 DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
 
 # Calibrated once for THIS canvas's own CENTER (see
@@ -109,7 +108,7 @@ DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0
 
 # --- Dissection HUD ---------------------------------------------------------
 # Port of src/atom_view.cpp's drawDissectTitle(): a big subshell label
-# ("2p") with a plain-size caption ("Shell 2p (2/5)") underneath, and the
+# ("2p") with a plain-size caption ("Fe (2/5)", the element symbol) underneath, and the
 # electron count as a small "<occ>e-" note in the top-right corner -- was a
 # verbose single line in a subtitle position here (and an inline big-scale
 # " Ne-" superscript on the device before feedback moved it to the corner).
@@ -173,44 +172,14 @@ def _render_dissection_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle,
     subshell's points in full color (phase colors where a sign is defined,
     its true SHELL_RGB where signs[i]==0 -- not preset.colors, see the
     Python path's comment) at ACTIVE_SUBSHELL_ALPHA (opaque). Mutates `buf`
-    via a zero-copy numpy view.
+    via a zero-copy numpy view. Implementation shared with the web port
+    lives in render_core.render_dissection_frame_np().
     """
-    buf_np = np.frombuffer(buf, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3)
-    buf_np[:] = 0  # no persistence in dissection (matches the Python path)
-
-    cy, sy = math.cos(angle), math.sin(angle)
-    cx, sx = math.cos(tilt_angle), math.sin(tilt_angle)
-    cz, sz = math.cos(roll_angle), math.sin(roll_angle)
-    xs, ys, zs = arr['xs'], arr['ys'], arr['zs']
-    signs = arr['signs']
-    n = len(xs)
-
-    if active_subshell is not None:
-        active_sel = (arr['shells'] == active_subshell[0]) & (arr['ells'] == active_subshell[1])
-        # Pass 1: everything except the active subshell, flat dim color.
-        col_dim = np.empty((n, 3), dtype=np.uint8)
-        col_dim[:] = dim_color
-        _blend_points_np(buf_np, xs, ys, zs, col_dim, cy, sy, cx, sx, cz, sz, scale,
-                         clip_rz_max=clip_z, skip_mask=active_sel)
-        # Pass 2: active subshell only, full color (phase or shell), opaque.
-        pos = np.asarray(cloud_common.PHASE_POSITIVE_RGB, dtype=np.uint8)
-        neg = np.asarray(cloud_common.PHASE_NEGATIVE_RGB, dtype=np.uint8)
-        full_colors = np.where(signs[:, None] > 0, pos[None, :],
-                               np.where(signs[:, None] < 0, neg[None, :], arr['shell_colors']))
-        _blend_points_np(buf_np, xs, ys, zs, full_colors, cy, sy, cx, sx, cz, sz, scale,
-                         clip_rz_max=clip_z, skip_mask=~active_sel, alpha=ACTIVE_SUBSHELL_ALPHA)
-    else:
-        # Single pass, full colors: phase where a sign is defined, the
-        # preset's merged colors where signs[i]==0 (see the Python path).
-        zero_colors = arr['colors']
-        pos = np.asarray(cloud_common.PHASE_POSITIVE_RGB, dtype=np.uint8)
-        neg = np.asarray(cloud_common.PHASE_NEGATIVE_RGB, dtype=np.uint8)
-        full_colors = np.where(signs[:, None] > 0, pos[None, :],
-                               np.where(signs[:, None] < 0, neg[None, :], zero_colors))
-        _blend_points_np(buf_np, xs, ys, zs, full_colors, cy, sy, cx, sx, cz, sz, scale,
-                         clip_rz_max=clip_z, alpha=ELECTRON_ALPHA)
-
-    _draw_nucleus_np(buf_np)
+    render_core.render_dissection_frame_np(
+        buf, preset, arr, angle, tilt_angle, roll_angle, scale,
+        clip_z, active_subshell, dim_color,
+        WIDTH, HEIGHT, CENTER, ELECTRON_SIZE, ELECTRON_ALPHA, ACTIVE_SUBSHELL_ALPHA,
+        PROTON_SIZE, PROTON_COLOR)
 
 
 def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
@@ -581,8 +550,8 @@ class AtomViewApp:
         BOUNDING_SPHERE_COLOR), so the reference sphere's silhouette stays
         visible even when the active subshell's dimming makes the actual
         points hard to see. `title` is a (big_label, caption, occ) tuple or
-        None: big_label ("2p") in a large font, `caption` ("Shell 2p (2/5)")
-        plain-size underneath it, and a small "<occ>e-" note in the
+        None: big_label ("2p") in a large font, `caption` ("Fe (2/5)", the
+        element symbol) plain-size underneath it, and a small "<occ>e-" note in the
         top-right corner -- the device's drawDissectTitle() layout (the
         electron count moved to the corner, "distinguish from the orbital
         name", 2026-08-17). Also draws a "Z=n" note next to the nucleus.
@@ -917,13 +886,14 @@ class AtomViewApp:
         # instead of its own r_ref-filling target, guaranteeing the dive
         # reaches ZOOM_INNER_RADIUS_FACTOR x its radius, not just its radius.
         # Title is the device's drawDissectTitle() triple: big subshell label
-        # ("2p"), plain-size caption ("Shell 2p (k/N)"), corner "<occ>e-"
+        # ("2p"), plain-size caption ("Fe (k/N)" -- element symbol, not the
+        # shell notation already shown by the big label), corner "<occ>e-"
         # note.
         prev_scale = outer_scale
         for i, (n, ell, letter, subshell_str, electron_count, r_ref) in enumerate(plan):
             target_scale = inner_scale if i == len(plan) - 1 else DISSECT_TARGET_PX / max(r_ref, 1e-6)
             subshell = slater.subshell_label(n, ell)
-            title = (subshell, "Shell %s (%d/%d)" % (subshell, i + 1, len(plan)), electron_count)
+            title = (subshell, "%s (%d/%d)" % (slater.element_symbol(self.z), i + 1, len(plan)), electron_count)
 
             self._dissect_ease(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
                                 active_subshell=(n, ell), r_ref=r_ref,
