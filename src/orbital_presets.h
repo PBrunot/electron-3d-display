@@ -1,6 +1,6 @@
 // Orbital viewer point-cloud model: phase coloring, rank-equalized brightness, point
 // turnover ("buzz"/resample), and p90-radius auto-zoom -- everything orbital_view.h needs
-// on top of orbital_library.h's compile-time samplers (16 presets, index-matched to
+// on top of orbital_library.h's compile-time samplers (kOrbitalLibraryCount presets, index-matched to
 // micropython/cloud_common.py's ORBITAL_PRESETS). Port of cloud_common.py's
 // build_point_cloud()/compute_levels()/level_to_rgb()/resample_levels()/
 // scale_from_radii().
