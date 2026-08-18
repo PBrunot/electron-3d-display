@@ -62,9 +62,8 @@ void TiltGestureDetector::calibrate()
         baseZ_ = sumZ / orb_real_t(ok);
     }
 
-    // Stddev of the samples' magnitude -- a battle-tested calibration sanity check (see
-    // this file's header comment): a high value means the board was moving/being handled
-    // during calibration, not resting flat, so the averaged baseline may not be
+    // Stddev of the samples' magnitude: a high value means the board was moving/being
+    // handled during calibration, not resting flat, so the averaged baseline may not be
     // trustworthy. Logged as a warning only -- there's no UI yet to ask the user to hold
     // still and retry.
     orb_real_t stdDev = orb_real_t(0);
@@ -139,7 +138,7 @@ RawTiltEvent TiltGestureDetector::pollRaw()
             return RawTiltEvent{};
 
         // Latch the normalized direction for the whole hold (recomputed continuously, a
-        // multi-second hold wouldn't stay perfectly steady) -- see this file's header
+        // multi-second hold wouldn't stay perfectly steady) -- see tilt_gesture.h's header
         // comment for why a full 3D unit vector, not a single dominant axis.
         activeDirX_ = dx / mag;
         activeDirY_ = dy / mag;
@@ -179,9 +178,8 @@ TiltEvent TiltGestureDetector::poll()
         return TiltEvent{};
 
     // Nearest-direction match via cosine similarity (dot product of unit vectors) against
-    // every calibrated reference -- see this file's header comment for why this replaced
-    // "pick the single axis with the largest raw deviation". Below cfg.minDirectionSimilarity,
-    // report nothing rather than the best-of-a-bad-lot guess.
+    // every calibrated reference -- see tilt_gesture.h's header comment for the rationale.
+    // Below cfg.minDirectionSimilarity, report nothing rather than the best-of-a-bad-lot guess.
     TiltDirection best = TiltDirection::kNone;
     orb_real_t bestSim = cfg_.minDirectionSimilarity;
     for (int i = 0; i < kTiltDirectionCount; i++)

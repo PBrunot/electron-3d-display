@@ -213,11 +213,19 @@ int subshellDissectionPlan(const AtomPoint *points, int count, const ElectronCon
     return written;
 }
 
+/// @brief apply color brighten factor to a single RGB channel, clamping to [0,255] and rounding to nearest integer.
+/// @param c the color to brighten (0..255)
+/// @param factor the brighten factor (0..1) -- 0 means no change, 1 means full brighten/dim
+/// @return the brightened color (0..255)
 static uint8_t brightenChannel(uint8_t c, orb_real_t factor)
 {
     return uint8_t(orb_real_t(c) + (orb_real_t(255) - orb_real_t(c)) * factor);
 }
 
+/// @brief apply color dim factor to a single RGB channel, clamping to [0,255] and rounding to nearest integer.
+/// @param c the color to dim (0..255)
+/// @param factor the dim factor (0..1) -- 0 means no change, 1 means full brighten/dim
+/// @return the dimmed color (0..255)
 static uint8_t dimChannel(uint8_t c, orb_real_t factor)
 {
     return uint8_t(orb_real_t(c) * (orb_real_t(1) - factor));

@@ -15,31 +15,31 @@
 
 static const char *kAtomViewTestTag = "atom_view_test";
 
-// Full multi-electron atom point cloud (atom_cloud.h): angular tables are compile-time
-// embedded (angular_library.h, confirmed working the same way kOrbital1sSampler was --
-// xtensa-esp32s3-elf-nm showed it in .rodata, no runtime initializer call); each
-// subshell's radial table is built at RUNTIME from slater.h's Z_eff model when this atom
-// is picked (there are too many (n,ell,Z_eff) combinations across 118 elements to embed
-// them all -- see pointcloud.h's angular/radial-split comment). Iron (Z=26) matches
-// ATOMS.md's worked example (3d Z_eff=11.180). Switching elements is future UI work (M4).
+// ============================================================================================
+// Tunable constants
+// ============================================================================================
+
+/// Element shown by this fixed benchmark/smoke-test view. Superseded by atom_view.h/.cpp for
+/// the real element-switching UI (M4); kept here only as a standing FPS/profiling harness.
 static constexpr int kAtomicNumber = 26; // Fe
 
 static constexpr int kNumPoints = 5000;
 static constexpr uint32_t kRngSeed = 12345;
-// Orbital-space-units-to-pixels scale. A full atom's outer/valence subshell reaches much
-// further out (in Bohr radii) than a bare 1s cloud does, so this is a rough starting
-// guess -- this legacy M1/M2 placeholder was superseded by atom_view.h/.cpp's
-// scaleForAtom() (M4), which renormalizes every element to the same on-screen radius.
+/// Orbital-space-units-to-pixels scale. A rough fixed guess, not renormalized per element the
+/// way atom_view.h/.cpp's scaleForAtom() is -- fine for this single-element benchmark.
 static constexpr orb_real_t kScale = orb_real_t(10);
 
 static constexpr uint16_t kProtonColor = Display::packColor565(255, 0, 0);
 
+/// Frame window size for the FPS/phase-timing log lines below.
+constexpr int kFpsReportEveryNFrames = 60;
+
+// ============================================================================================
+
 void runAtomViewTest(Display &display)
 {
-    // Sample the point cloud ONCE (builds every occupied subshell's radial table as it
-    // goes); only the rotation/projection below runs every frame (matches CLAUDE.md §5:
-    // generate points once per orbital/atom, then just rotate/reproject -- not per-frame
-    // resampling).
+    // Sample the point cloud ONCE (builds every occupied subshell's radial table as it goes);
+    // only the rotation/projection below runs every frame.
     static AtomPoint points[kNumPoints];
     int64_t buildStartUs = esp_timer_get_time();
     ElectronConfig config = buildAtomPointCloud(kAtomicNumber, points, kNumPoints, kRngSeed);
@@ -58,22 +58,18 @@ void runAtomViewTest(Display &display)
     constexpr uint16_t kTextColor = Display::kColorWhite;
     constexpr uint16_t kScaleBarColor = Display::packColor565(210, 210, 210);
 
-    // FPS benchmark: no fixed per-frame delay (a fixed vTaskDelay(33) would just measure
-    // the delay, not the hardware's real ceiling) -- vTaskDelay(1) below is the minimum
-    // yield to keep FreeRTOS's idle/watchdog task fed, ~10ms/tick at the default 100Hz
-    // tick rate, i.e. a ~100 FPS ceiling from the delay alone -- well above the ~40 FPS
-    // theoretical ceiling from the SPI transfer itself (CLAUDE.md §6: 240x240x16bit at
-    // 40MHz ~= 23ms/frame), so the delay should never be the bottleneck we're measuring.
-    constexpr int kFpsReportEveryNFrames = 60;
+    // FPS benchmark: no fixed per-frame delay (a fixed vTaskDelay(33) would just measure the
+    // delay, not the hardware's real ceiling) -- vTaskDelay(1) below is the minimum yield to
+    // keep FreeRTOS's idle/watchdog task fed, well above the SPI-transfer-limited theoretical
+    // FPS ceiling (see display.cpp's LCD_PIXEL_CLOCK_HZ), so the delay should never be the
+    // bottleneck being measured.
     int64_t reportWindowStartUs = esp_timer_get_time();
     int framesSinceReport = 0;
 
     // Per-phase profiling: split each frame into (a) time blocked in waitForFlushDone()
     // waiting on the PREVIOUS frame's SPI DMA to finish, and (b) CPU render time (memset +
-    // rotate/project/rasterize + text). presentFrame() itself just queues DMA and returns,
-    // so it's folded into (b) rather than tracked separately. Summed and averaged over the
-    // same window as the FPS report so we can see which phase actually dominates the ~28ms
-    // budget instead of guessing from config changes alone.
+    // rotate/project/rasterize + text). presentFrame() itself just queues DMA and returns, so
+    // it's folded into (b) rather than tracked separately.
     int64_t waitUsAccum = 0;
     int64_t renderUsAccum = 0;
 

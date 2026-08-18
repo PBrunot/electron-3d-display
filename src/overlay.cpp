@@ -37,16 +37,13 @@ static constexpr ScaleBarLength kScaleBarCandidates[] = {
 };
 static constexpr int kScaleBarCandidateCount = sizeof(kScaleBarCandidates) / sizeof(kScaleBarCandidates[0]);
 
-// "la scaletta risulta illegibile, raddoppia le sue dimensioni font compresa" (feedback,
-// 2026-08-17) -- every dimension below doubled, and the label now goes through
-// drawTextScaled() at kScaleBarTextScale instead of plain drawText().
 static constexpr int kScaleBarMarginX = 16;
 static constexpr int kScaleBarMarginY = 16;
-static constexpr orb_real_t kScaleBarMaxPx = orb_real_t(180);
-static constexpr int kScaleBarTickPx = 8;
-static constexpr int kScaleBarLabelGapPx = 4; // px between label bottom and the tick top
-static constexpr int kScaleBarTextScale = 2;
-static constexpr int kScaleBarLineThicknessPx = 2; // was an implicit 1px line
+static constexpr orb_real_t kScaleBarMaxPx = orb_real_t(180); ///< Longest the bar is allowed to render, px.
+static constexpr int kScaleBarTickPx = 8;                     ///< End-tick half-height, px.
+static constexpr int kScaleBarLabelGapPx = 4;                 ///< Gap between label bottom and the tick top.
+static constexpr int kScaleBarTextScale = 2;                  ///< Label text scale, on top of kFontSmall.
+static constexpr int kScaleBarLineThicknessPx = 2;            ///< Bar/tick stroke width, px.
 
 /**
  * Largest candidate from kScaleBarCandidates whose on-screen length (value *

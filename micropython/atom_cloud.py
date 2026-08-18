@@ -242,15 +242,25 @@ def pixels_per_bohr_for_canvas(canvas_center, radius_fraction=_CALIBRATION_RADIU
 # SHELL_LETTERS (added for pc/atom_view_pc.py's shell-dissection labels) and
 # every existing SHELL_RGB[n] call site would otherwise need a [0]/[1] index
 # added.
+#
+# Spectroscopic (energy-scale) ordering, not an arbitrary rainbow: low n
+# (tightly bound, large energy gap to the next shell) gets short-wavelength
+# violet/blue; high n (near ionization, small energy gaps) gets long-
+# wavelength orange/red -- the same direction hydrogen's Balmer series runs
+# in (red for the smallest transition energy, violet for the largest), so
+# the palette doubles as an energy-scale legend across every element's
+# cloud instead of just a K/L/M/... layer-separator with no physical
+# reading. Also ported to the C++ device build's own copy in
+# src/atom_cloud.h (kAtomShellRgb) -- keep the two in sync.
 SHELL_RGB = (
     (255, 255, 255),  # unused (n=0)
-    (255, 80, 80),     # n=1 K
-    (255, 170, 60),    # n=2 L
-    (255, 230, 60),    # n=3 M
-    (120, 230, 90),    # n=4 N
-    (70, 200, 220),    # n=5 O
-    (110, 130, 255),   # n=6 P
-    (200, 100, 240),   # n=7 Q
+    (140, 60, 255),    # n=1 K - deep violet-indigo (highest binding energy)
+    (70, 110, 255),    # n=2 L - saturated blue
+    (60, 200, 220),    # n=3 M - cyan-blue-green
+    (90, 220, 90),     # n=4 N - green (valence region for many elements)
+    (255, 210, 60),    # n=5 O - yellow-orange
+    (255, 140, 40),    # n=6 P - orange
+    (230, 60, 60),     # n=7 Q - deep red (near-ionization, lowest binding)
     (160, 160, 160),   # fallback, n>7
 )
 SHELL_LETTERS = ('?', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', '?')
@@ -264,7 +274,7 @@ SHELL_LETTERS = ('?', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', '?')
 # color outright with no discount at all) -- pushed close to 1.0 so a single
 # hit is close to pure white, the brightest a pixel can get against the
 # black background, while keeping a sliver of the shell hue.
-OUTER_SHELL_BRIGHTEN = 0.92
+OUTER_SHELL_BRIGHTEN = 0.3
 
 
 def _brighten_outer_shell(rgb, factor=OUTER_SHELL_BRIGHTEN):

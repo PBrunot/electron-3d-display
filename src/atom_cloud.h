@@ -85,15 +85,23 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
 // Index 0 unused (n starts at 1); index 8 is the fallback for n>7, unreachable for any
 // z<=kMaxZ ground-state configuration but kept so an out-of-range n degrades to a color
 // instead of an out-of-bounds read.
+//
+// Spectroscopic (energy-scale) ordering, not an arbitrary rainbow: low n (tightly bound,
+// large energy gap to the next shell) gets short-wavelength violet/blue; high n (near
+// ionization, small energy gaps) gets long-wavelength orange/red -- the same direction
+// hydrogen's Balmer series runs in (red for the smallest transition energy, violet for the
+// largest), so the palette doubles as an energy-scale legend across every element's cloud
+// instead of just a K/L/M/... layer-separator with no physical reading. Port of
+// atom_cloud.py's SHELL_RGB after that file's palette update -- keep the two in sync.
 constexpr uint8_t kAtomShellRgb[9][3] = {
     {255, 255, 255}, // unused (n=0)
-    {255, 80, 80},   // n=1 K
-    {255, 170, 60},  // n=2 L
-    {255, 230, 60},  // n=3 M
-    {120, 230, 90},  // n=4 N
-    {70, 200, 220},  // n=5 O
-    {110, 130, 255}, // n=6 P
-    {200, 100, 240}, // n=7 Q
+    {140, 60, 255},  // n=1 K - deep violet-indigo (highest binding energy)
+    {70, 110, 255},  // n=2 L - saturated blue
+    {60, 200, 220},  // n=3 M - cyan-blue-green
+    {90, 220, 90},   // n=4 N - green (valence region for many elements)
+    {255, 210, 60},  // n=5 O - yellow-orange
+    {255, 140, 40},  // n=6 P - orange
+    {230, 60, 60},   // n=7 Q - deep red (near-ionization, lowest binding)
     {160, 160, 160}, // fallback, n>7
 };
 
@@ -109,7 +117,7 @@ const uint8_t *shellBaseRgb(int n);
 // much larger on-screen area than the dimmed core -- 0.92 read as "the atom is just white"
 // rather than "the valence shell stands out from a colored core" once actually seen on
 // this panel.
-constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.6); // lerp toward white
+constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.3); // lerp toward white
 constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward black
 
 /**

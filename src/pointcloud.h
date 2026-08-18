@@ -1,41 +1,33 @@
-// Point cloud generation for hydrogen orbitals, built on top of the
-// wavefunction engine in orbitals.h. This is the M2 step mentioned in
-// CLAUDE.md §5/§7: given a validated psiReal(), draw points (x, y, z)
-// distributed according to the probability density
-// |psi_{n,l,m}(r,theta,phi)|^2 * r^2 * sin(theta) (the r^2*sin(theta) factor
-// is the spherical-coordinates volume element, so points end up distributed
-// in *physical* probability, not just where |psi| happens to be large).
-//
-// Samples r, theta, phi from three INDEPENDENT precomputed inverse-CDF
-// (quantile) tables rather than rejection sampling. This is exact, not an
-// approximation: the target density factors as
-//   |psi|^2 * r^2 * sin(theta) = [r*R(r)]^2 * [P_l^m(theta)^2*sin(theta)] * azimuthal(phi)^2
-// i.e. a product of three single-variable functions, so sampling each
-// marginal independently and combining the results reproduces the joint
-// density exactly (same factorization a prior separable-rejection version
-// used -- preserved in git history -- exploited). Each marginal's inverse
-// CDF is built once per orbital with a single monotonic forward sweep (no
-// per-point search), so sampling a point costs exactly three table lookups
-// (interpolated, O(1)) plus the trig to convert to Cartesian -- no rejection
-// loop anywhere, so no variance in per-point cost. This refines an earlier
-// per-axis *rejection* version (also preserved in git history) the same way
-// stef1949/Electron-Orbital-Simulator's GPU sampler does it: precompute the
-// inverse function itself, not just the CDF, so there's no search at sample
-// time either.
-//
-// buildInverseCdf()/buildOrbitalSamplerConstexpr() (the table-BUILDING half)
-// are constexpr and header-only for the same reason as orbitals.h: a fixed
-// set of orbitals' sampler tables can be baked into firmware as compile-time
-// .rodata (see main.cpp) instead of rebuilt every boot. sampleOrbitalPoint()
-// itself (the per-point RNG draw) stays a regular runtime function in
-// pointcloud.cpp -- there's nothing to precompute about a random draw.
-//
-// Same three-way porting/cross-check discipline as orbitals.h: this is pure
-// C++17-syntax-compatible, no Arduino dependency, and uses a small portable
-// PRNG (XorShift32) so that the same seed produces the *same* accepted point
-// sequence here, in micropython/pointcloud.py, and in
-// tools/orbitals_host/js_reference.js -- see tools/orbitals_host/ for the
-// cross-check that relies on this.
+/**
+ * @file pointcloud.h
+ * @brief Point cloud generation for hydrogen orbitals, built on the wavefunction engine in
+ *        orbitals.h.
+ *
+ * Draws points (x, y, z) distributed according to the probability density
+ * |psi_{n,l,m}(r,theta,phi)|^2 * r^2 * sin(theta) (the r^2*sin(theta) factor is the
+ * spherical-coordinates volume element, so points end up distributed in physical probability,
+ * not just where |psi| happens to be large).
+ *
+ * Samples r, theta, phi from three INDEPENDENT precomputed inverse-CDF (quantile) tables
+ * rather than rejection sampling. This is exact, not an approximation: the target density
+ * factors as
+ *   |psi|^2 * r^2 * sin(theta) = [r*R(r)]^2 * [P_l^m(theta)^2*sin(theta)] * azimuthal(phi)^2
+ * i.e. a product of three single-variable functions, so sampling each marginal independently
+ * and combining the results reproduces the joint density exactly. Each marginal's inverse CDF
+ * is built once per orbital with a single monotonic forward sweep (no per-point search), so
+ * sampling a point costs exactly three table lookups (interpolated, O(1)) plus the trig to
+ * convert to Cartesian -- no rejection loop anywhere, so no variance in per-point cost.
+ *
+ * buildInverseCdf()/buildOrbitalSamplerConstexpr() (the table-BUILDING half) are constexpr and
+ * header-only for the same reason as orbitals.h: a fixed set of orbitals' sampler tables can
+ * be baked into firmware as compile-time .rodata (see orbital_library.h) instead of rebuilt
+ * every boot. sampleOrbitalPoint() itself (the per-point RNG draw) stays a regular runtime
+ * function in pointcloud.cpp -- there's nothing to precompute about a random draw.
+ *
+ * Uses a small portable PRNG (XorShift32) so that the same seed produces the same point
+ * sequence here, in micropython/pointcloud.py, and in tools/orbitals_host/js_reference.js --
+ * see tools/orbitals_host/ for the cross-check that relies on this.
+ */
 #pragma once
 
 #include <cstdint>

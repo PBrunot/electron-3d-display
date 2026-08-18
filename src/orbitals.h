@@ -1,29 +1,29 @@
-// Hydrogen atomic orbital math: associated Legendre polynomials, associated
-// Laguerre radial wavefunction, and their composition into a real orbital
-// wavefunction psiReal(r, theta, phi).
-//
-// Ported function-by-function from quantum-physics.js (c) 2020-2022 Manuel
-// Joffre, www.quantum-physics.polytechnique.fr (see
-// examples/js-calculations/ and tools/orbitals_host/ for the JS reference and
-// the cross-validation harness used to verify this port against it).
-//
-// Header-only and constexpr: every function below can be evaluated by the
-// compiler at compile time, given compile-time-constant arguments (e.g. a
-// `constexpr OrbitalSampler` built in pointcloud.h). This lets the coefficient
-// and sampling tables for a fixed set of orbitals be baked into the firmware
-// as .rodata instead of recomputed every boot (see CLAUDE.md's "Correzione
-// verificata"/M2 notes on why this project avoids on-device recomputation).
-// `constexpr` here does not *force* compile-time evaluation -- called from a
-// non-constant context (as tools/orbitals_host's generators do, compiling
-// against -std=c++17 where <cmath> isn't constexpr) these just behave as
-// ordinary runtime functions, so the existing cross-validation harness is
-// unaffected. orbitals.cpp is kept only so build scripts that list it as a
-// translation unit keep working; it has no content of its own anymore.
-//
-// Pure C++17-syntax-compatible (constexpr requires C++23/26 <cmath> support
-// from the toolchain to actually fold at compile time -- see main.cpp), no
-// Arduino/platform dependency, so this compiles both natively on a PC (see
-// tools/orbitals_host/) and under PlatformIO for the ESP32.
+/**
+ * @file orbitals.h
+ * @brief Hydrogen atomic orbital math: associated Legendre polynomials, associated Laguerre
+ *        radial wavefunction, and their composition into a real orbital wavefunction
+ *        psiReal(r, theta, phi).
+ *
+ * Ported function-by-function from quantum-physics.js (c) 2020-2022 Manuel Joffre,
+ * www.quantum-physics.polytechnique.fr (see examples/js-calculations/ and
+ * tools/orbitals_host/ for the JS reference and the cross-validation harness used to verify
+ * this port against it).
+ *
+ * Header-only and constexpr: every function below can be evaluated by the compiler at compile
+ * time, given compile-time-constant arguments (e.g. a `constexpr OrbitalSampler` built in
+ * pointcloud.h). This lets the coefficient and sampling tables for a fixed set of orbitals be
+ * baked into the firmware as .rodata instead of recomputed every boot. `constexpr` here does
+ * not *force* compile-time evaluation -- called from a non-constant context (as
+ * tools/orbitals_host's generators do, compiling against -std=c++17 where <cmath> isn't
+ * constexpr) these just behave as ordinary runtime functions, so the existing
+ * cross-validation harness is unaffected. orbitals.cpp is kept only so build scripts that
+ * list it as a translation unit keep working; it has no content of its own anymore.
+ *
+ * Pure C++17-syntax-compatible (constexpr requires C++23/26 <cmath> support from the
+ * toolchain to actually fold at compile time), no Arduino/platform dependency, so this
+ * compiles both natively on a PC (see tools/orbitals_host/) and under PlatformIO for the
+ * ESP32.
+ */
 #pragma once
 
 #include <algorithm>

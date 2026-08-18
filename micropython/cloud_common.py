@@ -161,41 +161,41 @@ def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
 
 
 # Phase colors -- sign of psi_real determines the color, and EVERY orbital
-# uses the same classic vibrant orange/blue pair ("all orbitals should be
-# colored according to sign of psi_Real with the classical blue/orange
-# vibrant colors", 2026-08-17): positive = orange, negative = blue,
-# consistently across presets. Superseded the older scheme where each preset
-# had its own distinguishing hue -- that made consecutive presets easy to
-# tell apart, but broke the sign-color association a viewer would otherwise
-# learn to read at a glance across the whole library. Index-matched to
-# ORBITAL_PRESETS and to src/orbital_library.h's
-# OrbitalDescriptor.posRgb/negRgb -- keep the two in lockstep. s orbitals
-# (ell=0) are single-signed everywhere, so they render as a uniform cloud in
-# the positive (orange) color with no visible split -- expected, not a bug
-# (no phase change without a node).
+# uses the same fixed positive/negative pair, consistently across presets,
+# so a viewer learns the sign-color association once and can read it at a
+# glance across the whole library (superseded an older scheme where each
+# preset had its own distinguishing hue). Index-matched to ORBITAL_PRESETS
+# and to src/orbital_library.h's OrbitalDescriptor.posRgb565/negRgb565 --
+# keep the two in lockstep: these are the same 8-bit RGB values as
+# Display::kColorOrbitalRed (210, 40, 40) / kColorOrbitalBlue (40, 80, 210)
+# in src/display.h (the device's own named palette, not plain 0/255 primaries
+# -- see that file's history for why). s orbitals (ell=0) are single-signed
+# everywhere, so they render as a uniform cloud in the positive (red) color
+# with no visible split -- expected, not a bug (no phase change without a
+# node).
 ORBITAL_PHASE_COLORS = (
-    ((255, 120, 40), (0, 0, 255)),    # 0 1s
-    ((255, 120, 40), (0, 0, 255)),    # 1 2s
-    ((255, 120, 40), (0, 0, 255)),    # 2 2p_x
-    ((255, 120, 40), (0, 0, 255)),    # 3 2p_y
-    ((255, 120, 40), (0, 0, 255)),    # 4 2p_z (default preset)
-    ((255, 120, 40), (0, 0, 255)),    # 5 3s
-    ((255, 120, 40), (0, 0, 255)),    # 6 3p_x
-    ((255, 120, 40), (0, 0, 255)),    # 7 3p_y
-    ((255, 120, 40), (0, 0, 255)),    # 8 3p_z
-    ((255, 120, 40), (0, 0, 255)),    # 9 3d_z2
-    ((255, 120, 40), (0, 0, 255)),    # 10 3d_xz
-    ((255, 120, 40), (0, 0, 255)),    # 11 3d_yz
-    ((255, 120, 40), (0, 0, 255)),    # 12 3d_x2-y2
-    ((255, 120, 40), (0, 0, 255)),    # 13 3d_xy
-    ((255, 120, 40), (0, 0, 255)),    # 14 4f_z3
-    ((255, 120, 40), (0, 0, 255)),    # 15 5d_z2
+    ((210, 40, 40), (40, 80, 210)),    # 0 1s
+    ((210, 40, 40), (40, 80, 210)),    # 1 2s
+    ((210, 40, 40), (40, 80, 210)),    # 2 2p_x
+    ((210, 40, 40), (40, 80, 210)),    # 3 2p_y
+    ((210, 40, 40), (40, 80, 210)),    # 4 2p_z (default preset)
+    ((210, 40, 40), (40, 80, 210)),    # 5 3s
+    ((210, 40, 40), (40, 80, 210)),    # 6 3p_x
+    ((210, 40, 40), (40, 80, 210)),    # 7 3p_y
+    ((210, 40, 40), (40, 80, 210)),    # 8 3p_z
+    ((210, 40, 40), (40, 80, 210)),    # 9 3d_z2
+    ((210, 40, 40), (40, 80, 210)),    # 10 3d_xz
+    ((210, 40, 40), (40, 80, 210)),    # 11 3d_yz
+    ((210, 40, 40), (40, 80, 210)),    # 12 3d_x2-y2
+    ((210, 40, 40), (40, 80, 210)),    # 13 3d_xy
+    ((210, 40, 40), (40, 80, 210)),    # 14 4f_z3
+    ((210, 40, 40), (40, 80, 210)),    # 15 5d_z2
 )
 assert len(ORBITAL_PHASE_COLORS) == len(ORBITAL_PRESETS)
 
 # Universal fallback pair kept for any caller that doesn't pick a preset pair
-# (e.g. atom_view's phase-colored highlights) -- same classic orange/blue,
-# now identical to every entry in ORBITAL_PHASE_COLORS above.
+# (e.g. atom_view's phase-colored highlights) -- same red/blue pair, now
+# identical to every entry in ORBITAL_PHASE_COLORS above.
 PHASE_POSITIVE_RGB = ORBITAL_PHASE_COLORS[4][0]
 PHASE_NEGATIVE_RGB = ORBITAL_PHASE_COLORS[4][1]
 

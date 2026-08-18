@@ -390,7 +390,7 @@ def atom_gallery():
         period, group = PERIODIC_TABLE[z]
         preset = AtomPreset(z)
         buf = fresh_buf()
-        scale = preset.base_scale * 3
+        scale = preset.base_scale * 2
         def overlays(draw):
             draw_bounding_circle(draw, preset.r_ref, scale)
             # The same physical scale in every cell: an identical bar in all
@@ -407,8 +407,17 @@ def atom_gallery():
         # periodic-table element box; the caption below keeps just the symbol.
         z_width = draw.textlength(str(z), font=zfont)
         draw.text((x + 10, y + 8), str(z), fill=(225, 225, 225), font=zfont)
-        draw.text((x + 10 + z_width + 12, y + 16), slater.configuration_str(preset.config),
-                  fill=(200, 200, 200), font=cfg_font)
+        # Same per-subshell shell-color coding as the single-atom screenshots'
+        # draw_atom_title() (atom_cloud.SHELL_RGB[n]), just without that
+        # function's "Sym (Z=N) " prefix -- the cell already shows those
+        # separately (zfont atomic number above, cfont symbol in the caption)
+        # -- and at the gallery's smaller cfg_font instead of PIL's default.
+        cursor_x = x + 10 + z_width + 12
+        for n, ell, occ in preset.config:
+            segment = "%s%d " % (slater.subshell_label(n, ell), occ)
+            color = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
+            draw.text((cursor_x, y + 16), segment, fill=color, font=cfg_font)
+            cursor_x += draw.textlength(segment, font=cfg_font)
         draw.text((x + 6, y + cell_px + 8), slater.element_symbol(z),
                   fill=(225, 225, 225), font=cfont)
         # 1-px frame around the cell.
