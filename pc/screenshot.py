@@ -248,8 +248,8 @@ def orbital_gallery():
 
 
 def orbital_animation_gif():
-    """The original orbital-viewer loop, one preset at a time: each of the
-    16 ORBITAL_PRESETS spins for ORBITAL_GIF_SECONDS (default 1s) with the
+    """The original orbital-viewer loop, one preset at a time: each of
+    cloud_common.ORBITAL_PRESETS spins for ORBITAL_GIF_SECONDS (default 1s) with the
     same per-source-frame rotation + zoom breathing + point-turnover cadence
     as the live app (buzz disabled, as on PC -- see DEBUG_DISABLE_BUZZ),
     then the next preset flies in from far away over SWITCH_TRANSITION_FRAMES

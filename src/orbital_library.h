@@ -45,6 +45,30 @@ constexpr OrbitalDescriptor kOrbitalLibrary[] = {
     {3, 2, -2, "3dxy", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},   // 13
     {4, 3, 0, "4fz3", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},    // 14
     {5, 2, 0, "5dz2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},    // 15
+    // Rest of n=4 (n=1..3 were already a complete set above; index-matched to
+    // cloud_common.py's ORBITAL_PRESETS -- keep both lists appended in the same order.
+    {4, 0, 0, "4s", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},            // 16
+    {4, 1, 1, "4px", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},           // 17
+    {4, 1, -1, "4py", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},          // 18
+    {4, 1, 0, "4pz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},           // 19
+    {4, 2, 0, "4dz2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},          // 20
+    {4, 2, 1, "4dxz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},          // 21
+    {4, 2, -1, "4dyz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},         // 22
+    {4, 2, 2, "4dx2-y2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},       // 23
+    {4, 2, -2, "4dxy", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},         // 24
+    {4, 3, 1, "4fxz2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},         // 25
+    {4, 3, -1, "4fyz2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},        // 26
+    {4, 3, 2, "4fzx2-y2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},      // 27
+    {4, 3, -2, "4fxyz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},        // 28
+    {4, 3, 3, "4fxx2-3y2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},     // 29
+    {4, 3, -3, "4fy3x2-y2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},    // 30
+    // Selected n=5/n=6 orbitals (not the full set -- n=5/6 add far more (n,l,m)
+    // combinations than n<=4; these are the specific ones requested).
+    {5, 1, 0, "5pz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},           // 31
+    {5, 2, 1, "5dxz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},          // 32
+    {5, 2, 2, "5dx2-y2", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},       // 33
+    {6, 0, 0, "6s", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},            // 34
+    {6, 1, 0, "6pz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},           // 35
 };
 constexpr int kOrbitalLibraryCount = sizeof(kOrbitalLibrary) / sizeof(kOrbitalLibrary[0]);
 constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz
@@ -59,7 +83,7 @@ constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> buildOrbitalLibrarySa
     return samplers;
 }
 
-/// ~12KB per orbital x 16 orbitals = ~192KB of .rodata, trivial next to this board's 16MB
+/// ~12KB per orbital x kOrbitalLibraryCount orbitals, trivial next to this board's 16MB
 /// flash. If a build ever times out or hits GCC's constexpr step/loop limit while compiling
 /// this table, raise -fconstexpr-ops-limit rather than shrinking the table.
 constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> kOrbitalSamplers = buildOrbitalLibrarySamplers();
