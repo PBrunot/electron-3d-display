@@ -20,8 +20,8 @@ constexpr int kTickerDefaultPxPerFrame = 5;
  * caller wanting a title/proton marker etc. visible during the scroll composes that
  * itself instead of calling this. Paced only by presentFrame()/waitForFlushDone() (no
  * artificial delay), same as camera.h's flyOver() -- the SPI frame transfer is already the
- * dominant per-frame cost (CLAUDE.md section 5), so an extra vTaskDelay would only slow
- * down an effect that's supposed to read as fast.
+ * dominant per-frame cost, so an extra vTaskDelay would only slow down an effect that's
+ * supposed to read as fast.
  */
 void scrollTextOnce(Display &display, const char *text, const Font &font, int scale, uint16_t color, int y,
                     int pxPerFrame = kTickerDefaultPxPerFrame);

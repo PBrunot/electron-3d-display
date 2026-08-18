@@ -7,23 +7,42 @@
 #include "esp_attr.h"        // EXT_RAM_BSS_ATTR
 #include "orbital_library.h" // findOrbitalSampler
 
-constexpr int kOrbitalColorMinLevel = 80; // "should be bright colors" (feedback, 2026-08-17) -- raised from 60
-                                          // so even the dimmest points read clearly
+// ============================================================================================
+// Tunable constants
+// ============================================================================================
+
+/// Floor on a point's brightness level (of 255), so even the dimmest points in the cloud
+/// still read clearly instead of fading to near-invisible.
+constexpr int kOrbitalColorMinLevel = 80;
+
+/// Projection scale target: the p90-radius point should land this far out from center, in
+/// pixels. Measured per preset (scaleFromRadii()) rather than applied as a flat constant,
+/// since radial extent depends on n, l, AND m, not n alone.
+static constexpr orb_real_t kOrbitalP90TargetPx = orb_real_t(100);
+static constexpr orb_real_t kOrbitalZoomAmplitudeFraction = orb_real_t(0.4);
+
+// ============================================================================================
 
 // Phase colors come from each preset's own pair (see orbital_library.h's
-// OrbitalDescriptor.posRgb/negRgb), but every preset's pair is now the same classic
-// vibrant orange/blue -- sign of psi_real determines the color consistently across the
-// whole library ("all orbitals should be colored according to sign of psi_Real with the
-// classical blue/orange vibrant colors", 2026-08-17), not a per-orbital distinguishing
-// hue. s orbitals (ell=0) are single-signed everywhere, so they render as a uniform cloud
-// in their positive (orange) color with no visible split -- expected, not a bug (no phase
-// change without a node).
+// OrbitalDescriptor.posRgb/negRgb); every preset uses the same orange/blue pair so sign of
+// psi_real maps to color consistently across the whole library, rather than each orbital
+// having its own distinguishing hue. s orbitals (ell=0) are single-signed everywhere, so they
+// render as a uniform cloud in their positive (orange) color with no visible split --
+// expected, not a bug (no phase change without a node).
 
-uint16_t orbitalLevelToColor565(int level, int sign, const uint8_t posRgb[3], const uint8_t negRgb[3])
+uint16_t orbitalLevelToColor565(int level, int sign, const uint16_t posRgb565, const uint16_t negRgb565)
 {
-    const uint8_t *base = sign >= 0 ? posRgb : negRgb;
-    return Display::packColor565(uint8_t(base[0] * level / 255), uint8_t(base[1] * level / 255),
-                                 uint8_t(base[2] * level / 255));
+    const uint16_t base = sign >= 0 ? posRgb565 : negRgb565;
+    uint8_t r = (base >> 11) & 0x1F;
+    uint8_t g = (base >> 5) & 0x3F;
+    uint8_t b = base & 0x1F;
+
+    // Scale each channel by level/255, rounding to nearest integer.
+    r = uint8_t((r * level + 127) / 255);
+    g = uint8_t((g * level + 127) / 255);
+    b = uint8_t((b * level + 127) / 255);
+
+    return Display::packColor565(r << 3, g << 2, b << 3);
 }
 
 void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels, orb_real_t *outPsi2Sorted)
@@ -87,12 +106,6 @@ ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState *state, Orbit
 
     return ResampledOrbitalPoint{idx, level, sign};
 }
-
-// Projection scale target: the p90-radius point should land kOrbitalP90TargetPx out from
-// center. Measured per preset (scaleFromRadii()) rather than a global constant, since
-// radial extent depends on n, l, AND m, not n alone.
-static constexpr orb_real_t kOrbitalP90TargetPx = orb_real_t(100);
-static constexpr orb_real_t kOrbitalZoomAmplitudeFraction = orb_real_t(0.4);
 
 OrbitalScale scaleFromRadii(const OrbitalPoint *points, int count)
 {

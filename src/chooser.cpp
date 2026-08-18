@@ -15,14 +15,25 @@
 
 static const char *kChooserTag = "chooser";
 
+// ============================================================================================
+// Tunable constants
+// ============================================================================================
+
 constexpr uint16_t kChooserTextColor = Display::kColorWhite;
 constexpr uint16_t kChooserArrowColor = Display::packColor565(255, 210, 60);
-constexpr int kChooserPollDelayMs = 30;
+constexpr int kChooserPollDelayMs = 30; ///< Poll/redraw cadence for both the menu and calibration loops.
 
-// "no the chooser screen shall have the same fixed splash screen background - no animation
-// needed" (feedback, 2026-08-17) -- the SAME splash_bitmap.h image main.cpp shows at boot,
-// at full brightness (not the dimmed copy an earlier pass here tried), held static behind
-// the menu text -- replaces the original rotating-orbital-point-cloud background entirely.
+/// Text scale for the "and hold"/direction-name calibration lines, on top of kFontLarge.
+constexpr int kCalibLineY0 = 60;      ///< Y of the first calibration line.
+constexpr int kCalibLineSpacing = 36; ///< Vertical gap between calibration lines -- more than a bare
+                                       ///< lineAdvance since these are separate standalone lines, not wrapped body text.
+
+/// Menu option text scale, on top of kFontLarge.
+constexpr int kChooserOptionScale = 2;
+constexpr int kChooserOption1Y = 105; ///< Y of the "UP: Orbitals" line.
+constexpr int kChooserOption2Y = 165; ///< Y of the "DOWN: Elements" line.
+
+// ============================================================================================
 
 static void drawCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font)
 {
@@ -30,8 +41,8 @@ static void drawCentered(uint16_t *frameBuf, int y, const char *text, uint16_t c
     drawText(frameBuf, x, y, text, color, font);
 }
 
-/** Like drawCentered(), but through drawTextScaled()/textWidthScaled() -- "Options should be
- * with a bigger font" (feedback, 2026-08-17). */
+/// Like drawCentered(), but through drawTextScaled()/textWidthScaled() for a larger option
+/// font.
 static void drawCenteredScaled(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font,
                                int scale)
 {
@@ -50,9 +61,8 @@ struct CalibTarget
     const char *label;
 };
 
-// Short enough to stay comfortably inside 240px at kFontLarge (see calibrateDirections()'s
-// "use the biggest font" requirement) -- kept to just the direction, with "and hold" split
-// onto its own kFontLarge line below instead of appended to a single long string.
+/// Short enough to stay comfortably inside 240px at kFontLarge -- kept to just the direction,
+/// with "and hold" split onto its own line below instead of appended to a single long string.
 static constexpr CalibTarget kCalibTargets[] = {
     {TiltDirection::kRight, "TILT RIGHT"},
     {TiltDirection::kLeft, "TILT LEFT"},
@@ -61,11 +71,15 @@ static constexpr CalibTarget kCalibTargets[] = {
 };
 static constexpr int kCalibTargetCount = sizeof(kCalibTargets) / sizeof(kCalibTargets[0]);
 
-// Every calibration-screen line uses kFontLarge (per feedback: kFontSmall read as "too
-// small" on the panel), spaced kFontLarge.lineAdvance*~1.6 apart -- more than a bare
-// lineAdvance gap, since these are separate short standalone lines, not wrapped body text.
-constexpr int kCalibLineY0 = 60, kCalibLineSpacing = 36;
-
+/**
+ * @brief Guided sequence prompting the user to tilt-and-hold each of Right/Left/Up/Down in
+ *        turn, recording each one's deviation vector as that direction's reference.
+ *
+ * Run at boot before the real menu appears (see runChooser()). For each target: poll until a
+ * confirmed hold is captured (showing live hold progress), record the mapping via
+ * tilt.setMapping(), then wait for release back to baseline before moving to the next target
+ * so the same still-held tilt doesn't immediately roll into the next target's detection loop.
+ */
 void calibrateDirections(Display &display, TiltGestureDetector &tilt)
 {
     ESP_LOGI(kChooserTag, "starting direction calibration (%d targets)", kCalibTargetCount);
@@ -100,8 +114,6 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
 
         tilt.setMapping(raw.dirX, raw.dirY, raw.dirZ, target.dir);
 
-        // Wait for release back to baseline before the next target, so the same
-        // still-held tilt doesn't immediately roll into the next target's detection loop.
         RawTiltEvent release = raw;
         while (release.phase != TiltPhase::kIdle)
         {
@@ -122,23 +134,12 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
     ESP_LOGI(kChooserTag, "direction calibration complete");
 }
 
-// "Options should be with a bigger font" (feedback, 2026-08-17) -- kChooserOptionScale=2 on
-// top of kFontLarge. Text shortened from "Tilt UP: Orbitals"/"Tilt DOWN: Elements" (the
-// "Tilt" prefix is redundant -- the arrow that appears while actually tilting already says
-// so) since at scale 2 the full phrases (measured via font.cpp's kLargeWidths: 226px/286px)
-// don't fit the 240px width -- "DOWN: Elements" alone is already a tight 230px/240px fit.
-constexpr int kChooserOptionScale = 2;
-constexpr int kChooserOption1Y = 105, kChooserOption2Y = 165;
-
 static void drawChooserScreen(uint16_t *frameBuf)
 {
-    // Splash image, copied in first (at full brightness, unmodified -- "the chooser screen
-    // shall have the same fixed splash screen background", feedback 2026-08-17) so the menu
-    // text composites on top of it (plain overwrite, no blending, matching every other draw
-    // function in this project). Static -- no per-frame animation, so this is just a memcpy
-    // straight out of the generated array every frame (cheap enough not to bother caching).
-    // The image stands clean: no "ATOM CUBE" title text over it ("remove atom cube text
-    // from the splash screen", 2026-08-17) -- just the two menu options.
+    // Static splash image (same one main.cpp shows at boot), copied in first at full
+    // brightness so the menu text composites on top of it (plain overwrite, no blending,
+    // matching every other draw function in this project). No per-frame animation, so this
+    // is just a memcpy straight out of the generated array every frame.
     std::memcpy(frameBuf, kSplashBitmapData, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
 
     drawCenteredScaled(frameBuf, kChooserOption1Y, "UP: Orbitals", kChooserTextColor, kFontLarge,
@@ -147,13 +148,15 @@ static void drawChooserScreen(uint16_t *frameBuf)
                        kChooserOptionScale);
 }
 
+/**
+ * @brief Main menu loop: splash background, Up/Down tilt selects a viewer.
+ *
+ * Direction calibration (or the planar-check skip of it) is main.cpp's call to make before
+ * this function is ever entered -- see checkPlanarAtBoot()/calibrateDirections() there; this
+ * loop does not repeat it.
+ */
 void runChooser(Display &display, TiltGestureDetector &tilt)
 {
-    // Calibration (or the planar-check skip of it) is main.cpp's call to make, before this
-    // function is ever entered -- see checkPlanarAtBoot()/calibrateDirections() there. This
-    // used to unconditionally re-run calibrateDirections() here too (so every boot ran the
-    // full interactive sequence TWICE in a row, regardless), which silently defeated the
-    // planar-check skip: main.cpp would skip its copy, then land right back in this one.
     ESP_LOGI(kChooserTag, "menu ready");
 
     while (true)

@@ -281,11 +281,19 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
     draw_nucleus(buf)
 
 
-def draw_atom_title(draw, x, y, z, config):
+def draw_atom_title(draw, x, y, z, config, outer_n=None, outer_ell=None):
     """Draw the atom title ('Ca (Z=20) ') in white, then each subshell of its
     electron configuration ('1s2 2s2 2p6 ...') color-coded by shell --
     atom_cloud.SHELL_RGB[n], the same colors the cloud's own points use -- so
     the on-screen legend and the rendered cloud read as one color language.
+
+    (outer_n, outer_ell), when given (AtomPreset.outer_n/outer_ell -- the
+    subshell with the largest MEASURED radius in this cloud, not just the
+    last entry in `config`), gets its segment brightened toward white the
+    same way that subshell's own points are (atom_cloud._brighten_outer_shell,
+    same helper/factor -- reused directly rather than a second constant that
+    could drift) -- otherwise the near-white valence points and their still-
+    fully-saturated legend color would visibly disagree.
 
     PIL's ImageDraw has no multi-color single-call text primitive, so this
     draws segment by segment, advancing x by each segment's measured width
@@ -297,6 +305,8 @@ def draw_atom_title(draw, x, y, z, config):
     for n, ell, occ in config:
         segment = "%s%d " % (slater.subshell_label(n, ell), occ)
         color = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
+        if n == outer_n and ell == outer_ell:
+            color = atom_cloud._brighten_outer_shell(color)
         draw.text((cursor_x, y), segment, fill=color)
         cursor_x += draw.textlength(segment)
 
@@ -327,6 +337,12 @@ class AtomPreset:
         r_ref = outer_plan[0][5] if outer_plan else 1.0
         self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(
             r_ref, PIXELS_PER_BOHR)
+        # Which (n, ell) is the outermost subshell BY MEASURED RADIUS (not
+        # just the last entry in `config`'s Madelung-order list -- see the
+        # 4s/3d crossover note above) -- draw_atom_title() brightens this
+        # one subshell's config-text segment the same way its points are
+        # brightened, so the legend and the cloud read as one language.
+        self.outer_n, self.outer_ell = (outer_plan[0][0], outer_plan[0][1]) if outer_plan else (0, 0)
         # Innermost/first shell's own radius and the subshell count -- used
         # by the shared zoom envelope (see viewer_common.maybe_zoom_excursion()
         # and this module's _run_dissection()) to guarantee dives/dissections
@@ -540,7 +556,8 @@ class AtomViewApp:
             # breathing/excursions) -> px per picometer, so the bar always
             # reflects the camera's current zoom, not just the resting one.
             draw_scale_bar(draw, scale / atom_cloud.PM_PER_BOHR, "pm")
-            draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
+            draw_atom_title(draw, TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config,
+                             self.preset.outer_n, self.preset.outer_ell)
         blit_to_canvas(self, overlays)
 
     def _blit_dissection(self, scale, r_ref, title):

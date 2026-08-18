@@ -6,9 +6,9 @@
 // Layout convention: row 1-7 are the real periods. Lanthanides (Ce..Lu, Z58-71) and
 // actinides (Th..Lr, Z90-103) are pulled out into two extra rows (8 and 9) below the main
 // table -- the standard "short form" textbook layout -- rather than inlined at their real
-// group in periods 6/7 (the alternative "32-column long form"), per 2026-08-17 feedback.
-// col is the IUPAC group (1-18) for the main table; the two pulled-out rows reuse col 3-16
-// (14 slots) purely to order their own members left-to-right, not real group numbers.
+// group in periods 6/7 (the alternative "32-column long form"). col is the IUPAC group
+// (1-18) for the main table; the two pulled-out rows reuse col 3-16 (14 slots) purely to
+// order their own members left-to-right, not real group numbers.
 //
 // Consequence: group 3's column (Sc/Y/La/Ac) is the ONLY column that touches the f-block
 // rows, so vertical navigation needs one splice: La (row6,col3) -> Ce..Lu (row8) -> Ac

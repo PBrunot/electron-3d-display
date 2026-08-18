@@ -17,15 +17,15 @@
 #define PIN_RST gpio_num_t(42)
 #define PIN_BL gpio_num_t(20)
 
-// 80MHz, not e.g. 60MHz: the GP-SPI clock divides a fixed 80MHz peripheral clock by an
-// integer only (80, 40, 26.7, 20 MHz, ...), so any non-achievable request silently snaps
-// DOWN to the next achievable rate with no warning logged -- confirmed on-device via
-// atom_view_test.cpp profiling: a 60MHz request measured ~24.2ms/frame SPI wait, matching
-// the 40MHz math (23.0ms theoretical), not 60MHz's (~15.4ms). 80MHz is the only faster
-// achievable step and exceeds the ST7789VW datasheet's Table 6 Tscycw spec (16ns min write
-// cycle = 62.5MHz max) by 28% -- out-of-spec, needs on-hardware visual confirmation (watch
-// for pixel glitches/noise), not assumed safe just because it's the next divisor.
-#define LCD_PIXEL_CLOCK_HZ (20 * 1000 * 1000)
+/**
+ * SPI pixel clock. The GP-SPI clock divides a fixed 80MHz peripheral clock by an integer
+ * only (80, 40, 26.7, 20 MHz, ...); a non-achievable request silently snaps DOWN to the
+ * nearest achievable rate with no warning logged, so only request achievable values. 80MHz
+ * is the fastest achievable step and exceeds the ST7789VW datasheet's Table 6 Tscycw spec
+ * (16ns min write cycle = 62.5MHz max) by 28% -- out of spec; watch for pixel glitches/noise
+ * if the panel or wiring changes.
+ */
+#define LCD_PIXEL_CLOCK_HZ (80 * 1000 * 1000)
 
 auto Display::onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *, void *userCtx) -> bool
 {

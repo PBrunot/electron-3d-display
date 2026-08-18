@@ -51,10 +51,7 @@ constexpr orb_real_t kPlanarMinSimilarity = orb_real_t(0.995);
 // "planar" just because its direction happens to line up.
 constexpr orb_real_t kPlanarMaxMagnitudeDeltaG = orb_real_t(0.15);
 
-// "I need to embed as splash screen a JPG file" (feedback, 2026-08-17) -- shown for a fixed
-// hold up front, before the IMU/tilt setup below even starts (see splash_bitmap.h's
-// generator docstring for why this is a raw embedded pixel array, not an on-device JPEG
-// decode).
+/// How long the boot splash (see splash_bitmap.h) is held before IMU/tilt setup starts.
 constexpr uint32_t kSplashHoldMs = 2000;
 
 static bool checkPlanarAtBoot(Qmi8658 &imu)

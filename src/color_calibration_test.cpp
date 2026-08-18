@@ -18,13 +18,12 @@ struct Swatch
     uint8_t r, g, b; // physical-intent RGB fed to Display::packColor565()
 };
 
-// Order matters: the four pure single-channel swatches first (CLAUDE.md's already-
-// verified-by-hand reference -- if these don't match CLAUDE.md's documented expectation,
-// something ELSE changed since that verification and the compound ones below are moot).
-// Then the exact orbital phase-color pair (orange/plain-blue -- orbital blue is now plain
-// (0,0,255), matching orbital_library.h/cloud_common.py; orange is still R+G+B all nonzero,
-// the compound case CLAUDE.md's four-pure-color test never actually exercised). Then two
-// single-channel-dropped variants of orange to bisect WHICH channel combination breaks.
+// Order matters: the four pure single-channel swatches first (a known-good reference -- if
+// these read wrong, something fundamental changed and the compound ones below are moot).
+// Then the actual orbital phase-color pair (orange/blue, see orbital_library.h) -- orange
+// is the compound case (R+G+B all nonzero) the pure swatches don't exercise. Then two
+// single-channel-dropped variants of orange, to bisect which channel combination breaks if
+// the full orange swatch ever does.
 constexpr Swatch kSwatches[] = {
     {"RED (pure)", 255, 0, 0},
     {"GREEN (pure)", 0, 255, 0},
