@@ -308,21 +308,24 @@ struct RadialTable
  * substitution and max_r = 6*n*n/zEff shrink as micropython/pointcloud.py's
  * init_orbital_sampler()/init_radial_sampler().
  *
- * Not reentrant/thread-safe (see the static scratch buffer below) -- fine for
- * atom_cloud.h's sequential per-group loop, not safe to call from multiple tasks/ISRs.
+ * Not reentrant/thread-safe (returns a reference to a single static instance, reused on
+ * every call) -- fine for atom_cloud.h's sequential per-group loop, not safe to call from
+ * multiple tasks/ISRs, and the returned reference is only valid until the next call.
  */
-inline RadialTable buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff)
+inline const RadialTable &buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff)
 {
-    RadialTable rt{};
+    // static, not a stack array/return-by-value: RadialTable embeds a 1001-float (~4KB)
+    // table, too large a chunk to put on a task stack (this is what actually overflowed
+    // app_main's default-sized stack when it was a local array here -- unlike
+    // orbitals.h/pointcloud.h's constexpr table builders, THIS function genuinely runs on
+    // the target's real stack at runtime). Returning by value would silently reintroduce
+    // the same ~4KB stack frame one level up, in every caller.
+    static RadialTable rt;
     orb_real_t radialCoeff[kOrbitalNMax] = {};
     laguerreCoeffs(n, ell, radialCoeff);
 
     orb_real_t maxR = orb_real_t(6 * n * n) / zEff;
     rt.maxR = maxR;
-    // static, not a stack array: 1001 floats (~4KB) is a large chunk to put on a task
-    // stack (this is what actually overflowed app_main's default-sized stack when it was
-    // a local array here -- unlike orbitals.h/pointcloud.h's constexpr table builders,
-    // THIS function genuinely runs on the target's real stack at runtime).
     static orb_real_t weight[kOrbitalTableSize];
     orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
     for (int i = 0; i < kOrbitalTableSize; i++)
