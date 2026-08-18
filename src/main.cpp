@@ -16,6 +16,9 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_system.h"
+#include "esp_heap_caps.h"
+
 #include "imu.h"
 #include "splash_bitmap.h"
 #include "tilt_defaults.h"
@@ -95,6 +98,26 @@ static bool checkPlanarAtBoot(Qmi8658 &imu)
     return planar;
 }
 
+void printMemoryInfo()
+{
+    multi_heap_info_t info;
+    heap_caps_get_info(&info, MALLOC_CAP_DEFAULT);
+    ESP_LOGI(kMainTag, "heap: %u/%u bytes free/total, %u largest block, %u min free ever", info.total_free_bytes,
+             info.total_allocated_bytes + info.total_free_bytes, info.largest_free_block, info.minimum_free_bytes);
+    // Internal RAM
+    ESP_LOGI(kMainTag, "internal RAM: %u/%u bytes free/total, %u largest block, %u min free ever",
+             heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             heap_caps_get_total_size(MALLOC_CAP_INTERNAL),
+             heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+    // External RAM
+    ESP_LOGI(kMainTag, "external RAM: %u/%u bytes free/total, %u largest block, %u min free ever",
+             heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+             heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
+             heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+             heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
+}
+
 extern "C" void app_main(void)
 {
 #ifdef ATOM_VALIDATION_TEST
@@ -134,7 +157,7 @@ extern "C" void app_main(void)
         calibrateDirections(display, tilt);
         tilt.logCalibrationForHardcode();
     }
-
+    printMemoryInfo();
     runChooser(display, tilt);
 #endif
 }

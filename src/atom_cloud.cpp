@@ -93,7 +93,7 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
     {
         int n = groups[g].n, ell = groups[g].ell, m = groups[g].m;
         orb_real_t zEff = zEffRadial(z, config, n, ell);
-        RadialTable radial = buildRadialSamplerRuntime(n, ell, zEff);
+        const RadialTable &radial = buildRadialSamplerRuntime(n, ell, zEff);
 
         if (m == kIsotropicM)
         {
