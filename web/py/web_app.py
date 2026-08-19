@@ -108,7 +108,7 @@ class ChooserScene:
             index = random.randrange(len(cloud_common.ORBITAL_PRESETS))
             self.preset = web_orbital.Preset(index)
         else:
-            z = random.randint(1, slater.MAX_Z)
+            z = random.randint(1, slater.MAX_DISPLAY_Z)
             self.preset = web_atom.AtomPreset(z)
         self.scale = self.preset.base_scale
 

@@ -494,7 +494,7 @@ namespace
 
 void runAtomView(Display &display, TiltGestureDetector &tilt)
 {
-    ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxZ);
+    ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxDisplayZ);
 
     // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: this struct (~94KB of points, plus a
     // negligible few hundred bytes of per-subshell ranges/groups -- see AtomPresetState's
@@ -626,7 +626,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
             }
             else
             {
-                int newZ = randomIndexExcluding(preset.z - 1, kMaxZ) + 1;
+                int newZ = randomIndexExcluding(preset.z - 1, kMaxDisplayZ) + 1;
                 ESP_LOGI(kAtomViewTag, "idle 60s+ -- jumping to random element Z=%d", newZ);
                 switchToElement(newZ);
             }

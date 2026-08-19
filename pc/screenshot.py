@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'micropython'))
 
 import atom_cloud
 import cloud_common
+import hfs_tables
 import slater
 
 from atom_view_pc import (
@@ -67,6 +68,21 @@ from viewer_common import (
 from PIL import Image, ImageDraw, ImageFont
 
 IMG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'img'))
+
+_RADIAL_TABLES = None
+
+
+def _atom_tables():
+    """The HFS screened-potential radial tables (pc/hfs_tables.npz, see
+    pc/RUN_HFS.md), loaded once and reused for every atom render in this
+    script. Replaces the plain Clementi-Raimondi/Slater hydrogenic radial
+    model, whose Slater-fallback rescaling past Z=54 (slater.z_eff_radial())
+    is what used to cap the periodic-table gallery at Xe.
+    """
+    global _RADIAL_TABLES
+    if _RADIAL_TABLES is None:
+        _RADIAL_TABLES = hfs_tables.load()
+    return _RADIAL_TABLES
 
 # Same initial camera pose the tkinter apps boot with (see viewer_common.py's
 # _TILT_ANGLE_START/_ROLL_ANGLE_START), so every screenshot matches what the
@@ -316,9 +332,10 @@ def atom_screenshots(z_list, zoom_target=ATOM_ZOOM_TARGET_PX):
     circle, scale bar, shell-colored config title.
     """
     angle, tilt, roll = CAMERA
+    tables = _atom_tables()
     for z in z_list:
         sym = slater.element_symbol(z)
-        preset = AtomPreset(z)
+        preset = AtomPreset(z, radial_tables=tables)
         buf = fresh_buf()
         scale = preset.base_scale * (zoom_target / max(preset.r_ref * preset.base_scale, 1e-6))
         render_frame(buf, preset, angle, tilt, roll, scale)
@@ -331,13 +348,16 @@ def atom_screenshots(z_list, zoom_target=ATOM_ZOOM_TARGET_PX):
         save_frame(buf, overlays, 'atom_%s.png' % sym)
 
 
-# (period, group) of every element Z=1..54 in the standard 18-column
-# periodic table. Covers the full Clementi-Raimondi-validated range (H..Xe):
-# periods 1-5 completely, no f-block (La=57 is past the cutoff). Z>54 is
-# excluded on purpose -- slater.z_eff_radial()'s Slater fallback past the CR
-# table produces a known size discontinuity (see atom_cloud.py's
-# _CALIBRATION_Z comment), which would break the honest size comparison this
-# gallery exists for.
+# (period, group) of every element Z=1..86 in the standard 18-column
+# periodic table: periods 1-6 (H..Rn), no f-block yet (lanthanides Z=58..71
+# are skipped for now -- La=57 itself is placed at group 3 like the rest of
+# period 6, but breaking out the full f-block row is a separate addition).
+# Z<=54 used to be a hard cutoff here because slater.z_eff_radial()'s Slater
+# fallback past the Clementi-Raimondi table (Z>54) produced a known size
+# discontinuity (see atom_cloud.py's _CALIBRATION_Z comment) -- atom
+# screenshots now use the HFS screened-potential radial tables instead (see
+# hfs_tables.py / pc/RUN_HFS.md), which don't have that cliff, so periods
+# can be added incrementally.
 PERIODIC_TABLE = {
     1: (1, 1), 2: (1, 18),
     3: (2, 1), 4: (2, 2), 5: (2, 13), 6: (2, 14), 7: (2, 15), 8: (2, 16),
@@ -350,14 +370,17 @@ PERIODIC_TABLE = {
     37: (5, 1), 38: (5, 2), 39: (5, 3), 40: (5, 4), 41: (5, 5), 42: (5, 6),
     43: (5, 7), 44: (5, 8), 45: (5, 9), 46: (5, 10), 47: (5, 11), 48: (5, 12),
     49: (5, 13), 50: (5, 14), 51: (5, 15), 52: (5, 16), 53: (5, 17), 54: (5, 18),
+    55: (6, 1), 56: (6, 2), 57: (6, 3), 72: (6, 4), 73: (6, 5), 74: (6, 6),
+    75: (6, 7), 76: (6, 8), 77: (6, 9), 78: (6, 10), 79: (6, 11), 80: (6, 12),
+    81: (6, 13), 82: (6, 14), 83: (6, 15), 84: (6, 16), 85: (6, 17), 86: (6, 18),
 }
 PERIODIC_COLS = 18
-PERIODIC_ROWS = 5
+PERIODIC_ROWS = 6
 
 
 def atom_gallery():
     """The atom gallery arranged like a periodic table: every element from
-    H (Z=1) to Xe (Z=54) -- the Clementi-Raimondi-validated range -- placed
+    H (Z=1) to Rn (Z=86) -- periods 1-6, no f-block yet -- placed
     at its (period, group) cell, ALL rendered at the same physical scale
     (PIXELS_PER_BOHR, the viewer's resting base_scale -- no per-element
     zoom), so the real size trend across periods and groups reads directly
@@ -372,6 +395,7 @@ def atom_gallery():
     caption below, and a 1-px frame around the cell.
     """
     angle, tilt, roll = CAMERA
+    tables = _atom_tables()
     cell_px = 480
     caption_h = 56
     header_h = 46
@@ -386,9 +410,9 @@ def atom_gallery():
     cfont = ImageFont.load_default(size=26)
     zfont = ImageFont.load_default(size=32)
     cfg_font = ImageFont.load_default(size=18)
-    for z in range(1, 55):
+    for z in sorted(PERIODIC_TABLE):
         period, group = PERIODIC_TABLE[z]
-        preset = AtomPreset(z)
+        preset = AtomPreset(z, radial_tables=tables)
         buf = fresh_buf()
         scale = preset.base_scale * 2
         def overlays(draw):
@@ -423,7 +447,7 @@ def atom_gallery():
         # 1-px frame around the cell.
         draw.rectangle((x, y, x + cell_px - 1, y + cell_px - 1), outline=(90, 90, 90))
     canvas.save(os.path.join(IMG_DIR, 'atom_gallery.png'))
-    print('saved atom_gallery.png (periodic table, Z=1..54, uniform scale)')
+    print('saved atom_gallery.png (periodic table, Z=1..86, uniform scale)')
 
 
 # --- Shell-dissection journey --------------------------------------------------
@@ -481,7 +505,7 @@ def dissection_screenshots(z):
     caption) cells in journey order for the montage.
     """
     sym = slater.element_symbol(z)
-    preset = AtomPreset(z)
+    preset = AtomPreset(z, radial_tables=_atom_tables())
     plan = atom_cloud.subshell_dissection_plan(
         preset.xs, preset.ys, preset.zs, preset.shells, preset.ells, preset.config)
 
@@ -546,7 +570,7 @@ def dissection_animation_gif(z=DEFAULT_DISSECT_GIF_Z):
     DISSECT_FRAME_DELAY_S. Output: img/dissect_<sym>.gif.
     """
     sym = slater.element_symbol(z)
-    preset = AtomPreset(z)
+    preset = AtomPreset(z, radial_tables=_atom_tables())
     plan = atom_cloud.subshell_dissection_plan(
         preset.xs, preset.ys, preset.zs, preset.shells, preset.ells, preset.config)
 
