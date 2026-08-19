@@ -185,8 +185,69 @@ file is the committed source of truth for that work.
 
 ### Device note
 
-The device (`src/atom_cloud.cpp`) still uses the hydrogenic model (with the
-CR size calibration applied); porting the Z=1..92 tables to PROGMEM is the
-standing follow-up. When the tables land, the atom-size calibration should
-switch to the tables-based factors (CR / table valence mode) used by the PC
-tables path.
+Done (2026-08), both C++ and MicroPython, both reading the tables ON DEMAND
+from flash/filesystem rather than compiling them into either firmware image.
+`tools/hfs_table_gen.py` packs `hfs_tables_reduced.npz` into ONE binary blob
+(little-endian `struct`, same flat layout on both ports: shared `r` grid +
+per-Z element index + per-subshell `(n, ell)` index + `u(r)` rows), written
+to two identical copies:
+
+- `data/hfs_tables.bin` -- staged into the PlatformIO filesystem image and
+  flashed to the `storage` SPIFFS partition (`partitions_16M.csv`) via
+  `pio run -t uploadfs` (a separate step from the normal firmware flash --
+  see this section's build note below). `src/hfs_radial.cpp` (hand-written)
+  mounts `/storage` (idempotent, shared with `screenshot.cpp`'s existing use
+  of that same partition), reads the small header/index into RAM once, and
+  reads each subshell's own `u(r)` row from the file on demand (once per
+  element switch, not once per frame). `src/hfs_tables.h` (generated) is now
+  just three size constants, not the ~470 KB of `.rodata` array data an
+  earlier version of this work compiled in directly -- moving to on-demand
+  reads was a deliberate follow-up decision to keep that data out of the
+  firmware image/OTA payload.
+- `micropython/hfs_tables.bin` -- deployed to the device root the same way
+  every other `micropython/` file is (`mpremote ... fs cp -r micropython/. :`).
+  `micropython/hfs_radial_tables.py` (hand-written) reads it the same way:
+  small header/index resident, `u(r)` rows read on demand via `open()`/
+  `seek()`/`read()`. `micropython/atom_view.py` now loads this once at
+  import time and passes it as `atom_cloud.build_atom_point_cloud()`'s
+  `radial_tables` argument, so the MicroPython device path renders through
+  the tables too, not just C++.
+
+Both ports build the same two sampler paths `micropython/atom_cloud.py`'s
+`radial_tables` branch already defined -- the direct log-grid inverse-CDF for
+full (isotropic) subshells via `src/pointcloud.h`'s `buildInverseCdfFromGrid()`
+(C++) / `micropython/pointcloud.py`'s existing `_build_inverse_cdf_from_grid()`
+(MicroPython, unchanged), and the evenly-sampled-via-`R_lookup` path for
+Hund's-rule (anisotropic) groups. The hydrogenic model
+(`zEffRadial`/`buildRadialSamplerRuntime` in C++; the `radial_tables is None`
+branch in MicroPython) stays as the fallback for a (z, n, ell) the tables
+don't cover (shouldn't happen for z<=92) AND, on the C++ side, for a board
+that hasn't run `pio run -t uploadfs` yet -- `hfsFindU()` returns `nullptr`
+in both cases and `atom_cloud.cpp` degrades to the old radii rather than
+crashing.
+
+Size calibration: `tools/atom_size_calib_gen.py` now emits THREE files, not
+two -- `src/atom_size_calib.h` (C++, table-based) and
+`micropython/hfs_atom_size_calib.py` (MicroPython, table-based, used only by
+`atom_view.py`) both carry CR / HFS-table valence-mode factors, computed
+identically. `micropython/atom_size_calib.py` is left HYDROGENIC and
+otherwise untouched: it is a genuinely shared module also consumed by
+`pc/atom_view_pc.py`'s default (`--model hydrogenic`) path and
+`pc/atom_dissection_common.py`'s fallback (itself shared with the web
+viewer) -- repurposing it to table-based factors would have silently
+miscalibrated all of those.
+
+The STO-fit / 64-point-Hermite compaction `screened_potential_model.md`
+section 7 once planned turned out unnecessary: the board's flash/PSRAM
+headroom made embedding the already-committed 128-point reduced table
+directly (rather than compressing it further) the simpler choice, and
+reading it on demand from flash rather than compiling it in keeps the
+firmware image itself small regardless.
+
+**Build note**: deploying/updating the C++ table now requires
+`pio run -t uploadfs` (PlatformIO's filesystem-image upload target) IN
+ADDITION TO the normal firmware flash -- `pio run -t upload` /
+`pio run` alone does not touch the `storage` partition's contents. This is a
+new step; existing build instructions that only ran the normal
+upload/monitor cycle need it added once (or again whenever
+`data/hfs_tables.bin` changes).

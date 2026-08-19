@@ -35,10 +35,20 @@ import array
 import framebuf
 
 import atom_cloud
-import atom_size_calib
 import device_render_common as drc
 import display as display_mod
+import hfs_atom_size_calib
+import hfs_radial_tables
 import slater
+
+# Loaded once (not per element switch, see AtomPresetState below): only the
+# header/index (a few KB) lands in RAM here, each subshell's own u(r) is read
+# from hfs_tables.bin on demand -- see hfs_radial_tables.py's module
+# docstring. Screened-potential (HFS/atomSFE) tables are the radial model
+# unconditionally for z<=92 (same as src/atom_cloud.cpp -- see
+# pc/RUN_HFS.md section 5's NIST 92/92 configuration cross-check for why no
+# hydrogenic fallback is needed here).
+_HFS_TABLES = hfs_radial_tables.load()
 
 WIDTH = drc.WIDTH
 HEIGHT = drc.HEIGHT
@@ -113,16 +123,21 @@ class AtomPresetState:
         print("atom: loading Z=%d (%s)..." % (z, slater.element_symbol(z)))
         t0 = time.ticks_ms()
 
-        xs, ys, zs, colors_rgb, shells, ells, _signs, config = atom_cloud.build_atom_point_cloud(z, count=N_POINTS)
+        xs, ys, zs, colors_rgb, shells, ells, _signs, config = atom_cloud.build_atom_point_cloud(
+            z, count=N_POINTS, radial_tables=_HFS_TABLES)
 
-        # Clementi-Raimondi display-size calibration (see atom_size_calib.py):
-        # rescale the whole cloud so the valence subshell's mode radius lands
-        # on the literature value -- the same per-element factor table the
-        # device (src/atom_cloud.cpp) and the PC viewer's hydrogenic path
-        # use. Scaling preserves the internal shell structure; only the
-        # atom's overall size changes (and hence its size relative to other
-        # elements, which is what the calibration is for).
-        f = atom_size_calib.FACTOR[z - 1]
+        # Clementi-Raimondi display-size calibration (see
+        # hfs_atom_size_calib.py): rescale the whole cloud so the valence
+        # subshell's mode radius lands on the literature value -- the same
+        # table-based per-element factor the device (src/atom_size_calib.h)
+        # uses, since both now render through the HFS tables above. NOT
+        # micropython/atom_size_calib.py -- that one is hydrogenic-model
+        # factors, shared with the PC viewer's hydrogenic default and the
+        # web viewer, see tools/atom_size_calib_gen.py. Scaling preserves the
+        # internal shell structure; only the atom's overall size changes
+        # (and hence its size relative to other elements, which is what the
+        # calibration is for).
+        f = hfs_atom_size_calib.FACTOR[z - 1]
         if f != 1.0:
             xs = array.array('f', (v * f for v in xs))
             ys = array.array('f', (v * f for v in ys))

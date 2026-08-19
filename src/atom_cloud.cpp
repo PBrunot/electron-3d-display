@@ -1,5 +1,6 @@
 #include "atom_cloud.h"
 #include "atom_size_calib.h"
+#include "hfs_radial.h"
 
 #include <algorithm>
 #include <cmath>
@@ -95,8 +96,18 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
     for (int g = 0; g < groupCount; g++)
     {
         int n = groups[g].n, ell = groups[g].ell, m = groups[g].m;
-        orb_real_t zEff = zEffRadial(z, config, n, ell);
-        const RadialTable &radial = buildRadialSamplerRuntime(n, ell, zEff);
+
+        // Screened-potential (HFS/atomSFE) tables (data/hfs_tables.bin, read on demand from
+        // the "storage" SPIFFS partition -- see hfs_radial.h's header comment) are the radial
+        // model for z<=92 whenever available; the hydrogenic zEffRadial()/
+        // buildRadialSamplerRuntime() path below is the fallback both for a z outside the
+        // tables' NIST-verified 92/92 coverage AND for a board that hasn't run
+        // `pio run -t uploadfs` yet (hfsFindU() returns nullptr in both cases).
+        const orb_real_t *u = hfsFindU(z, n, ell);
+        const RadialTable &radial = u != nullptr
+                                        ? (m == kIsotropicM ? buildHfsRadialSamplerIsotropic(u)
+                                                             : buildHfsRadialSamplerOriented(u))
+                                        : buildRadialSamplerRuntime(n, ell, zEffRadial(z, config, n, ell));
 
         int groupStart = idx;
         if (m == kIsotropicM)
@@ -132,8 +143,12 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
     // literature value, keeping the internal shell structure and relative
     // sizes. The device zoom-to-fits via kAtomTargetPx/rRef (scaleForAtom),
     // so on-device this mainly makes the pm scale bar and the dissection
-    // zoom depths CR-consistent; the hydrogenic-model radii themselves are
-    // the model's own (CR Z_eff to Z=54, Slater fallback past it).
+    // zoom depths CR-consistent. kAtomSizeCalibFactor is table-based here
+    // (CR / HFS-table valence mode, tools/atom_size_calib_gen.py's
+    // compute_table_factors() -- see pc/RUN_HFS.md's device note), matching
+    // the radial model actually rendered above; the internal shell
+    // structure past the valence subshell stays the LDA tables' own (see
+    // pc/RUN_HFS.md section 5's SIE/relativistic-offset caveats).
     orb_real_t calib = kAtomSizeCalibFactor[z - 1];
     if (calib != orb_real_t(1))
         for (int i = 0; i < idx; i++)
