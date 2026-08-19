@@ -1,5 +1,6 @@
 #include "render/camera.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "esp_random.h"
@@ -52,8 +53,7 @@ void drawProtonMarker(uint16_t *frameBuf, uint16_t color)
     int x0 = Display::kDisplayWidth / 2 - kProtonMarkerSize / 2;
     int y0 = Display::kDisplayHeight / 2 - kProtonMarkerSize / 2;
     for (int y = y0; y < y0 + kProtonMarkerSize; y++)
-        for (int x = x0; x < x0 + kProtonMarkerSize; x++)
-            frameBuf[y * Display::kDisplayWidth + x] = color;
+        std::fill_n(frameBuf + y * Display::kDisplayWidth + x0, kProtonMarkerSize, color);
 }
 
 void fadeFrameBuffer(uint16_t *frameBuf)

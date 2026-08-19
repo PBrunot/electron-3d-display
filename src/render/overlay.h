@@ -28,4 +28,13 @@ inline constexpr orb_real_t kPmPerBohr = orb_real_t(52.9177210903);
 void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unitLabel, uint16_t barColor,
                   uint16_t textColor);
 
+/**
+ * @brief Screen-centered outline circle of radius rRef*scale -- the atom's bounding-sphere
+ * silhouette, drawn on top of the point cloud so its outer edge reads clearly even where the
+ * cloud itself thins out toward the boundary. Port of pc/viewer_common.py's
+ * draw_bounding_circle() / web/py/web_common.py's draw_bounding_circle_canvas(); rRef <= 0
+ * draws nothing.
+ */
+void drawBoundingCircle(uint16_t *frameBuf, orb_real_t rRef, orb_real_t scale, uint16_t color);
+
 inline constexpr const char *kLoadingText = "Loading...";

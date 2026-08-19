@@ -13,3 +13,4 @@
 #include "render/display.h"
 
 void runBenchmarkTest(Display &display);
+void logMemory(const char *label);

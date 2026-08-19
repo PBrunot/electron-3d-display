@@ -1,5 +1,6 @@
 #include "render/display.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "driver/gpio.h"
@@ -41,8 +42,6 @@ Display::~Display()
 {
     if (frameBuf != nullptr)
         heap_caps_free(frameBuf);
-    if (presentBuf != nullptr)
-        heap_caps_free(presentBuf);
     if (panel != nullptr)
         ESP_ERROR_CHECK(esp_lcd_panel_del(panel));
 }
@@ -120,34 +119,51 @@ auto Display::getFrameBuf() -> uint16_t *
     return frameBuf;
 }
 
-void Display::presentFrame()
+namespace
 {
-    if (presentBuf == nullptr)
+    /// Row-pair swap over frameBuf's full height -- its own inverse, so calling it again
+    /// undoes it. std::swap_ranges does the per-element swap itself, so this needs no
+    /// second row (or full-frame) scratch buffer at all.
+    void flipFrameBufRows(uint16_t *frameBuf)
     {
-        presentBuf =
-            (uint16_t *)heap_caps_malloc(kDisplayWidth * kDisplayHeight * sizeof(uint16_t), MALLOC_CAP_DMA);
-        if (presentBuf == NULL)
+        for (int y = 0; y < Display::kDisplayHeight / 2; y++)
         {
-            ESP_LOGE(kDisplayTag, "failed to allocate present buffer");
-            abort();
+            uint16_t *rowA = frameBuf + y * Display::kDisplayWidth;
+            uint16_t *rowB = frameBuf + (Display::kDisplayHeight - 1 - y) * Display::kDisplayWidth;
+            std::swap_ranges(rowA, rowA + Display::kDisplayWidth, rowB);
         }
     }
-    // Software Y-flip: copy frameBuf's rows into presentBuf in reverse order (row 0 <-> row
-    // kDisplayHeight-1, etc). Safe to overwrite presentBuf here -- callers wait on the
-    // previous frame's DMA (waitForFlushDone()) before rendering into frameBuf again, and
-    // that wait always happens before this presentFrame() call in the same loop iteration.
-    for (int y = 0; y < kDisplayHeight; ++y)
-    {
-        std::memcpy(presentBuf + y * kDisplayWidth, frameBuf + (kDisplayHeight - 1 - y) * kDisplayWidth,
-                    kDisplayWidth * sizeof(uint16_t));
-    }
+} // namespace
+
+void Display::presentFrame()
+{
+    // Software Y-flip, in place: swap row y with row (kDisplayHeight-1-y) for every y in the
+    // top half. waitForFlushDone() undoes this once DMA is confirmed done reading frameBuf --
+    // see display.h's presentFrame()/waitForFlushDone() doc comments for why that ordering is
+    // safe for every render loop in this project.
+    flipFrameBufRows(frameBuf);
+    flipPending = true;
     ESP_ERROR_CHECK(
-        esp_lcd_panel_draw_bitmap(this->panel, 0, 0, Display::kDisplayWidth, Display::kDisplayHeight, presentBuf));
+        esp_lcd_panel_draw_bitmap(this->panel, 0, 0, Display::kDisplayWidth, Display::kDisplayHeight, frameBuf));
 }
 
 auto Display::waitForFlushDone() -> bool
 {
-    return s_flushDone == nullptr || xSemaphoreTake(s_flushDone, portMAX_DELAY) == pdTRUE;
+    bool ok = s_flushDone == nullptr || xSemaphoreTake(s_flushDone, portMAX_DELAY) == pdTRUE;
+    if (flipPending)
+    {
+        flipFrameBufRows(frameBuf);
+        flipPending = false;
+    }
+    return ok;
+}
+
+auto Display::syncForExternalRead() -> bool
+{
+    bool ok = waitForFlushDone();
+    if (s_flushDone != nullptr)
+        xSemaphoreGive(s_flushDone);
+    return ok;
 }
 
 void Display::unpackColor565(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)

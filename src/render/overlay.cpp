@@ -1,5 +1,6 @@
 #include "render/overlay.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "render/display.h"
@@ -77,10 +78,13 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
     int y = Display::kDisplayHeight - kScaleBarMarginY;
     int x1 = x0 + barPx;
 
-    for (int x = x0; x <= x1; x++)
-        if (x >= 0 && x < Display::kDisplayWidth)
-            for (int ly = y; ly < y + kScaleBarLineThicknessPx && ly < Display::kDisplayHeight; ly++)
-                frameBuf[ly * Display::kDisplayWidth + x] = barColor;
+    // Row-major (not column-major) so each row's span is one contiguous fill_n instead of
+    // kDisplayWidth-strided single-pixel writes.
+    int xLo = x0 > 0 ? x0 : 0;
+    int xHi = x1 < Display::kDisplayWidth - 1 ? x1 : Display::kDisplayWidth - 1;
+    if (xHi >= xLo)
+        for (int ly = y; ly < y + kScaleBarLineThicknessPx && ly < Display::kDisplayHeight; ly++)
+            std::fill_n(frameBuf + ly * Display::kDisplayWidth + xLo, xHi - xLo + 1, barColor);
     for (int ty = y - kScaleBarTickPx; ty <= y + kScaleBarTickPx; ty++)
     {
         if (ty < 0 || ty >= Display::kDisplayHeight)
@@ -100,4 +104,52 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
     // pixels read as blocky on-device (same issue kFontHuge exists to avoid for the
     // element-symbol title, see font.h).
     drawText(frameBuf, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontLarge.height, text, textColor, kFontLarge);
+}
+
+/// Set (x, y) if it lands on-screen.
+static void plotCirclePixel(uint16_t *frameBuf, int x, int y, uint16_t color)
+{
+    if (x >= 0 && x < Display::kDisplayWidth && y >= 0 && y < Display::kDisplayHeight)
+        frameBuf[y * Display::kDisplayWidth + x] = color;
+}
+
+/// Set (cx+dx, cy+dy) and its 8-way mirror around (cx, cy), each clipped individually.
+static void plotCircleOctants(uint16_t *frameBuf, int cx, int cy, int dx, int dy, uint16_t color)
+{
+    plotCirclePixel(frameBuf, cx + dx, cy + dy, color);
+    plotCirclePixel(frameBuf, cx - dx, cy + dy, color);
+    plotCirclePixel(frameBuf, cx + dx, cy - dy, color);
+    plotCirclePixel(frameBuf, cx - dx, cy - dy, color);
+    plotCirclePixel(frameBuf, cx + dy, cy + dx, color);
+    plotCirclePixel(frameBuf, cx - dy, cy + dx, color);
+    plotCirclePixel(frameBuf, cx + dy, cy - dx, color);
+    plotCirclePixel(frameBuf, cx - dy, cy - dx, color);
+}
+
+void drawBoundingCircle(uint16_t *frameBuf, orb_real_t rRef, orb_real_t scale, uint16_t color)
+{
+    int r = int(rRef * scale + orb_real_t(0.5));
+    if (r <= 0)
+        return;
+    int cx = Display::kDisplayWidth / 2;
+    int cy = Display::kDisplayHeight / 2;
+
+    // Midpoint circle algorithm: integer-only 8-way-symmetric outline, cheaper per frame than
+    // the sin/cos parametric sweep drawScaleBar's caller-side breathing animation already
+    // spends its float budget on.
+    int x = 0, y = r;
+    int d = 1 - r;
+    plotCircleOctants(frameBuf, cx, cy, x, y, color);
+    while (x < y)
+    {
+        x++;
+        if (d < 0)
+            d += 2 * x + 1;
+        else
+        {
+            y--;
+            d += 2 * (x - y) + 1;
+        }
+        plotCircleOctants(frameBuf, cx, cy, x, y, color);
+    }
 }

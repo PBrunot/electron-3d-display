@@ -9,7 +9,7 @@
 // #define ATOM_VIEW_TEST
 // #define ATOM_VIEW
 // #define COLOR_TEST
-// #define BENCHMARK_TEST
+#define BENCHMARK_TEST
 
 #include "ux/chooser.h"
 #include "esp_log.h"
@@ -22,6 +22,7 @@
 #include "config/hardware_constants.h"
 #include "config/visual_constants.h" // kSplashHoldMs
 #include "ux/tilt_gesture.h"
+#include "debug/benchmark_test.h"
 
 #ifdef ATOM_VALIDATION_TEST
 #include "debug/atom_validation_test.h"
@@ -31,10 +32,6 @@
 #include "debug/color_calibration_test.h"
 #endif
 
-#ifdef BENCHMARK_TEST
-#include "debug/benchmark_test.h"
-#endif
-
 #include "debug/atom_view_test.h"
 #include "views/atom_view.h"
 
@@ -42,6 +39,7 @@ static const char *kMainTag = "main";
 
 extern "C" void app_main(void)
 {
+    logMemory("startup");
 #ifdef ATOM_VALIDATION_TEST
     while (1)
     {
@@ -55,7 +53,7 @@ extern "C" void app_main(void)
     Display display{};
     runBenchmarkTest(display);
     ESP_LOGI(kMainTag, "benchmark finished -- capture via `pio device monitor`, watch for BENCH,DONE; "
-                        "reflash without BENCHMARK_TEST to return to normal boot");
+                       "reflash without BENCHMARK_TEST to return to normal boot");
     while (1)
         vTaskDelay(pdMS_TO_TICKS(1000));
 #else
@@ -87,6 +85,7 @@ extern "C" void app_main(void)
         calibrateDirections(display, tilt);
         tilt.logCalibrationForHardcode();
     }
+    logMemory("startup: chooser");
     runChooser(display, tilt);
 #endif
 }

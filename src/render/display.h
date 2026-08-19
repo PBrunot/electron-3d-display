@@ -53,7 +53,19 @@ public:
     Display &operator=(Display &&) = delete;
 
     /**
-     * @brief Queue the whole frame buffer for transfer to the panel; returns immediately.
+     * @brief Y-flip frameBuf in place, then queue it whole for transfer to the panel; returns
+     * immediately.
+     *
+     * The needed X-mirror is set in hardware (esp_lcd_panel_mirror in the constructor); Y is
+     * flipped here in software because combining both mirrors in hardware produced a broken
+     * image on this unit. Flipped in place (row-pair swap, no second full-frame buffer) rather
+     * than into a separate copy -- waitForFlushDone() flips it back to normal row order once
+     * this transfer's DMA is confirmed done, so frameBuf is back in the orientation every
+     * drawing call (fade/points/text/proton marker) expects by the time a caller starts the
+     * next frame. Between this call and that flip-back, frameBuf sits in flipped orientation;
+     * nothing in the normal render loop reads frameBuf in that window (every loop's next touch
+     * is a waitForFlushDone() call), but see syncForExternalRead() for a caller that isn't the
+     * render loop itself (e.g. a paused screenshot capture) and needs a normalized buffer.
      *
      * `esp_lcd_panel_draw_bitmap()` is asynchronous: it queues DMA transactions and returns
      * as soon as the last chunk is submitted, not once it's transmitted. Callers MUST call
@@ -67,13 +79,28 @@ public:
     [[nodiscard]] auto getFrameBuf() -> uint16_t *;
 
     /**
-     * @brief Block until the most recently queued presentFrame() transfer has fully finished.
+     * @brief Block until the most recently queued presentFrame() transfer has fully finished,
+     * then flip frameBuf back to normal row order (undoing presentFrame()'s in-place flip).
      *
      * Synchronized via the IO layer's on_color_trans_done callback, which fires exactly once
      * per presentFrame() call on its true last DMA chunk. Call this before overwriting the
      * frame buffer for a new frame.
      */
     auto waitForFlushDone() -> bool;
+
+    /**
+     * @brief For a caller that is NOT the render loop's own present/wait pair (currently only
+     * screenshot_console.cpp's single-shot capture, which reads getFrameBuf() directly while
+     * the render loop is paused at a screenshot_pause checkpoint): waits out any DMA still in
+     * flight and normalizes frameBuf's row order exactly like waitForFlushDone(), but re-gives
+     * the completion semaphore afterward so the render loop's own next waitForFlushDone()
+     * call, once unpaused, still finds "ready" instead of blocking forever on a signal this
+     * call already consumed.
+     * @note Only safe while the render loop task is actually quiesced (e.g. inside a
+     * confirmed screenshot_pause::requestPause() window) -- otherwise this races the render
+     * loop's own waitForFlushDone() for the same semaphore.
+     */
+    auto syncForExternalRead() -> bool;
 
     /**
      * @brief Pack an (r, g, b) triple (each 0-255) into RGB565 (R5-G6-B5).
@@ -146,20 +173,12 @@ private:
     esp_lcd_panel_handle_t panel;
     uint16_t *frameBuf; ///< DMA-capable, kDisplayWidth*kDisplayHeight RGB565 pixels.
 
-    /**
-     * Row-flipped copy of frameBuf, used as the DMA source for presentFrame(). The needed
-     * X-mirror is set in hardware (esp_lcd_panel_mirror in the constructor); Y is flipped
-     * here in software because combining both mirrors in hardware produced a broken image on
-     * this unit. Kept separate from frameBuf (rather than flipping in place) because callers
-     * persist frameBuf across frames for fading/trails (see camera.h's fadeFrameBuffer()) --
-     * an in-place flip would double-flip on the next frame's draw calls, which address
-     * frameBuf in normal row order. Lazily allocated on first presentFrame() so the two-arg
-     * test constructor, which has no DMA-capable frameBuf either, doesn't need it.
-     */
-    uint16_t *presentBuf = nullptr;
-
     static constexpr auto kDisplayTag = "display";
 
     /// Given by onColorTransDone() (an ISR callback) and taken by waitForFlushDone().
     SemaphoreHandle_t s_flushDone = nullptr;
+
+    /// True from presentFrame()'s in-place flip until waitForFlushDone() (or
+    /// syncForExternalRead()) flips frameBuf back to normal row order.
+    bool flipPending = false;
 };
