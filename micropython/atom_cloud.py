@@ -361,9 +361,17 @@ def _drawing_groups(config):
     return groups
 
 
-def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
+def build_atom_point_cloud(z, count=N_POINTS, seed=SEED, radial_tables=None):
     """Sample `count` points approximating atomic number z's total electron
     density (see module docstring for the model).
+
+    `radial_tables` optionally switches the RADIAL model from the hydrogenic
+    Z_eff substitution to the screened-potential (HFS) tables: it must be an
+    object with `.source(z, n, ell)` returning a source exposing `.r` (grid
+    in Bohr), `.u` (u = r*R on that grid), `.max_r()` -- see pc/hfs_tables.py
+    (PC) and the planned device data module. When None (default), the
+    hydrogenic model is used unchanged. The angular part is identical in
+    both models.
 
     Returns (xs, ys, zs, colors, shells, ells, signs, config): config is
     slater.electron_configuration(z), handed back for title/debug use;
@@ -397,17 +405,30 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
     rng = pointcloud.XorShift32(seed)
     idx = 0
     for (n, ell, m, _weight), group_count in zip(groups, counts):
-        # Effective charge for the radial substitution: Clementi-Raimondi Z_eff
-        # where the table covers the subshell (Z <= 54), else Slater's Z_eff
-        # rescaled by n/n* (Slater's n* consistency) -- see slater.z_eff_radial().
-        # The SAME value feeds both the radial sampler and the sign recomputation
-        # below, so the psi_real() substitution always matches the table the point
-        # was drawn from.
-        z_eff = slater.z_eff_radial(z, config, n, ell)
+        # Radial model: screened-potential tables (radial_tables) or the
+        # hydrogenic Z_eff substitution (default). The SAME radial function
+        # feeds both the sampler and the sign recomputation below, so the
+        # psi evaluation always matches the table the point was drawn from.
+        if radial_tables is not None:
+            src = radial_tables.source(z, n, ell)
+            x_grid = src.r
+            u_values = src.u
+            max_r = src.max_r()
+        else:
+            z_eff = slater.z_eff_radial(z, config, n, ell)
+            x_grid = None
+            u_values = None
+            max_r = None
         rgb = SHELL_RGB[n] if n < len(SHELL_RGB) else SHELL_RGB[-1]
 
         if m is None:
-            inv_r_table, _max_r = pointcloud.init_radial_sampler(n, ell, z_eff)
+            if radial_tables is not None:
+                density = array.array('d', bytes(8 * len(x_grid)))
+                for i in range(len(x_grid)):
+                    density[i] = u_values[i] * u_values[i]
+                inv_r_table, _max_r = pointcloud.init_radial_sampler_from_table(x_grid, density)
+            else:
+                inv_r_table, _max_r = pointcloud.init_radial_sampler(n, ell, z_eff)
             for _ in range(group_count):
                 x, y, pz = pointcloud.sample_isotropic_point(inv_r_table, rng)
                 xs[idx] = x
@@ -420,7 +441,11 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
         else:
             radial_coeff = orbitals.laguerre_coeffs(n, ell)
             legendre_coeff = orbitals.legendre_coeffs(ell, m)
-            sampler = pointcloud.init_orbital_sampler(n, ell, m, z_eff)
+            if radial_tables is not None:
+                sampler = pointcloud.init_orbital_sampler(n, ell, m, radial_fn=src.R_lookup,
+                                                          max_r=max_r)
+            else:
+                sampler = pointcloud.init_orbital_sampler(n, ell, m, z_eff)
             for _ in range(group_count):
                 x, y, pz = pointcloud.sample_orbital_point(sampler, rng)
                 xs[idx] = x
@@ -432,15 +457,23 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED):
 
                 # Sign of the real wavefunction at this point -- NOT
                 # available from the sample itself (sample_orbital_point()
-                # draws from |psi|^2, which loses it), so recomputed here.
-                # z_eff*r matches the substitution init_orbital_sampler()
-                # used to build the radial table this point came from;
-                # theta/phi are never Z-scaled (see that function's
-                # docstring), so the raw sampled angle is correct as-is.
+                # draws from |psi|^2, which loses it), so recomputed here
+                # from the SAME radial model that built the sampler.
                 r = math.sqrt(x * x + y * y + pz * pz)
                 theta = math.acos(pz / r) if r > 1e-9 else 0.0
                 phi = math.atan2(y, x)
-                psi = orbitals.psi_real(z_eff * r, theta, phi, n, ell, m, radial_coeff, legendre_coeff)
+                if radial_tables is not None:
+                    # psi = R(r) * P_l^m(theta) * azim(phi), R = u/r
+                    R_val = pointcloud.interp_u(r, x_grid, u_values) / r if r > 1e-9 else 0.0
+                    p_val = orbitals.compute_plm(theta, ell, m, legendre_coeff)
+                    if m >= 0:
+                        azim = math.cos(m * phi)
+                    else:
+                        azim = math.sin(-m * phi)
+                    psi = R_val * p_val * azim
+                else:
+                    psi = orbitals.psi_real(z_eff * r, theta, phi, n, ell, m,
+                                            radial_coeff, legendre_coeff)
                 signs[idx] = 1 if psi >= 0.0 else -1
 
                 idx += 1

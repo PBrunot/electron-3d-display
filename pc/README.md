@@ -187,6 +187,32 @@ substitution `r -> Z_eff*r` at sampling time, added as new functions
 spherical harmonic, but a spherically-averaged subshell) and the
 multi-subshell mixing (`atom_cloud.build_atom_point_cloud()`) are new.
 
+### Screened-potential (HFS) model — `--model hfs` (experimental)
+
+```sh
+python3 pc/atom_main.py 26 --model hfs        # iron with the new radial model
+python3 pc/validate_atoms.py --model hfs --strict --all
+python3 pc/hfs_solver.py --zmin 1 --zmax 118 --alpha 0.6666667 --out pc/hfs_tables.npz
+```
+
+The hydrogenic-Z_eff approximation above is replaced, on request, by the
+classic self-consistent screened-potential model: every occupied (n, l)
+subshell is an eigenstate of a single central potential built from the
+atom's own electron density (nuclear + electron-electron + Slater exchange
+with the Latter -1/r cutoff), solved offline by `pc/hfs_solver.py`
+(Hartree-Fock-Slater; log-grid eigenvalue problem, ARPACK shift-invert) and
+tabulated as u(r) = r R(r) per subshell. `--model hfs` makes the PC viewer
+and the validation harness use those tables instead of the hydrogenic
+substitution (the shared samplers in `micropython/pointcloud.py` gained
+table-fed paths; the hydrogenic default is untouched). `--relativistic`
+(PC-only tables so far) replaces the final states with solutions of the
+radial Dirac equation (`pc/dirac_solver.py`) — the s/p contraction for
+Z >= 55. See `pc/screened_potential_model.md` for the design and the
+validation numbers, and `ATOMS.md` section 5 for the accuracy discussion
+(α=2/3, the exchange that matches the NIST LDA eigenvalues to <0.7 eV,
+with SCF density mixing 0.35 to keep the transition-metal 3d/4s ordering
+physical).
+
 ## Keeping this in sync with the device
 
 The orchestration layer (orbital math, ranking, scale-from-radii,
