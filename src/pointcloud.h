@@ -125,6 +125,104 @@ constexpr void buildInverseCdf(orb_real_t *weight, int count, orb_real_t domainM
 }
 
 /**
+ * Same inverse-CDF builder as buildInverseCdf() above, but for density
+ * samples on an ARBITRARY (not evenly spaced) grid xGrid[0..inCount-1] --
+ * the case for the tabulated screened-potential radial functions (u^2 on a
+ * log-uniform Bohr grid, see src/hfs_tables.h / hfs_radial.h). The forward
+ * CDF uses the trapezoid rule on the actual grid spacing; the inverse lookup
+ * maps a quantile back to an x-VALUE (not an index) by linear interpolation
+ * of the CDF. Direct port of micropython/pointcloud.py's
+ * _build_inverse_cdf_from_grid(), generalized with an output resolution
+ * (outCount) independent of the input grid's own size (inCount) -- lets a
+ * caller decouple a coarse source table (e.g. 128 points) from the
+ * kOrbitalTableSize-quantile resolution the rest of this file's sampling
+ * structs assume, instead of resizing RadialTable/OrbitalSampler per source.
+ *
+ * weight[] is overwritten in place as scratch (same convention as
+ * buildInverseCdf()): each entry's ORIGINAL value is captured into a local
+ * before being overwritten with its running (unnormalized) CDF, so the
+ * trapezoid rule -- which needs both endpoints of each interval -- still
+ * sees the true weights despite the in-place reuse.
+ *
+ * @param weight   [in/out] Non-negative density samples at xGrid[i]; becomes
+ *                 scratch (the CDF), not meaningful to the caller afterwards.
+ * @param xGrid    Grid points, strictly increasing, inCount of them.
+ * @param inCount  Number of (weight, xGrid) samples, must be >= 2.
+ * @param invTable [out] outCount evenly-spaced quantiles of the inverse CDF.
+ * @param outCount Number of quantiles to write to invTable.
+ */
+constexpr void buildInverseCdfFromGrid(orb_real_t *weight, const orb_real_t *xGrid, int inCount,
+                                       orb_real_t *invTable, int outCount)
+{
+    if (inCount < 2)
+    {
+        for (int k = 0; k < outCount; k++)
+            invTable[k] = inCount > 0 ? xGrid[0] : orb_real_t(0);
+        return;
+    }
+
+    orb_real_t prevWeight = weight[0];
+    weight[0] = orb_real_t(0);
+    orb_real_t cumulative = orb_real_t(0);
+    for (int i = 1; i < inCount; i++)
+    {
+        orb_real_t curWeight = weight[i]; // save before this slot is overwritten below
+        cumulative += orb_real_t(0.5) * (curWeight + prevWeight) * (xGrid[i] - xGrid[i - 1]);
+        weight[i] = cumulative; // weight[] now holds the (unnormalized) CDF
+        prevWeight = curWeight;
+    }
+    orb_real_t total = weight[inCount - 1];
+    if (total <= orb_real_t(0))
+        total = orb_real_t(1); // degenerate guard; shouldn't occur for valid tables
+    for (int i = 0; i < inCount; i++)
+        weight[i] /= total;
+
+    int j = 0;
+    for (int k = 0; k < outCount; k++)
+    {
+        orb_real_t u = orb_real_t(k) / orb_real_t(outCount - 1);
+        while (j < inCount - 1 && weight[j] < u)
+            j++;
+        int j0 = j > 0 ? j - 1 : 0;
+        int j1 = j;
+        orb_real_t c0 = weight[j0];
+        orb_real_t c1 = weight[j1];
+        orb_real_t t = (c1 > c0) ? (u - c0) / (c1 - c0) : orb_real_t(0);
+        invTable[k] = xGrid[j0] + t * (xGrid[j1] - xGrid[j0]);
+    }
+}
+
+/**
+ * Linear interpolation of values[] on an arbitrary (not necessarily evenly
+ * spaced) grid xGrid[0..count-1], e.g. u(r) on the HFS tables' log-uniform
+ * Bohr grid (src/hfs_radial.cpp's runtime-loaded grid, read from
+ * data/hfs_tables.bin). Clamps to the grid ends; x <= 0 returns 0. Binary
+ * search (the grid is log-uniform in practice but this makes no assumption
+ * of that beyond monotonicity), same convention as
+ * micropython/pointcloud.py's interp_u().
+ */
+inline orb_real_t interpOnGrid(orb_real_t x, const orb_real_t *xGrid, const orb_real_t *values, int count)
+{
+    if (x <= orb_real_t(0))
+        return orb_real_t(0);
+    if (x <= xGrid[0])
+        return values[0];
+    if (x >= xGrid[count - 1])
+        return values[count - 1];
+    int lo = 0, hi = count - 1;
+    while (hi - lo > 1)
+    {
+        int mid = (lo + hi) / 2;
+        if (xGrid[mid] < x)
+            lo = mid;
+        else
+            hi = mid;
+    }
+    orb_real_t t = (xGrid[hi] > xGrid[lo]) ? (x - xGrid[lo]) / (xGrid[hi] - xGrid[lo]) : orb_real_t(0);
+    return values[lo] + t * (values[hi] - values[lo]);
+}
+
+/**
  * Build an OrbitalSampler for (n, ell, m) and return it by value: the three
  * inverse-CDF tables above from buildRadialTable()'s r*R(r),
  * buildLegendreTable()'s P_l^m(theta), and the azimuthal factor

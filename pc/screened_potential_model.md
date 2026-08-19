@@ -1,7 +1,8 @@
 # Screened-potential model (R2/R3) — design for high-Z atom clouds
 
 Status: design + PC implementation (validated against literature). Device
-(ESP32) port is the final goal; see §7 for the port plan.
+(ESP32) port done (2026-08, C++/ESP-IDF; MicroPython not yet wired up); see
+§7 for what landed and what's still open.
 
 ## 0. Problem: why the current model breaks at high Z
 
@@ -230,26 +231,87 @@ Two interchangeable back-ends:
   E. Clementi, D. L. Raimondi, W. P. Reinhardt, *J. Chem. Phys.* **47**,
   1300 (1967) — Z_eff tables and atomic radii (already in-repo).
 
-## 7. Device (ESP32) port plan — final goal, not this milestone
+## 7. Device (ESP32) port plan
 
 1. PC: solver → validated tables (this milestone). **Done (2026-08)** —
    SPARC-atomSFE LDA_SVWN tables, Z=1..92, NIST-exact eigenvalues (see
    pc/RUN_HFS.md §5; pc/hfs_atomsfe.py).
-2. PC: compact per-subshell representation (STO fit or 64-pt log grid) +
-   accuracy check of the *sampled* distribution vs the dense table
-   (KS-style distance on the inverse CDFs). **Partial**: the 128-pt log-grid
-   reference (`pc/hfs_tables_reduced.npz`) is committed (valence modes
-   within 1.5% of the full tables; `pc/hfs_tables.py --compact ... 128`);
-   the STO fit / 64-pt-Hermite form and the sampled-distribution KS check
-   remain.
-3. Firmware: `tools/orbitals_host`-style codegen → PROGMEM C arrays;
-   `src/pointcloud.h` gains a table-fed radial sampler (it already builds
-   inverse-CDF tables at runtime from hydrogenic R — the table-fed variant
-   reuses that path); `src/atom_cloud.h` selects the tabulated radial
-   source per (Z,n,l); MicroPython variant under `micropython/` mirrors it.
-4. On-device benchmark (FPS unchanged: per-point cost is one interpolation
-   + one inverse-CDF lookup either way) + screenshot A/B vs PC.
+2. PC: compact per-subshell representation + accuracy check vs the dense
+   table. **Done, superseded plan** — the 128-pt log-grid reference
+   (`pc/hfs_tables_reduced.npz`) is committed (valence modes within 1.5% of
+   the full tables; `pc/hfs_tables.py --compact ... 128`) and, per step 3
+   below, turned out to be the FINAL device form, not an intermediate one:
+   the STO fit / 64-pt-Hermite compaction this step originally planned is no
+   longer needed (see step 3's size note) and the sampled-distribution KS
+   check was superseded by the direct numerical cross-check described there.
+3. Firmware. **Done (2026-08), BOTH C++/ESP-IDF and MicroPython** —
+   `tools/hfs_table_gen.py` packs the 128-pt reduced npz into ONE binary blob
+   (little-endian `struct`: shared `r` grid + per-Z element index +
+   per-subshell `(n, ell)` index + `u(r)` rows), written to two identical
+   copies read ON DEMAND from flash/filesystem rather than compiled into
+   either firmware image as source-level data (an earlier iteration of this
+   work compiled it directly into `src/hfs_tables.h` as ~470 KB of `.rodata`;
+   moved off that to keep the data out of the firmware image/OTA payload —
+   see the size/perf note below):
+   - `data/hfs_tables.bin` → flashed to the `storage` SPIFFS partition
+     (`partitions_16M.csv`) via `pio run -t uploadfs` (separate from the
+     normal firmware flash, see pc/RUN_HFS.md's device note for the exact
+     command). `src/hfs_radial.cpp` (hand-written; `src/hfs_tables.h` is now
+     GENERATED but tiny — just the three size constants, data/logic split
+     still mirrors `font.h`/`font_data.h`, CLAUDE.md §4.1) mounts `/storage`
+     (idempotent, shares the partition `screenshot.cpp` already mounts),
+     loads the small header/index once, and reads each subshell's `u(r)`
+     row on demand. Direct port of `pc/hfs_tables.py`'s
+     `RadialSource`/`HfsTables` and `micropython/atom_cloud.py`'s
+     `radial_tables` branch onto that reading strategy.
+   - `micropython/hfs_tables.bin` → deployed to the device root the normal
+     way (`mpremote ... fs cp -r micropython/. :`).
+     `micropython/hfs_radial_tables.py` (hand-written) reads it the same
+     way (header/index resident, rows on demand via `open()`/`seek()`).
+     `micropython/atom_view.py` now loads it once and passes it as
+     `build_atom_point_cloud()`'s `radial_tables` argument, and
+     `micropython/hfs_atom_size_calib.py` (generated, table-based factors)
+     replaced the hydrogenic `atom_size_calib.py` for that one caller —
+     `atom_size_calib.py` itself is left untouched since
+     `pc/atom_view_pc.py`'s hydrogenic default and the web viewer still
+     depend on it staying hydrogenic.
 
-Size/perf budget: flash +15–20 KB (STO form); RAM unchanged (tables built
-at init from PROGMEM, freed after, or cached per element); no change to the
-per-frame sampling loop.
+   `src/pointcloud.h` gained the missing piece, `buildInverseCdfFromGrid()`
+   (arbitrary/log-grid trapezoidal CDF, a port of
+   `micropython/pointcloud.py`'s `_build_inverse_cdf_from_grid()`,
+   generalized with an output resolution independent of the source table's
+   own point count) plus `interpOnGrid()` (port of `interp_u()`);
+   `src/atom_cloud.cpp` selects the tabulated radial source per (Z,n,l) for
+   z<=92 when the table is available, falling back to the hydrogenic model
+   both for z outside that coverage and for a board that hasn't run
+   `pio run -t uploadfs` yet (`hfsFindU()` returns `nullptr` either way).
+   Cross-checked against an independent NumPy re-derivation of the same
+   trapezoidal-CDF algorithm: the C++ (float64 build) and Python quantile
+   outputs agree to ~1e-8 relative on representative subshells (Fe 4s, U 1s)
+   — same cross-port numerical discipline as `tools/orbitals_host`, done ad
+   hoc here rather than extending that harness (which doesn't compile
+   `atom_cloud.cpp`/`hfs_radial.cpp` at all, since both pull in ESP-IDF-only
+   headers). The MicroPython loader/sampler pipeline was verified end to end
+   under the real MicroPython 1.17 unix-port interpreter (not just the
+   CPython shim), including a byte-exact check of the file reads against the
+   source npz.
+4. On-device benchmark + screenshot A/B vs PC. **Not done** — no change to
+   per-point sampling cost (one interpolation + one inverse-CDF lookup
+   either way, as originally estimated, PLUS now one file open/seek/read per
+   subshell per element switch — still not per-frame or per-point), but
+   this hasn't been measured on real hardware yet or compared frame-for-frame
+   against `pc/atom_view_pc.py --model hfs`.
+
+Size/perf: **the original +15–20 KB (STO form) budget no longer applies, and
+the ~470 KB raw-table budget that superseded it (committed 2026-08) doesn't
+either** — the table now lives in the `storage` SPIFFS partition (7 MB, only
+lightly used by on-device screenshots) as `data/hfs_tables.bin`, read on
+demand, rather than compiled into either firmware image, so this section's
+original "flash +X KB" framing no longer applies at all: the OTA/firmware
+image itself carries none of this data now. RAM: each sampler build uses a
+few KB of function-local `static` scratch (same class as the existing
+hydrogenic `buildRadialSamplerRuntime()`), plus a few KB of resident
+header/index loaded once by `hfsInit()`/`hfs_radial_tables.HfsTables()` —
+no PSRAM attribute needed, these are small. No change to the per-frame
+sampling loop; the one new cost is a file open/seek/read per subshell, paid
+once per element switch on both ports.
