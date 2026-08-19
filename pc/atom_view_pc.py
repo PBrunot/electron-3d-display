@@ -26,7 +26,6 @@ reference sphere, so the eye has a recognizable sphere shape to track even
 when the active subshell's dimming makes the actual points hard to see.
 """
 
-import array
 import math
 import os
 import random
@@ -41,6 +40,9 @@ import atom_cloud
 import clementi_radii
 import cloud_common
 import slater
+
+import atom_dissection_common
+from atom_dissection_common import dissection_plan
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -105,14 +107,9 @@ def clementi_size_factor(radial_tables, z):
     subshell/table entry).
     """
     if radial_tables is None:
-        # Hydrogenic model: generated factor table (tools/atom_size_calib_gen.py).
-        try:
-            import atom_size_calib
-            if 1 <= z <= len(atom_size_calib.FACTOR):
-                return atom_size_calib.FACTOR[z - 1]
-        except ImportError:
-            pass
-        return 1.0
+        # Hydrogenic model: generated factor table (tools/atom_size_calib_gen.py),
+        # shared with the micropython/web/C++ ports via atom_dissection_common.py.
+        return atom_dissection_common.default_size_factor(z)
     lit = clementi_radii.CLEMENTI_RADIUS_PM.get(z)
     if not lit:
         return 1.0
@@ -364,67 +361,16 @@ def draw_atom_title(draw, x, y, z, config, outer_n=None, outer_ell=None):
         cursor_x += draw.textlength(segment)
 
 
-class AtomPreset:
-    """PC equivalent of orbital_view_pc.Preset, for one atomic number Z
-    instead of one (n, ell, m) orbital. Same public shape (xs/ys/zs/colors/
-    title/base_scale/zoom_amplitude/r_ref/resample()) so render_frame() and
-    the fly-over/zoom-breathing loop accept it unchanged; also carries
-    shells/ells/signs/config (from atom_cloud.build_atom_point_cloud()) for
-    the dissection view.
+def make_atom_preset(z, radial_tables=None):
+    """AtomPreset for this viewer's own N_POINTS/PIXELS_PER_BOHR, with the
+    display-size factor this module's clementi_size_factor() computes
+    (tables-based for the screened-potential tables, hydrogenic-factor --
+    shared with the micropython/web/C++ ports -- for the no-tables path).
+    See atom_dissection_common.AtomPreset's docstring for the shared shape.
     """
-
-    def __init__(self, z, radial_tables=None):
-        print("atom: loading Z=%d (%s)..." % (z, slater.element_symbol(z)))
-        t0 = time.time()
-
-        xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(
-            z, count=N_POINTS, radial_tables=radial_tables)
-
-        # Clementi-Raimondi display-size calibration (see
-        # clementi_size_factor()): rescale the whole cloud so the valence
-        # subshell's mode lands on the literature radius -- tables-based for
-        # the screened-potential tables, hydrogenic-factor for the no-tables
-        # path (shared with the micropython and C++ ports via
-        # atom_size_calib.py / atom_size_calib.h). Scaling preserves signs
-        # (R(r/f) keeps the node structure of R(r)) and the internal
-        # relative shell structure; only the atom's overall size changes.
-        f = clementi_size_factor(radial_tables, z)
-        if f != 1.0:
-            xs = array.array('f', (v * f for v in xs))
-            ys = array.array('f', (v * f for v in ys))
-            zs = array.array('f', (v * f for v in zs))
-
-        self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
-            xs, ys, zs, colors, shells, ells, signs, config)
-        self.title = atom_cloud.title_for_atom(z, config)
-        # Same plan atom_cloud.outer_subshell_r_ref() would compute internally
-        # -- called directly here instead so the outermost subshell's own
-        # measured radius is available (what defines the atom's physical
-        # size; see outer_subshell_r_ref()'s docstring).
-        outer_plan = atom_cloud.subshell_dissection_plan(xs, ys, zs, shells, ells, config)
-        r_ref = outer_plan[0][5] if outer_plan else 1.0
-        self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(
-            r_ref, PIXELS_PER_BOHR)
-        # Which (n, ell) is the outermost subshell BY MEASURED RADIUS (not
-        # just the last entry in `config`'s Madelung-order list -- see the
-        # 4s/3d crossover note above) -- draw_atom_title() brightens this
-        # one subshell's config-text segment the same way its points are
-        # brightened, so the legend and the cloud read as one language.
-        self.outer_n, self.outer_ell = (outer_plan[0][0], outer_plan[0][1]) if outer_plan else (0, 0)
-        # Innermost/first shell's own radius and the subshell count -- used
-        # by the shared zoom envelope (see viewer_common.maybe_zoom_excursion()
-        # and this module's _run_dissection()) to guarantee dives/dissections
-        # always reach the first shell's own depth and to pace their duration
-        # by how many subshells this element actually has.
-        self.inner_r_ref = outer_plan[-1][5] if outer_plan else r_ref
-        self.shell_count = len(outer_plan) if outer_plan else 1
-        self._np_cache = None  # numpy fast-path arrays; rebuilt lazily (see viewer_common)
-
-        print("atom: %s loaded in %.2fs, scale=%.1f" % (
-            slater.element_symbol(z), time.time() - t0, self.base_scale))
-
-    def resample(self, count):
-        pass  # static cloud -- see module docstring
+    return atom_dissection_common.AtomPreset(
+        z, N_POINTS, PIXELS_PER_BOHR,
+        size_factor=clementi_size_factor(radial_tables, z), radial_tables=radial_tables)
 
 
 class AtomViewApp:
@@ -483,7 +429,7 @@ class AtomViewApp:
             if radial_tables is not None and hasattr(radial_tables, 'z_list')
             else slater.MAX_Z,
             slater.MAX_DISPLAY_Z)
-        self.preset = AtomPreset(self.z, radial_tables)
+        self.preset = make_atom_preset(self.z, radial_tables)
         self._pending_z = None
         self.zoom_factor = 1.0
         self.dissecting = False
@@ -877,12 +823,10 @@ class AtomViewApp:
 
     def _dissection_plan(self):
         """The current element's subshell dissection plan (see
-        atom_cloud.subshell_dissection_plan()) -- shared by _run_dissection()
-        and the idle auto-advance's can-dissect check.
+        atom_dissection_common.dissection_plan()) -- shared by
+        _run_dissection() and the idle auto-advance's can-dissect check.
         """
-        return atom_cloud.subshell_dissection_plan(
-            self.preset.xs, self.preset.ys, self.preset.zs, self.preset.shells, self.preset.ells,
-            self.preset.config)
+        return dissection_plan(self.preset)
 
     @staticmethod
     def _random_z_excluding(current):
@@ -903,7 +847,7 @@ class AtomViewApp:
         if self.aborted:
             return
         self.z = new_z
-        self.preset = AtomPreset(new_z, self.radial_tables)
+        self.preset = make_atom_preset(new_z, self.radial_tables)
         self.idle_dissected_this_element = False  # fresh element -- fresh idle dissection budget
         fly_over(self, self._effective_base_scale() * SWITCH_START_SCALE_FACTOR, self._effective_base_scale(),
                  SWITCH_TRANSITION_FRAMES)
@@ -930,6 +874,12 @@ class AtomViewApp:
         stretched by shell_count_frames() so heavier elements (more
         subshells, a bigger outer-to-inner range) get a proportionally
         longer sequence instead of feeling rushed.
+
+        The actual phase-by-phase plan (scale/clip/timing per leg) is
+        computed once by atom_dissection_common.build_dissection_steps(),
+        shared with web/py/web_atom.py's dissection_sequence() -- this
+        method just executes the resulting steps with its own blocking
+        _dissect_ease()/_dissect_hold() primitives.
         """
         # Title card first -- "Configurazione / elettronica / <nome>" over
         # the tiled "e-" backdrop (device showElectronConfigIntro()).
@@ -951,86 +901,30 @@ class AtomViewApp:
         outer_scale = outer_bound_scale(self.preset.r_ref)
         inner_scale = inner_bound_scale(self.preset.inner_r_ref)
 
-        # Every phase below is followed by `if self.aborted or
+        steps = atom_dissection_common.build_dissection_steps(
+            plan, self.preset.r_ref, resting_scale, outer_scale, inner_scale,
+            orient_frames, zoom_frames, close_frames, DISSECT_HOLD_SECONDS,
+            DISSECT_TARGET_PX, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
+            slater.element_symbol(self.z))
+
+        # Every step below is followed by `if self.aborted or
         # self.abort_dissection: return` -- Escape (see _request_exit()) and
-        # any movement (see the input handlers) can only interrupt a phase
+        # any movement (see the input handlers) can only interrupt a step
         # BETWEEN whole _dissect_ease()/_dissect_hold() calls (each of those
         # already breaks out of its own loop promptly, but control still
         # returns here afterward), so without this check an abort mid-sequence
-        # would otherwise fall through into the NEXT phase instead of
+        # would otherwise fall through into the NEXT step instead of
         # stopping.
-
-        # Phase 0: ease out from wherever the camera currently is to the
-        # guaranteed "outside" overview, cut still closed, nothing singled
-        # out yet.
-        self._dissect_ease(resting_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
-                            active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=zoom_frames, full_tumble=True)
-        if self.aborted or self.abort_dissection:
-            return
-
-        # Phase 1: open the cut (nothing hidden -> z>0 hidden) at that
-        # overview scale, no subshell singled out yet.
-        self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
-                            active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=orient_frames)
-        if self.aborted or self.abort_dissection:
-            return
-
-        # Phase 2: outermost subshell to innermost -- zoom to each subshell's
-        # own extent (target_scale), highlight it, hold with its label shown.
-        # The LAST (innermost/first) subshell is pinned to inner_scale
-        # instead of its own r_ref-filling target, guaranteeing the dive
-        # reaches ZOOM_INNER_RADIUS_FACTOR x its radius, not just its radius.
-        # Title is the device's drawDissectTitle() triple: big subshell label
-        # ("2p"), plain-size caption ("Fe (k/N)" -- element symbol, not the
-        # shell notation already shown by the big label), corner "<occ>e-"
-        # note.
-        prev_scale = outer_scale
-        for i, (n, ell, letter, subshell_str, electron_count, r_ref) in enumerate(plan):
-            target_scale = inner_scale if i == len(plan) - 1 else DISSECT_TARGET_PX / max(r_ref, 1e-6)
-            subshell = slater.subshell_label(n, ell)
-            title = (subshell, "%s (%d/%d)" % (slater.element_symbol(self.z), i + 1, len(plan)), electron_count)
-
-            self._dissect_ease(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                                active_subshell=(n, ell), r_ref=r_ref,
-                                frames=zoom_frames, title=title)
+        for step in steps:
+            if step[0] == 'ease':
+                _, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, title, full_tumble = step
+                self._dissect_ease(scale0, scale1, clip0, clip1, active_subshell, r_ref,
+                                    frames, title=title, full_tumble=full_tumble)
+            else:
+                _, scale, clip, active_subshell, r_ref, seconds, title = step
+                self._dissect_hold(scale, clip, active_subshell, r_ref, seconds, title)
             if self.aborted or self.abort_dissection:
                 return
-            self._dissect_hold(target_scale, DISSECT_CLIP_OPEN, (n, ell), r_ref,
-                               DISSECT_HOLD_SECONDS, title)
-            if self.aborted or self.abort_dissection:
-                return
-            prev_scale = target_scale
-
-        # Phase 3: zoom back out to the guaranteed overview scale, still cut
-        # open but with no subshell singled out -- the "back" half of the
-        # outside/deep envelope.
-        self._dissect_ease(prev_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                            active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=zoom_frames)
-        if self.aborted or self.abort_dissection:
-            return
-
-        # Phase 4: close the cut back up, still at the overview scale.
-        self._dissect_ease(outer_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
-                            active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=close_frames)
-        if self.aborted or self.abort_dissection:
-            return
-
-        # Phase 5: ease back in to the SAME resting_scale Phase 0 started
-        # from (not just self._effective_base_scale(), which omits the
-        # breathing sin() term Phase 0's start point included) so normal
-        # viewing's next frame -- which resumes breathing from the same
-        # frozen self.zoom_angle -- picks up exactly where this leaves off
-        # instead of popping by the breathing amplitude. full_tumble=True
-        # for the same reason as Phase 0: the cut is closed throughout, so
-        # yaw/tilt can safely resume their normal advance here instead of
-        # staying roll-only until the very next tick.
-        self._dissect_ease(outer_scale, resting_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
-                            active_subshell=None, r_ref=self.preset.r_ref,
-                            frames=zoom_frames, full_tumble=True)
 
     def _tick(self):
         if self.aborted:

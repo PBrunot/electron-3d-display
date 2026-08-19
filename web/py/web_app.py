@@ -109,7 +109,7 @@ class ChooserScene:
             self.preset = web_orbital.Preset(index)
         else:
             z = random.randint(1, slater.MAX_DISPLAY_Z)
-            self.preset = web_atom.AtomPreset(z)
+            self.preset = web_atom.make_atom_preset(z)
         self.scale = self.preset.base_scale
 
         self.angle = random.uniform(0, 2 * math.pi)

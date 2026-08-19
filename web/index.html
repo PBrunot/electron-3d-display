@@ -128,22 +128,26 @@ const FRAME_DELAY_MS = 5;
 // device/PC source of truth (mirrors how pc/*.py already reaches into
 // micropython/ via sys.path instead of copying). render_core.py is the
 // numpy point-cloud render core the PC simulator and this demo SHARE
-// (web_common.py imports it the same way pc/viewer_common.py does). Only
-// web_common.py, web_orbital.py, web_atom.py, and web_app.py (genuinely
-// web-only: canvas rendering, generator-driven animation loop, the chooser
-// screen) live under web/py/. `dest` is the module's import name inside
-// Pyodide's virtual filesystem -- import resolution only sees `dest`, so
-// files from different source directories all land flat in the same lib/
-// folder there.
+// (web_common.py imports it the same way pc/viewer_common.py does);
+// atom_dissection_common.py is the same idea for the atom-view dissection
+// feature (AtomPreset + the Phase 0-5 plan, shared with
+// pc/atom_view_pc.py). Only web_common.py, web_orbital.py, web_atom.py,
+// and web_app.py (genuinely web-only: canvas rendering, generator-driven
+// animation loop, the chooser screen) live under web/py/. `dest` is the
+// module's import name inside Pyodide's virtual filesystem -- import
+// resolution only sees `dest`, so files from different source directories
+// all land flat in the same lib/ folder there.
 const PY_FILES = [
   { src: '../pc/micropython_shim.py', dest: 'micropython_shim.py' },
   { src: '../pc/render_core.py', dest: 'render_core.py' },
+  { src: '../pc/atom_dissection_common.py', dest: 'atom_dissection_common.py' },
   { src: '../micropython/slater_cr_zeff.py', dest: 'slater_cr_zeff.py' },
   { src: '../micropython/slater.py', dest: 'slater.py' },
   { src: '../micropython/orbitals.py', dest: 'orbitals.py' },
   { src: '../micropython/pointcloud.py', dest: 'pointcloud.py' },
   { src: '../micropython/cloud_common.py', dest: 'cloud_common.py' },
   { src: '../micropython/atom_cloud.py', dest: 'atom_cloud.py' },
+  { src: '../micropython/atom_size_calib.py', dest: 'atom_size_calib.py' },
   { src: 'py/web_common.py', dest: 'web_common.py' },
   { src: 'py/web_orbital.py', dest: 'web_orbital.py' },
   { src: 'py/web_atom.py', dest: 'web_atom.py' },
