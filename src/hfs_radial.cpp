@@ -30,6 +30,13 @@ namespace
     HfsElementEntry sElement[kHfsElementCount];
     HfsSubshellEntry sSubshell[kHfsSubshellCount];
     long sUDataOffset = 0;
+    // Kept open for the process lifetime once hfsInit() succeeds, instead of a fresh
+    // fopen()/fclose() per hfsFindU() call: measured on real hardware, re-opening SPIFFS'
+    // single hfs_tables.bin file once per subshell (7 opens for Fe) inflated
+    // buildAtomPointCloud()'s own build_ms from ~30-60ms (hydrogenic) to ~800-980ms -- SPIFFS
+    // open/close is the expensive part (object-index lookup), not the seek/read that follows
+    // it. A held-open FILE* only needs fseek()+fread() per call.
+    FILE *sDataFile = nullptr;
 
     /// Registers the "storage" SPIFFS partition at /storage if not already mounted. Never
     /// formats on a missing/corrupt filesystem (format_if_mount_failed=false) -- unlike
@@ -92,15 +99,16 @@ void hfsInit()
     }
     if (ok)
         sUDataOffset = ftell(f);
-    fclose(f);
 
     if (!ok)
     {
+        fclose(f);
         ESP_LOGE(kTag, "%s is malformed or stale (regenerate with tools/hfs_table_gen.py) -- using the "
                        "hydrogenic fallback model",
                  kPath);
         return;
     }
+    sDataFile = f; // kept open, see this variable's own comment above
     sReady = true;
     ESP_LOGI(kTag, "hfs tables ready: %d elements, %d subshells, %d pts/subshell", kHfsElementCount,
              kHfsSubshellCount, kHfsGridSize);
@@ -128,12 +136,8 @@ const orb_real_t *hfsFindU(int z, int n, int ell)
 
     // Not reentrant -- see this function's docstring in hfs_radial.h for the validity window.
     static orb_real_t sRowScratch[kHfsGridSize];
-    FILE *f = fopen(kPath, "rb");
-    if (f == nullptr)
-        return nullptr; // file disappeared after hfsInit() succeeded -- degrade gracefully
-    fseek(f, sUDataOffset + long(rowIndex) * long(kHfsGridSize) * long(sizeof(orb_real_t)), SEEK_SET);
-    size_t got = fread(sRowScratch, sizeof(orb_real_t), kHfsGridSize, f);
-    fclose(f);
+    fseek(sDataFile, sUDataOffset + long(rowIndex) * long(kHfsGridSize) * long(sizeof(orb_real_t)), SEEK_SET);
+    size_t got = fread(sRowScratch, sizeof(orb_real_t), kHfsGridSize, sDataFile);
     if (got != size_t(kHfsGridSize))
         return nullptr;
     return sRowScratch;
