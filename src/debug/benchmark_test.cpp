@@ -125,18 +125,6 @@ namespace
         return stats;
     }
 
-    /// Log internal-RAM and PSRAM free/largest-block bytes as one BENCH,MEM CSV line, `label`
-    /// tagging which point in the run this snapshot is from -- lets a run's own start/end (and
-    /// runs across code revisions, e.g. before/after a memory-layout change) be diffed for
-    /// headroom regressions.
-    void logMemory(const char *label)
-    {
-        ESP_LOGI(kBenchmarkTag, "BENCH,MEM,%s,internal_free,%u,internal_largest,%u,psram_free,%u,psram_largest,%u",
-                 label, heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                 heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                 heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
-    }
-
     /// Human-readable heap dump (totals + min-free-ever, not just the CSV snapshot logMemory()
     /// takes) -- logged once at the start of the sweep, since min-free-ever is only meaningful
     /// as a "worst point up to now" figure once the sweep's allocations have had a chance to
@@ -158,6 +146,18 @@ namespace
                  heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
     }
 } // namespace
+
+/// Log internal-RAM and PSRAM free/largest-block bytes as one BENCH,MEM CSV line, `label`
+/// tagging which point in the run this snapshot is from -- lets a run's own start/end (and
+/// runs across code revisions, e.g. before/after a memory-layout change) be diffed for
+/// headroom regressions.
+void logMemory(const char *label)
+{
+    ESP_LOGI(kBenchmarkTag, "BENCH,MEM,%s,internal_free,%u,internal_largest,%u,psram_free,%u,psram_largest,%u",
+             label, heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+             heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+}
 
 void runBenchmarkTest(Display &display)
 {

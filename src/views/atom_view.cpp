@@ -15,7 +15,7 @@
 #include "ux/periodic_grid.h"
 #include "debug/screenshot_pause.h"
 #include "physics/slater.h"
-#include "config/visual_constants.h" // kAccentColor, kViewIdleJumpUs, kAtomProtonMarkerSize, kElementIntro*, kDissect*, kFpsUpdateInterval
+#include "config/visual_constants.h" // kAccentColor, kViewIdleJumpUs, kAtomProtonMarkerSize, kBoundingCircleColor, kElementIntro*, kDissect*, kFpsUpdateInterval
 
 static const char *kAtomViewTag = "atom_view";
 
@@ -44,6 +44,7 @@ void AtomPresetState::load(int zIn)
     AtomScale scale = scaleForAtom(outer.rRef);
     baseScale = scale.baseScale;
     zoomAmplitude = scale.zoomAmplitude;
+    rRef = scale.rRef;
     z = zIn;
 
     int64_t buildMs = (esp_timer_get_time() - startUs) / 1000;
@@ -214,13 +215,14 @@ namespace
     /// camera.h's kHiddenPointsFraction); the caller owns the per-call frameSalt counter.
     void renderDissectFrame(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
                             uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, const CameraState &camera,
-                            orb_real_t scale, const char *bigLabel, const char *caption, int occ,
+                            orb_real_t scale, orb_real_t rRef, const char *bigLabel, const char *caption, int occ,
                             uint32_t frameSalt = 0, uint32_t buzzThreshold = 0)
     {
         display.waitForFlushDone();
         renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, camera, scale, frameSalt,
                            buzzThreshold);
         drawAtomProtonMarker(display.getFrameBuf(), protonColor);
+        drawBoundingCircle(display.getFrameBuf(), rRef, scale, kBoundingCircleColor);
         drawDissectTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor, bigLabel, caption, occ);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
         display.presentFrame();
@@ -252,8 +254,8 @@ namespace
     template <typename TitleDrawFn>
     bool easeScaleTimed(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
                         TitleDrawFn drawTitle, uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor,
-                        CameraState &camera, orb_real_t startScale, orb_real_t endScale, uint32_t durationMs,
-                        TiltGestureDetector *tilt = nullptr, uint32_t buzzThreshold = 0)
+                        CameraState &camera, orb_real_t startScale, orb_real_t endScale, orb_real_t rRef,
+                        uint32_t durationMs, TiltGestureDetector *tilt = nullptr, uint32_t buzzThreshold = 0)
     {
         int64_t startUs = esp_timer_get_time();
         int64_t durationUs = int64_t(durationMs) * 1000;
@@ -273,6 +275,7 @@ namespace
             renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, camera, scale,
                                frameSalt, buzzThreshold);
             drawAtomProtonMarker(display.getFrameBuf(), protonColor); // keep it visible over the cloud
+            drawBoundingCircle(display.getFrameBuf(), rRef, scale, kBoundingCircleColor);
             drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
             drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
             display.presentFrame();
@@ -375,8 +378,8 @@ namespace
                      subshellLabelChar(active.ell), visibleCount, level, dissectPlanCount, flyMs);
 
             bool completed = easeScaleTimed(display, preset.points, levelGroups, levelGroupCount, title, protonColor,
-                                            textColor, scaleBarColor, camera, scale, s.baseScale, flyMs, &tilt,
-                                            kHiddenPointsThreshold);
+                                            textColor, scaleBarColor, camera, scale, s.baseScale, active.rRef, flyMs,
+                                            &tilt, kHiddenPointsThreshold);
             scale = s.baseScale;
             prevRRef = active.rRef;
             if (!completed)
@@ -397,8 +400,8 @@ namespace
                     break;
                 }
                 renderDissectFrame(display, preset.points, levelGroups, levelGroupCount, protonColor, textColor,
-                                   scaleBarColor, camera, scale, bigLabel, caption, active.occ, holdFrameSalt,
-                                   kHiddenPointsThreshold);
+                                   scaleBarColor, camera, scale, active.rRef, bigLabel, caption, active.occ,
+                                   holdFrameSalt, kHiddenPointsThreshold);
                 stepCamera(&camera);
                 holdFrameSalt++;
                 vTaskDelay(pdMS_TO_TICKS(1));
@@ -416,7 +419,8 @@ namespace
             drawAtomTitle(fb, x, y, preset.z, color);
         };
         easeScaleTimed(display, preset.points, preset.groups, preset.groupCount, fullTitle, protonColor, textColor,
-                       scaleBarColor, camera, scale, preset.baseScale, returnFlyMs, nullptr, kHiddenPointsThreshold);
+                       scaleBarColor, camera, scale, preset.baseScale, preset.rRef, returnFlyMs, nullptr,
+                       kHiddenPointsThreshold);
     }
 
     /// Like camera.h's flyOver(), but redraws the proton marker on top of every frame after the
@@ -426,7 +430,7 @@ namespace
     template <typename TitleDrawFn>
     void atomFlyOver(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
                      TitleDrawFn drawTitle, uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor,
-                     CameraState *camera, orb_real_t startScale, orb_real_t endScale, int frames,
+                     CameraState *camera, orb_real_t startScale, orb_real_t endScale, orb_real_t rRef, int frames,
                      uint32_t buzzThreshold = 0)
     {
         for (int i = 0; i < frames; i++)
@@ -438,6 +442,7 @@ namespace
             renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, *camera, scale,
                                uint32_t(i), buzzThreshold);
             drawAtomProtonMarker(display.getFrameBuf(), protonColor);
+            drawBoundingCircle(display.getFrameBuf(), rRef, scale, kBoundingCircleColor);
             drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
             drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
             display.presentFrame();
@@ -477,8 +482,8 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
     orb_real_t zoomAngle = orb_real_t(0);
 
     atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, kIntroFrames,
-                kHiddenPointsThreshold);
+                kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, preset.rRef,
+                kIntroFrames, kHiddenPointsThreshold);
 
     int frameCount = 0;
     int64_t fpsWindowStartUs = esp_timer_get_time();
@@ -501,7 +506,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         refreshDissectPlan(preset);
         idleDissectedThisElement = false; // fresh element -- fresh idle dissection budget
         atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                    kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames,
+                    kScaleBarColor, &camera, currentScale, preset.baseScale, preset.rRef, kSwitchTransitionFrames,
                     kHiddenPointsThreshold);
         zoomAngle = orb_real_t(0);
         zoomExcursionCountdown = nextZoomExcursionCountdown();
@@ -595,10 +600,10 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
             atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                        kScaleBarColor, &camera, currentScale, targetScale, kZoomExcursionEaseFrames,
+                        kScaleBarColor, &camera, currentScale, targetScale, preset.rRef, kZoomExcursionEaseFrames,
                         kHiddenPointsThreshold);
             atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                        kScaleBarColor, &camera, targetScale, preset.baseScale, kZoomExcursionEaseFrames,
+                        kScaleBarColor, &camera, targetScale, preset.baseScale, preset.rRef, kZoomExcursionEaseFrames,
                         kHiddenPointsThreshold);
             zoomAngle = orb_real_t(0);
             zoomExcursionCountdown = nextZoomExcursionCountdown();
@@ -612,6 +617,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         renderSceneGrouped(display.getFrameBuf(), preset.points, preset.groups, preset.groupCount, kProtonColor,
                            camera, scale, buzzFrame, kHiddenPointsThreshold);
         drawAtomProtonMarker(display.getFrameBuf(), kProtonColor); // see its docstring -- keep it visible over the cloud
+        drawBoundingCircle(display.getFrameBuf(), preset.rRef, scale, kBoundingCircleColor);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
         drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, kTextColor);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);

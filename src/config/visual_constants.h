@@ -13,9 +13,9 @@
 
 #include <cstdint>
 
-#include "physics/orbitals.h"        // orb_real_t
-#include "render/display.h"          // Display, packColor565
-#include "render/equation_bitmap.h"  // kEquationBitmapWidth/Height, for the orbital intro layout below
+#include "physics/orbitals.h"       // orb_real_t
+#include "render/display.h"         // Display, packColor565
+#include "render/equation_bitmap.h" // kEquationBitmapWidth/Height, for the orbital intro layout below
 
 // ============================================================================================
 // Shared across both viewers (dedup of what used to be near-identical per-file copies)
@@ -31,10 +31,10 @@ inline constexpr uint16_t kProtonColor = Display::kColorRed;
 
 /// Title/scale-bar text color, both viewers.
 inline constexpr uint16_t kTextColor = Display::kColorWhite;
-inline constexpr uint16_t kScaleBarColor = Display::kColorWhite;
+inline constexpr uint16_t kScaleBarColor = Display::kColorLightGrey;
 
 /// Frame count between FPS log lines, both viewers' main loops.
-inline constexpr int kFpsUpdateInterval = 50;
+inline constexpr int kFpsUpdateInterval = 100;
 
 /// Idle time with no confirmed tilt input before a viewer auto-advances to a random
 /// preset/element. Same value for both viewers (orbital_view.cpp, atom_view.cpp).
@@ -47,8 +47,6 @@ inline constexpr int64_t kViewIdleJumpUs = 60'000'000;
 inline constexpr orb_real_t kCameraAngleStep = orb_real_t(0.030); ///< Yaw change per frame.
 inline constexpr orb_real_t kCameraTiltStep = orb_real_t(0.023);  ///< Tilt change per frame.
 inline constexpr orb_real_t kCameraRollStep = orb_real_t(0.017);  ///< Roll change per frame.
-// The three steps are deliberately non-resonant with each other, so the tumble doesn't fall
-// into a short repeating loop.
 
 /// Tilt/roll start away from the degenerate all-zero pose (where yaw alone can't move
 /// axis-aligned lobes at all), so even the first frame after boot isn't axis-locked.
@@ -71,21 +69,21 @@ inline constexpr int kProtonMarkerSize = 3;
 /// intended color rather than muddying into an intermediate hue -- per-point brightness
 /// already comes from the level encoded into the point's own color (see orbital_presets.cpp's
 /// orbitalLevelToColor565() / atom_cloud.cpp's shell brighten/dim).
-inline constexpr uint16_t kElectronAlphaQ8 = 256;
+inline constexpr uint16_t kElectronAlphaQ8 = 240;
 
 /// Fraction of the previous frame buffer's brightness kept each frame (Display::
 /// fadeColor565()) instead of hard-clearing it, so points leave a brief trailing glow and
 /// skipped "buzz" points fade out instead of vanishing outright. Tuned high enough that a hit
 /// pixel's glow stays alive between re-hits as points sweep across the screen during
 /// rotation, filling in gaps that would otherwise read as flicker.
-inline constexpr uint16_t kPersistenceKeepQ8 = 150; // 150/256 kept per frame (~0.59)
+inline constexpr uint16_t kPersistenceKeepQ8 = 160; // 160/256 kept per frame (~0.625)
 
 // --- Hidden-points "buzz" flicker (feeds renderPointsColored()'s buzzThreshold param) ---
 /// Fraction of points skipped on any given frame (a different pseudo-random subset each
 /// frame), so the cloud reads as a buzzing/flickering probability cloud rather than a static
 /// fixed set of dots. Shared by orbital_view.cpp and atom_view.cpp so the effect reads the
 /// same across both cloud types.
-inline constexpr orb_real_t kHiddenPointsFraction = orb_real_t(0.25);
+inline constexpr orb_real_t kHiddenPointsFraction = orb_real_t(0.15);
 /// Threshold derived from kHiddenPointsFraction for renderPointsColored()'s 16-bit hash. 0
 /// (rather than this constant) disables buzz outright, since the hash is unsigned and never
 /// compares less than 0.
@@ -98,22 +96,22 @@ inline constexpr uint32_t kHiddenPointsThreshold = uint32_t(kHiddenPointsFractio
 inline constexpr orb_real_t kIntroStartScaleFactor = orb_real_t(12.0);  ///< Boot intro start-scale multiplier.
 inline constexpr int kIntroFrames = 70;                                 ///< Boot intro ease duration, frames.
 inline constexpr orb_real_t kSwitchStartScaleFactor = orb_real_t(10.0); ///< Preset/element switch start-scale multiplier.
-inline constexpr int kSwitchTransitionFrames = 18;                      ///< Preset/element switch ease duration, frames.
+inline constexpr int kSwitchTransitionFrames = 35;                      ///< Preset/element switch ease duration, frames.
 
 // --- Random zoom excursions (steady-state loop) ---
 // At randomized intervals (re-rolled after each one), ease from the current breathing scale
 // to a randomized target and back -- layered on top of the constant sine-wave breathing so
 // the animation doesn't read as purely mechanical.
-inline constexpr int kZoomExcursionMinIntervalFrames = 150;             ///< Shortest gap between excursions, frames.
-inline constexpr int kZoomExcursionMaxIntervalFrames = 400;             ///< Longest gap between excursions, frames.
-inline constexpr orb_real_t kZoomExcursionScaleMinFactor = orb_real_t(0.4); ///< Excursion "zoom out" target multiplier.
+inline constexpr int kZoomExcursionMinIntervalFrames = 150;                 ///< Shortest gap between excursions, frames.
+inline constexpr int kZoomExcursionMaxIntervalFrames = 500;                 ///< Longest gap between excursions, frames.
+inline constexpr orb_real_t kZoomExcursionScaleMinFactor = orb_real_t(0.3); ///< Excursion "zoom out" target multiplier.
 /// Excursion "zoom in" target multiplier. Scale multiplies screen-space offset directly
 /// (projectPoint()), so a larger factor is the "dive IN" direction: the outer subshell's own
 /// radius grows well past the screen edge and only near-center points stay visible, reading
 /// as flying through/inside the cloud rather than a simple zoom-in on the whole shape.
 /// Matches kIntroStartScaleFactor -- the same "extremely close" magnitude already validated
 /// on hardware via the boot intro.
-inline constexpr orb_real_t kZoomExcursionScaleMaxFactor = orb_real_t(12.0);
+inline constexpr orb_real_t kZoomExcursionScaleMaxFactor = orb_real_t(10.0);
 /// Excursion ease duration, frames. A deeper dive (see kZoomExcursionScaleMaxFactor) covers
 /// more visual distance per frame, so needs more frames to read as a deliberate dive-through
 /// rather than a jarring flash.
@@ -133,7 +131,7 @@ inline constexpr int kLoadingTextX = 2, kLoadingTextY = 22;
 // Ticker scroll speed (render/ticker.h)
 // ============================================================================================
 
-inline constexpr int kTickerDefaultPxPerFrame = 5;
+inline constexpr int kTickerDefaultPxPerFrame = 4;
 
 // ============================================================================================
 // Boot splash hold (main.cpp)
@@ -149,7 +147,7 @@ inline constexpr uint32_t kSplashHoldMs = 2000;
 // Orbital point-cloud size: sizes OrbitalPresetState's point/color arrays (orbital_view.h)
 // and the scratch arrays orbital_presets.cpp's computeOrbitalLevels()/scaleFromRadii() use
 // (order[], radii[]), plus OrbitalResampleState::psi2Sorted -- matches cloud_common.N_POINTS.
-inline constexpr int kOrbitalNumPoints = 10000;
+inline constexpr int kOrbitalNumPoints = 12000;
 
 // Point-turnover: fraction of the cloud resampled every kOrbitalCullRefreshFrames frames.
 inline constexpr orb_real_t kOrbitalCullFraction = orb_real_t(0.01);
@@ -163,7 +161,7 @@ inline constexpr int kOrbitalCullRefreshFrames = 3;
 
 // Atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and
 // outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp).
-inline constexpr int kAtomNumPoints = 7000;
+inline constexpr int kAtomNumPoints = 12000;
 
 // atom_cloud.py's own OUTER_SHELL_BRIGHTEN=0.92 pushes almost to pure white, tuned for a
 // renderer that either draws the point outright with no discount (its "device path"
@@ -173,7 +171,7 @@ inline constexpr int kAtomNumPoints = 7000;
 // alpha-blends (kElectronAlphaQ8 above) and the valence subshell typically covers a much
 // larger on-screen area than the dimmed core -- 0.92 read as "the atom is just white" rather
 // than "the valence shell stands out from a colored core" once actually seen on this panel.
-inline constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.3); // lerp toward white
+inline constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.4); // lerp toward white
 inline constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward black
 
 // --- Scale (M4, revised) ---
@@ -214,7 +212,7 @@ inline constexpr int64_t kChooserIdleJumpUs = 30'000'000;
 /// Text scale for the "and hold"/direction-name calibration lines, on top of kFontLarge.
 inline constexpr int kCalibLineY0 = 60;      ///< Y of the first calibration line.
 inline constexpr int kCalibLineSpacing = 36; ///< Vertical gap between calibration lines -- more than a bare
-                                              ///< lineAdvance since these are separate standalone lines, not wrapped body text.
+                                             ///< lineAdvance since these are separate standalone lines, not wrapped body text.
 
 /// Menu option text scale, on top of kFontLarge.
 inline constexpr int kChooserOptionScale = 2;
@@ -254,14 +252,19 @@ inline constexpr orb_real_t kOrbitalZoomAngleStep = kZoomAngleStep / orb_real_t(
 /// Side length in pixels of the solid nucleus marker, drawn each frame. Bigger than the shared
 /// kProtonMarkerSize (3px) so the nucleus reads clearly even where orbital density peaks at
 /// the origin; local to orbital_view.cpp since atom_view.cpp keeps the shared size.
-inline constexpr int kOrbitalProtonMarkerSize = 7;
+inline constexpr int kOrbitalProtonMarkerSize = 6;
 
 // ============================================================================================
 // Atom-view proton/intro/dissection pacing (views/atom_view.cpp)
 // ============================================================================================
 
 /// Side length in pixels of the solid nucleus marker drawn each frame.
-inline constexpr int kAtomProtonMarkerSize = 7;
+inline constexpr int kAtomProtonMarkerSize = 6;
+
+/// Neutral outline color for the bounding-sphere silhouette (render/overlay.h's
+/// drawBoundingCircle()) -- matches pc/viewer_common.py's/web/py/web_common.py's shared
+/// BOUNDING_SPHERE_COLOR, deliberately not shell-colored so it doesn't compete with the cloud.
+inline constexpr uint16_t kBoundingCircleColor = Display::packColor565(128, 128, 128);
 
 // --- Element-switch intro ticker (scrollElementIntro()) ---
 inline constexpr int kElementIntroMaxNameScale = 4;                                      ///< Largest text scale tried for the sliding element name.

@@ -57,7 +57,8 @@ struct AtomPresetState
     int groupCount = 0;
     ElectronConfig config;
     int z = 0;
-    orb_real_t baseScale, zoomAmplitude;
+    orb_real_t baseScale, zoomAmplitude, rRef; ///< rRef: outer subshell's own reference radius,
+                                                ///< for drawBoundingCircle() (render/overlay.h).
 
     /// Build this element's point cloud, subshell ranges/colors, and renormalized scale.
     void load(int zIn);

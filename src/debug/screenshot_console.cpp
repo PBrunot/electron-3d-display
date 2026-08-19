@@ -79,6 +79,13 @@ namespace
             printf("SS_ERR pause timeout\n");
             return;
         }
+        // The paused render loop may have queued its last presentFrame() DMA transfer
+        // without yet reaching its own waitForFlushDone() (that only happens at the top of
+        // its NEXT iteration, after this checkpoint) -- frameBuf can still be mid-flip or
+        // still Y-flipped from that transfer. syncForExternalRead() is safe to call here
+        // specifically because the render loop task is guaranteed quiesced by the pause
+        // above, so nothing else can be waiting on the same completion signal right now.
+        g_display->syncForExternalRead();
         char name[screenshot::kMaxNameLen];
         size_t size = 0;
         bool ok = screenshot::capture(g_display->getFrameBuf(), name, sizeof(name), &size);
