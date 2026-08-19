@@ -1,5 +1,5 @@
-"""pc/pull_screenshots.py -- recovers on-device screenshots (see src/screenshot.h /
-src/screenshot_console.h) over the same serial console `pio device monitor` already uses for
+"""pc/pull_screenshots.py -- recovers on-device screenshots (see src/debug/screenshot.h /
+src/debug/screenshot_console.h) over the same serial console `pio device monitor` already uses for
 logs and flashing. No new USB peripheral or filesystem exposure on the device side: this just
 drives the SS_LIST/SS_GET/SS_DEL line protocol from screenshot_console.cpp over UART0, and
 ignores any interleaved ESP_LOG output (anything not starting with "SS_").

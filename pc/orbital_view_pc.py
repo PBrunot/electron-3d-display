@@ -17,7 +17,7 @@ Today's device-side polish ported here (idea, not implementation -- the
 device's pre-rendered 1-bit equation bitmap becomes direct PIL text, since
 the PC has no ASCII-only font constraint): the quantum-number reveal on
 every switch (n -> n l -> n l m over a dim equation backdrop), 1.5x-slower
-zooms (src/orbital_view.cpp's local 1.5x pacing copies), and the 60s idle
+zooms (src/views/orbital_view.cpp's local 1.5x pacing copies), and the 60s idle
 random jump (kIdleJumpUs).
 """
 
@@ -54,7 +54,7 @@ from viewer_common import (
 
 import tkinter as tk
 
-N_POINTS = 10000  # more than the device's 3000 -- a desktop CPU has the headroom
+N_POINTS = 20000  # more than the device's 3000 -- a desktop CPU has the headroom
 
 # --- Debug isolation switches -----------------------------------------------
 # Set False to disable point-turnover (resample) or per-frame "buzz" flicker,
@@ -65,7 +65,7 @@ DEBUG_DISABLE_BUZZ = True
 _NUDGE_DIRECTION_STEP = {'R': 1, 'U': 1, 'L': -1, 'D': -1}
 
 # --- Zoom pacing: 1.5x slower, scoped to this viewer ------------------------
-# Port of src/orbital_view.cpp's local 1.5x copies of camera.h's pacing:
+# Port of src/views/orbital_view.cpp's local 1.5x copies of camera.h's pacing:
 # the orbital viewer's fly-overs and zoom breathing are 1.5x slower than
 # the shared constants; the atom viewer keeps the stock pacing.
 ORBITAL_INTRO_FRAMES = int(INTRO_FRAMES * 1.5)                           # 105
@@ -74,7 +74,7 @@ ORBITAL_ZOOM_EXCURSION_EASE_FRAMES = int(ZOOM_EXCURSION_EASE_FRAMES_BASE * 1.5) 
 ORBITAL_ZOOM_ANGLE_STEP = ZOOM_ANGLE_STEP / 1.5
 
 # --- Quantum-number reveal (switch intro) -----------------------------------
-# Port of src/orbital_view.cpp's scrollOrbitalIntro(): before switching to a
+# Port of src/views/orbital_view.cpp's scrollOrbitalIntro(): before switching to a
 # new orbital, reveal n, then n l, then n l m over a dim backdrop of the
 # Schroedinger equation and this project's psiReal() formula. The device
 # blits a pre-rendered 1-bit bitmap (tools/equation_gen/render_equations.py,

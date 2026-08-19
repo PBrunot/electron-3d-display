@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rasterize Jersey10-Regular.ttf into src/font_data.h's constexpr glyph tables.
+"""Rasterize Jersey10-Regular.ttf into src/render/font_data.h's constexpr glyph tables.
 
 Three sizes are baked in: kFontSmall (secondary/readout text -- FPS counter, scale bar
 label), kFontLarge (titles), and kFontHuge (hero text -- the big element-symbol title in
@@ -9,7 +9,7 @@ kFontLarge, which looked blocky). Each glyph keeps its own proportional width (t
 own advance width, not a fixed cell) -- this is what makes the result look like a real
 font instead of the old fixed 5x7 grid.
 
-This script emits ONLY glyph data (src/font_data.h) -- never src/font.h or src/font.cpp,
+This script emits ONLY glyph data (src/render/font_data.h) -- never src/render/font.h or src/render/font.cpp,
 which declare/implement the actual rendering API (drawChar/drawText/etc.) by hand.
 font_data.h is `#include`d exclusively by font.cpp, so regenerating it (a new font, a new
 size) can never clobber hand-maintained rendering logic the way overwriting one monolithic
@@ -35,7 +35,7 @@ descent either, so the untrimmed box wastes several rows of blank padding above 
 every glyph. That padding is what made text drawn at a given (x, y) look like it started
 several pixels lower/more spaced than (x, y) actually is.
 
-Usage: python3 generate_font.py > ../../src/font_data.h
+Usage: python3 generate_font.py > ../../src/render/font_data.h
 (run from this directory; paths below are relative to this script's location)
 """
 import pathlib
@@ -175,7 +175,7 @@ def emit_size(name, size, leading, spacing, row_ctype):
 def main():
     header = '''\
 // GENERATED FILE -- do not hand-edit. Regenerate with:
-//   python3 tools/font_gen/generate_font.py > src/font_data.h
+//   python3 tools/font_gen/generate_font.py > src/render/font_data.h
 // See tools/font_gen/README.md for how to change fonts/sizes.
 //
 // Source font: Jersey10-Regular.ttf, Copyright 2023 The Soft Type Project Authors

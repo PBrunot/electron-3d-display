@@ -6,7 +6,7 @@ contro `js_reference.js` (l'estrazione/estensione di `quantum-physics.js` di
 Manuel Joffre — l'originale non è ridistribuito in questo repo, vedi
 `examples/js-calculations/README.md` per dove recuperarlo):
 
-- `src/orbitals.h/.cpp` (funzione d'onda) + `src/pointcloud.h/.cpp`
+- `src/physics/orbitals.h/.cpp` (funzione d'onda) + `src/physics/pointcloud.h/.cpp`
   (campionamento della nuvola di punti via CDF inversa) — porting C++,
   pensato per compilare sia qui sul PC sia dentro PlatformIO/ESP-IDF per
   l'ESP32.

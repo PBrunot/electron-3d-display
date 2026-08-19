@@ -302,7 +302,7 @@ def element_symbol(z):
 
 
 # Italian element names, Z=1..118 -- hand-transcribed from
-# src/element_names_it.h (which is the C++ source of truth for these; keep
+# src/ux/element_names_it.h (which is the C++ source of truth for these; keep
 # this list in sync with it). ASCII-only, same convention as that header
 # (none of the 118 names need an accent). Used by the PC viewers' element
 # intro / dissection title card, mirroring atom_view.cpp's elementNameIt().

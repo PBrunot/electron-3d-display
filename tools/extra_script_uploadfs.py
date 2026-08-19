@@ -6,8 +6,8 @@
 # (partitions_16M.csv) -- without this, a separate manual step (`pio run -t
 # uploadfs`) is easy to forget after regenerating one of those files
 # (tools/hfs_table_gen.py, tools/orbital_table_gen.py), silently leaving the
-# device running against stale on-demand tables (src/hfs_radial.cpp,
-# src/orbital_library.cpp read them from that partition, see each file's
+# device running against stale on-demand tables (src/physics/hfs_radial.cpp,
+# src/physics/orbital_library.cpp read them from that partition, see each file's
 # header comment).
 #
 # The "storage" partition also holds on-device screenshots (screenshot.cpp);

@@ -4,7 +4,7 @@ Scaling the cloud coordinates by FACTOR[z-1] makes the valence subshell mode
 radius land on the Clementi-Raimondi literature value, keeping the model's own
 internal shell structure. Elements without a CR value (Fr, Ra) are 1.0.
 
-Same factors as src/atom_size_calib.h (device C++). Consumed ONLY by
+Same factors as src/physics/atom_size_calib.h (device C++). Consumed ONLY by
 micropython/atom_view.py, which renders through hfs_radial_tables.py's tables
 the same way the device does -- see pc/RUN_HFS.md's device note.
 

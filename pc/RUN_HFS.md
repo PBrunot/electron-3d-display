@@ -140,7 +140,7 @@ python pc/validate_atoms.py --model hfs --tables pc/hfs_tables.npz --all
 
 ~2–3 min for the batch (the sandbox blocks multiprocessing: named pipes).
 **Scope is deliberately Z=1..92** (the library's hard cap) and it is applied
-to every port: the device (`src/atom_view.cpp` snake walk + idle jump, capped
+to every port: the device (`src/views/atom_view.cpp` snake walk + idle jump, capped
 via `periodic_grid.h`'s `kMaxDisplayZ`), the micropython viewer and chooser,
 the PC viewer, and the web viewer all stop their navigation at 92
 (`slater.MAX_DISPLAY_Z`); `validate_atoms --model hfs` caps at the tables'
@@ -155,8 +155,8 @@ Clementi-Raimondi literature) on top of its own radial model:
 - PC viewer with tables: `atom_view_pc.clementi_size_factor()` =
   CR / LDA-table valence mode (the LDA SIE correction).
 - PC viewer hydrogenic path, micropython viewer, web viewer, and the
-  device (`src/atom_cloud.cpp`): the generated hydrogenic factor table
-  `src/atom_size_calib.h` / `micropython/atom_size_calib.py`
+  device (`src/physics/atom_cloud.cpp`): the generated hydrogenic factor table
+  `src/physics/atom_size_calib.h` / `micropython/atom_size_calib.py`
   (f = CR / hydrogenic valence mode; the inverse of the old hydrogenic
   model's CR ratios, ~1.0 for H/He/B..Ne, ~0.65 for alkali/transition
   metals, ~0.2-0.45 for the Z>54 Slater fallback). Regenerate with
@@ -195,11 +195,11 @@ to two identical copies:
 - `data/hfs_tables.bin` -- staged into the PlatformIO filesystem image and
   flashed to the `storage` SPIFFS partition (`partitions_16M.csv`) via
   `pio run -t uploadfs` (a separate step from the normal firmware flash --
-  see this section's build note below). `src/hfs_radial.cpp` (hand-written)
+  see this section's build note below). `src/physics/hfs_radial.cpp` (hand-written)
   mounts `/storage` (idempotent, shared with `screenshot.cpp`'s existing use
   of that same partition), reads the small header/index into RAM once, and
   reads each subshell's own `u(r)` row from the file on demand (once per
-  element switch, not once per frame). `src/hfs_tables.h` (generated) is now
+  element switch, not once per frame). `src/physics/hfs_tables.h` (generated) is now
   just three size constants, not the ~470 KB of `.rodata` array data an
   earlier version of this work compiled in directly -- moving to on-demand
   reads was a deliberate follow-up decision to keep that data out of the
@@ -215,7 +215,7 @@ to two identical copies:
 
 Both ports build the same two sampler paths `micropython/atom_cloud.py`'s
 `radial_tables` branch already defined -- the direct log-grid inverse-CDF for
-full (isotropic) subshells via `src/pointcloud.h`'s `buildInverseCdfFromGrid()`
+full (isotropic) subshells via `src/physics/pointcloud.h`'s `buildInverseCdfFromGrid()`
 (C++) / `micropython/pointcloud.py`'s existing `_build_inverse_cdf_from_grid()`
 (MicroPython, unchanged), and the evenly-sampled-via-`R_lookup` path for
 Hund's-rule (anisotropic) groups. The hydrogenic model
@@ -227,7 +227,7 @@ in both cases and `atom_cloud.cpp` degrades to the old radii rather than
 crashing.
 
 Size calibration: `tools/atom_size_calib_gen.py` now emits THREE files, not
-two -- `src/atom_size_calib.h` (C++, table-based) and
+two -- `src/physics/atom_size_calib.h` (C++, table-based) and
 `micropython/hfs_atom_size_calib.py` (MicroPython, table-based, used only by
 `atom_view.py`) both carry CR / HFS-table valence-mode factors, computed
 identically. `micropython/atom_size_calib.py` is left HYDROGENIC and

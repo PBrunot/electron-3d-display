@@ -2,12 +2,12 @@
 """Generate the flat binary data blob for orbital_library.h's kOrbitalLibrary
 (the 36 fixed hydrogen-orbital presets, 1s..6pz): each preset's
 OrbitalSampler, consumed ON DEMAND from flash/filesystem by
-src/orbital_library.cpp instead of being compiled into firmware as a
+src/physics/orbital_library.cpp instead of being compiled into firmware as a
 ~423KB .rodata table for data that's only ever needed a preset at a time
-(see src/orbital_library.cpp's header comment).
+(see src/physics/orbital_library.cpp's header comment).
 
 Mirrors tools/hfs_table_gen.py's data/logic split (see that file's header
-comment and src/hfs_radial.h's) -- this generator reuses
+comment and src/physics/hfs_radial.h's) -- this generator reuses
 micropython/pointcloud.py's init_orbital_sampler() (imported via
 pc/micropython_shim.py's "run micropython/ modules unmodified under
 CPython" trick, the same one pc/orbital_view_pc.py already relies on) and
@@ -16,11 +16,11 @@ header comment already requires to stay index-matched to that file's
 kOrbitalLibrary -- so this generator and the on-device descriptor table
 share one source of truth for preset order, and the sampled math itself is
 the SAME MicroPython-port code already cross-validated bit-identical
-(double precision) against src/orbitals.h/pointcloud.h's C++ port and the JS
+(double precision) against src/physics/orbitals.h/pointcloud.h's C++ port and the JS
 reference by tools/orbitals_host/run_crosscheck.sh, not a third
 reimplementation.
 
-Schema (see src/orbital_library.cpp's orbitalInit()/findOrbitalSampler()): a
+Schema (see src/physics/orbital_library.cpp's orbitalInit()/findOrbitalSampler()): a
 2-value header (count, tableSize) then `count` fixed-size records, index-
 matched 1:1 to ORBITAL_PRESETS/kOrbitalLibrary -- no separate offset/index
 table is needed (unlike hfs_table_gen.py's element->subshell-list case):
@@ -32,10 +32,10 @@ Flat binary layout (little-endian, packed with `struct`):
     (record) * count, each:
       <iii              n, ell, m (int32 each -- redundant with
                          kOrbitalLibrary[index], kept as an on-disk
-                         self-check/debug read, see src/orbital_library.cpp)
+                         self-check/debug read, see src/physics/orbital_library.cpp)
       <f                maxR (float32 -- MUST be float32: this project's
                          ESP32 build always uses orb_real_t=float, see
-                         src/orbitals.h/platformio.ini, even though this
+                         src/physics/orbitals.h/platformio.ini, even though this
                          generator computes in double precision like every
                          other MicroPython-port consumer)
       <1001f            invRTable

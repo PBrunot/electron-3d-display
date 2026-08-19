@@ -55,7 +55,7 @@ ORBITAL_PRESETS = (
     (4, 3, 0, "4f_z3"),
     (5, 2, 0, "5d_z2"),
     # Rest of n=4 (n=1..3 above were already a complete set); index-matched to
-    # src/orbital_library.h's kOrbitalLibrary -- keep both lists appended in the same order.
+    # src/physics/orbital_library.h's kOrbitalLibrary -- keep both lists appended in the same order.
     (4, 0, 0, "4s"),
     (4, 1, 1, "4p_x"),
     (4, 1, -1, "4p_y"),
@@ -189,10 +189,10 @@ def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
 # so a viewer learns the sign-color association once and can read it at a
 # glance across the whole library (superseded an older scheme where each
 # preset had its own distinguishing hue). Index-matched to ORBITAL_PRESETS
-# and to src/orbital_library.h's OrbitalDescriptor.posRgb565/negRgb565 --
+# and to src/physics/orbital_library.h's OrbitalDescriptor.posRgb565/negRgb565 --
 # keep the two in lockstep: these are the same 8-bit RGB values as
 # Display::kColorOrbitalRed (210, 40, 40) / kColorOrbitalBlue (40, 80, 210)
-# in src/display.h (the device's own named palette, not plain 0/255 primaries
+# in src/render/display.h (the device's own named palette, not plain 0/255 primaries
 # -- see that file's history for why). s orbitals (ell=0) are single-signed
 # everywhere, so they render as a uniform cloud in the positive (red) color
 # with no visible split -- expected, not a bug (no phase change without a

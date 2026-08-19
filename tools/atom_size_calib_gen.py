@@ -12,10 +12,10 @@ mode radius land on the Clementi-Raimondi literature value
 model's own. "model" differs per output, matching what each port actually
 renders (see pc/RUN_HFS.md's device note):
 
-- src/atom_size_calib.h (device, C++): TABLE-based --
+- src/physics/atom_size_calib.h (device, C++): TABLE-based --
   compute_table_factors(), CR / HFS-table valence mode
-  (pc/hfs_tables_reduced.npz, same tables src/hfs_radial.h renders through
-  since src/atom_cloud.cpp switched to them) -- mirrors
+  (pc/hfs_tables_reduced.npz, same tables src/physics/hfs_radial.h renders through
+  since src/physics/atom_cloud.cpp switched to them) -- mirrors
   pc/atom_view_pc.py's clementi_size_factor() when radial_tables is set.
 - micropython/hfs_atom_size_calib.py: TABLE-based, same factors as the C++
   header above -- used ONLY by micropython/atom_view.py, which now renders
@@ -79,7 +79,7 @@ def compute_factors():
 
 def compute_table_factors(tables):
     """HFS-table-based factors -- see module docstring. `tables` is an
-    hfs_tables.HfsTables (same schema as the reduced npz src/hfs_radial.h's
+    hfs_tables.HfsTables (same schema as the reduced npz src/physics/hfs_radial.h's
     generated data comes from), so this stays exactly the calibration the
     embedded device tables need, not a separate model."""
     factors = []
@@ -106,7 +106,7 @@ def emit_header(factors):
         "// valence subshell mode radius land on the Clementi-Raimondi literature value",
         "// (pc/clementi_radii.py), keeping the model's own internal shell structure.",
         "// HFS-table factors (compute_table_factors()): f = CR_lit / HFS-table valence",
-        "// mode (pc/hfs_tables_reduced.npz, the same tables src/hfs_radial.h renders",
+        "// mode (pc/hfs_tables_reduced.npz, the same tables src/physics/hfs_radial.h renders",
         "// through) -- elements without a CR value (Fr, Ra) are 1.0. See pc/RUN_HFS.md",
         "// and pc/atom_view_pc.py's clementi_size_factor for the PC sibling.",
         "//",
@@ -171,7 +171,7 @@ def main():
     with open(table_py_path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(emit_module(
             table_factors, "HFS-table",
-            "Same factors as src/atom_size_calib.h (device C++). Consumed ONLY by\n"
+            "Same factors as src/physics/atom_size_calib.h (device C++). Consumed ONLY by\n"
             "micropython/atom_view.py, which renders through hfs_radial_tables.py's tables\n"
             "the same way the device does -- see pc/RUN_HFS.md's device note."))
     print("wrote %s (%d table-based factors)" % (h_path, len(table_factors)))

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Cross-check JS/C++/MicroPython-reference CSV artifacts for the hydrogen
-orbital math and point-cloud ports (src/orbitals.h/.cpp + src/pointcloud.h/.cpp,
+orbital math and point-cloud ports (src/physics/orbitals.h/.cpp + src/physics/pointcloud.h/.cpp,
 micropython/orbitals.py + micropython/pointcloud.py, vs
 tools/orbitals_host/js_reference.js).
 

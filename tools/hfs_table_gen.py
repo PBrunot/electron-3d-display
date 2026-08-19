@@ -31,7 +31,7 @@ Outputs (all generated, do not edit by hand):
                                 the "storage" SPIFFS partition
                                 (partitions_16M.csv) via
                                 `pio run -t uploadfs`, then read on demand by
-                                src/hfs_radial.cpp (hand-written) -- see that
+                                src/physics/hfs_radial.cpp (hand-written) -- see that
                                 file's header comment for the exact reads.
     micropython/hfs_tables.bin  byte-identical copy, deployed to the device
                                 root alongside every other micropython/ file
@@ -41,9 +41,9 @@ Outputs (all generated, do not edit by hand):
                                 micropython/hfs_radial_tables.py
                                 (hand-written) -- see that module's
                                 docstring for the exact reads.
-    src/hfs_tables.h            just the three size constants above
+    src/physics/hfs_tables.h            just the three size constants above
                                 (kHfsGridSize/kHfsElementCount/
-                                kHfsSubshellCount) -- src/hfs_radial.cpp
+                                kHfsSubshellCount) -- src/physics/hfs_radial.cpp
                                 sanity-checks the file's own header against
                                 these at load time.
 
@@ -112,7 +112,7 @@ def emit_header(grid_size, element_count, subshell_count):
         "// Screened-potential (HFS/atomSFE) radial table SIZE CONSTANTS -- the actual",
         "// per-(Z,n,l) u(r) data lives in data/hfs_tables.bin (ESP32 SPIFFS,",
         "// `pio run -t uploadfs`) / micropython/hfs_tables.bin (MicroPython device",
-        "// root), read on demand by src/hfs_radial.cpp -- see that file's header",
+        "// root), read on demand by src/physics/hfs_radial.cpp -- see that file's header",
         "// comment for the binary format and read strategy, and this file's own",
         "// generator (tools/hfs_table_gen.py) for the schema/provenance.",
         "//",

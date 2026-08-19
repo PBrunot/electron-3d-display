@@ -90,7 +90,7 @@ HINT_TEXT = 'Up/Down or click to choose, Enter to confirm'
 SPLASH_HOLD_MS = 2000
 
 # The splash image the device embeds as a packed RGB565 array
-# (img/atomic_cube.jpg -> src/splash_bitmap.h/.cpp); the PC just loads the
+# (img/atomic_cube.jpg -> src/render/splash_bitmap.h/.cpp); the PC just loads the
 # original JPEG directly.
 _SPLASH_PATH = os.path.join(os.path.dirname(__file__), '..', 'img', 'atomic_cube.jpg')
 

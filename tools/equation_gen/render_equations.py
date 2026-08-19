@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Rasterize this project's Schroedinger/psi_real formulas into a 1-bit bitmap, then emit
-them as a generated C header+source (src/equation_bitmap.h/.cpp) for OrbitalView's
+them as a generated C header+source (src/render/equation_bitmap.h/.cpp) for OrbitalView's
 quantum-number reveal animation (see atom_view.cpp's scrollElementIntro() for the sibling
-"name intro" pattern this backdrop sits under, and src/orbitals.h's psiReal() docstring for
+"name intro" pattern this backdrop sits under, and src/physics/orbitals.h's psiReal() docstring for
 where the second formula comes from -- this is a straight transcription, not a re-derivation).
 
 Renders as an IMAGE via matplotlib mathtext rather than extending the on-device font system
-(src/font.h is 8-bit-char/ASCII-only, and Jersey10-Regular.ttf -- the source typeface for
+(src/render/font.h is 8-bit-char/ASCII-only, and Jersey10-Regular.ttf -- the source typeface for
 that font, see tools/font_gen/ -- has none of psi/theta/phi/nabla anyway, confirmed via
 fontTools). This keeps the font system untouched; the equations are just a static background
 image, not live text.
@@ -36,7 +36,7 @@ DPI = 100
 # in-repo -- see README.md's "The math behind it" section, which stops at psi_nlm = R*Y and
 # never writes this one out -- so this is the standard textbook form, not a project port).
 # Line 2: README.md's ORBITALI.md's psi_nlm = R_nl(r) * Y_l^m(theta, phi) is the general
-# form; what this project's src/orbitals.h::psiReal() actually EVALUATES is R_nl(r) *
+# form; what this project's src/physics/orbitals.h::psiReal() actually EVALUATES is R_nl(r) *
 # P_l^|m|(theta) * (cos(m*phi) for m>=0, sin(|m|*phi) for m<0) -- see that function's own
 # docstring. Abbreviated to "trig(m*phi)" here (both branches spelled out would need a
 # piecewise/cases construct matplotlib's mathtext subset doesn't reliably support) since

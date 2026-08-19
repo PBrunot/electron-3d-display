@@ -45,7 +45,7 @@ import slater
 # header/index (a few KB) lands in RAM here, each subshell's own u(r) is read
 # from hfs_tables.bin on demand -- see hfs_radial_tables.py's module
 # docstring. Screened-potential (HFS/atomSFE) tables are the radial model
-# unconditionally for z<=92 (same as src/atom_cloud.cpp -- see
+# unconditionally for z<=92 (same as src/physics/atom_cloud.cpp -- see
 # pc/RUN_HFS.md section 5's NIST 92/92 configuration cross-check for why no
 # hydrogenic fallback is needed here).
 _HFS_TABLES = hfs_radial_tables.load()
@@ -129,7 +129,7 @@ class AtomPresetState:
         # Clementi-Raimondi display-size calibration (see
         # hfs_atom_size_calib.py): rescale the whole cloud so the valence
         # subshell's mode radius lands on the literature value -- the same
-        # table-based per-element factor the device (src/atom_size_calib.h)
+        # table-based per-element factor the device (src/physics/atom_size_calib.h)
         # uses, since both now render through the HFS tables above. NOT
         # micropython/atom_size_calib.py -- that one is hydrogenic-model
         # factors, shared with the PC viewer's hydrogenic default and the

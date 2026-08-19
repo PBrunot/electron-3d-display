@@ -349,8 +349,8 @@ Accuratezza fisica (in ordine di impatto):
    non-relativistica: lo scostamento sistematico ~0.7 sui blocchi 5d/6s è
    atteso e documentato.
 3. **Porting ESP32** (obiettivo finale): formato compatto per sottoshell
-   (fit STO o griglia log ~64 punti) → PROGMEM C arrays; \src/pointcloud.h   guadagna il sampler da tabella (già costruisce le inverse-CDF a runtime);
-   \src/atom_cloud.h\ seleziona la sorgente radiale per (Z,n,l); benchmark
+   (fit STO o griglia log ~64 punti) → PROGMEM C arrays; \src/physics/pointcloud.h   guadagna il sampler da tabella (già costruisce le inverse-CDF a runtime);
+   \src/physics/atom_cloud.h\ seleziona la sorgente radiale per (Z,n,l); benchmark
    FPS invariato (costo per punto: un'interpolazione + un lookup).
 4. Estendere la tabella Z_eff Clementi-Raimondi oltre Z=54 se si trova la
    fonte (il paper 1967 copre fino a Z=86) — oggi non più critico perché

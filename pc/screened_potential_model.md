@@ -250,13 +250,13 @@ Two interchangeable back-ends:
    per-subshell `(n, ell)` index + `u(r)` rows), written to two identical
    copies read ON DEMAND from flash/filesystem rather than compiled into
    either firmware image as source-level data (an earlier iteration of this
-   work compiled it directly into `src/hfs_tables.h` as ~470 KB of `.rodata`;
+   work compiled it directly into `src/physics/hfs_tables.h` as ~470 KB of `.rodata`;
    moved off that to keep the data out of the firmware image/OTA payload —
    see the size/perf note below):
    - `data/hfs_tables.bin` → flashed to the `storage` SPIFFS partition
      (`partitions_16M.csv`) via `pio run -t uploadfs` (separate from the
      normal firmware flash, see pc/RUN_HFS.md's device note for the exact
-     command). `src/hfs_radial.cpp` (hand-written; `src/hfs_tables.h` is now
+     command). `src/physics/hfs_radial.cpp` (hand-written; `src/physics/hfs_tables.h` is now
      GENERATED but tiny — just the three size constants, data/logic split
      still mirrors `font.h`/`font_data.h`, CLAUDE.md §4.1) mounts `/storage`
      (idempotent, shares the partition `screenshot.cpp` already mounts),
@@ -276,12 +276,12 @@ Two interchangeable back-ends:
      `pc/atom_view_pc.py`'s hydrogenic default and the web viewer still
      depend on it staying hydrogenic.
 
-   `src/pointcloud.h` gained the missing piece, `buildInverseCdfFromGrid()`
+   `src/physics/pointcloud.h` gained the missing piece, `buildInverseCdfFromGrid()`
    (arbitrary/log-grid trapezoidal CDF, a port of
    `micropython/pointcloud.py`'s `_build_inverse_cdf_from_grid()`,
    generalized with an output resolution independent of the source table's
    own point count) plus `interpOnGrid()` (port of `interp_u()`);
-   `src/atom_cloud.cpp` selects the tabulated radial source per (Z,n,l) for
+   `src/physics/atom_cloud.cpp` selects the tabulated radial source per (Z,n,l) for
    z<=92 when the table is available, falling back to the hydrogenic model
    both for z outside that coverage and for a board that hasn't run
    `pio run -t uploadfs` yet (`hfsFindU()` returns `nullptr` either way).
