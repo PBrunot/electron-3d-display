@@ -1,17 +1,22 @@
 #include "physics/hfs_radial.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "esp_log.h"
-#include "esp_spiffs.h"
+#include "util/storage_mount.h"
+
+// data/hfs_tables.bin's u(r) data is fixed at float32 (see tools/hfs_table_gen.py) regardless
+// of how orb_real_t is typedef'd; the fread() calls below read `sizeof(orb_real_t)`-sized
+// chunks straight into orb_real_t buffers, which is only correct because this project's ESP32
+// build always has orb_real_t == float (see orbitals.h). Fail to compile rather than silently
+// misread the file if that ever changes (e.g. a future ORBITAL_USE_DOUBLE build of this TU).
+static_assert(sizeof(orb_real_t) == sizeof(float), "data/hfs_tables.bin stores u(r) as float32");
 
 namespace
 {
     constexpr auto kTag = "hfs";
-    constexpr auto kMountPoint = "/storage";
-    // Same partition screenshot.cpp mounts (partitions_16M.csv's "storage" SPIFFS partition) --
-    // shared, not a separate one, so there is only one filesystem to keep track of.
-    constexpr auto kPartitionLabel = "storage";
+    constexpr auto kMountPoint = "/storage"; // for log messages only, see util/storage_mount.h
     constexpr auto kPath = "/storage/hfs_tables.bin";
 
     struct HfsElementEntry
@@ -37,26 +42,6 @@ namespace
     // open/close is the expensive part (object-index lookup), not the seek/read that follows
     // it. A held-open FILE* only needs fseek()+fread() per call.
     FILE *sDataFile = nullptr;
-
-    /// Registers the "storage" SPIFFS partition at /storage if not already mounted. Never
-    /// formats on a missing/corrupt filesystem (format_if_mount_failed=false) -- unlike
-    /// screenshot::init(), which owns that decision for this same partition (device-captured
-    /// screenshots live there too); formatting here on a partition screenshot::init() hasn't
-    /// looked at yet would risk wiping them for no benefit, since a blank partition just means
-    /// `pio run -t uploadfs` hasn't been run yet either way. ESP_ERR_INVALID_STATE means
-    /// something else (screenshot::init(), most boot paths) already mounted it -- that's
-    /// success here too, not a retry.
-    bool ensureMounted()
-    {
-        esp_vfs_spiffs_conf_t conf = {};
-        conf.base_path = kMountPoint;
-        conf.partition_label = kPartitionLabel;
-        conf.max_files = 8;
-        conf.format_if_mount_failed = false;
-
-        esp_err_t err = esp_vfs_spiffs_register(&conf);
-        return err == ESP_OK || err == ESP_ERR_INVALID_STATE;
-    }
 } // namespace
 
 void hfsInit()
@@ -65,7 +50,7 @@ void hfsInit()
         return;
     sAttempted = true;
 
-    if (!ensureMounted())
+    if (!ensureStorageMounted())
     {
         ESP_LOGW(kTag, "%s mount failed -- atom viewer will use the hydrogenic fallback model", kMountPoint);
         return;
@@ -121,18 +106,13 @@ const orb_real_t *hfsFindU(int z, int n, int ell)
         return nullptr;
 
     const HfsElementEntry &e = sElement[z - 1];
-    int rowIndex = -1;
-    for (int i = 0; i < e.count; i++)
-    {
-        const HfsSubshellEntry &s = sSubshell[e.offset + i];
-        if (s.n == n && s.ell == ell)
-        {
-            rowIndex = e.offset + i;
-            break;
-        }
-    }
-    if (rowIndex < 0)
+    const HfsSubshellEntry *begin = sSubshell + e.offset;
+    const HfsSubshellEntry *end = begin + e.count;
+    const HfsSubshellEntry *found = std::find_if(begin, end, [n, ell](const HfsSubshellEntry &s)
+                                                  { return s.n == n && s.ell == ell; });
+    if (found == end)
         return nullptr;
+    int rowIndex = e.offset + int(found - begin);
 
     // Not reentrant -- see this function's docstring in hfs_radial.h for the validity window.
     static orb_real_t sRowScratch[kHfsGridSize];

@@ -1,6 +1,7 @@
 #include "physics/orbital_presets.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 
 #include "render/display.h"         // packColor565
@@ -112,11 +113,14 @@ OrbitalScale scaleFromRadii(const OrbitalPoint *points, int count)
     static EXT_RAM_BSS_ATTR orb_real_t radii[kOrbitalNumPoints]; // static scratch, see computeOrbitalLevels()'s comment
     for (int i = 0; i < count; i++)
         radii[i] = std::sqrt(points[i].x * points[i].x + points[i].y * points[i].y + points[i].z * points[i].z);
-    std::sort(radii, radii + count);
 
     int idx = int(orb_real_t(0.90) * orb_real_t(count - 1));
     if (idx >= count)
         idx = count - 1;
+    // Only radii[idx] itself is ever read -- nth_element partitions it into place in O(count)
+    // instead of paying for a full O(count log count) sort (see atom_cloud.cpp's
+    // p90RadiusOfRange() for the same change).
+    std::nth_element(radii, radii + idx, radii + count);
     orb_real_t rRef = radii[idx] > orb_real_t(1e-6) ? radii[idx] : orb_real_t(1);
     orb_real_t baseScale = kOrbitalP90TargetPx / rRef;
     return OrbitalScale{baseScale, baseScale * kOrbitalZoomAmplitudeFraction, rRef};
@@ -127,6 +131,7 @@ void buildOrbitalPointCloud(int n, int ell, int m, OrbitalPoint *outPoints, orb_
                             orb_real_t *outLegendreCoeff)
 {
     const OrbitalSampler *sampler = findOrbitalSampler(n, ell, m);
+    assert(sampler != nullptr && "findOrbitalSampler: (n,ell,m) missing from kOrbitalLibrary");
     XorShift32 rng(seed);
     laguerreCoeffs(n, ell, outRadialCoeff);
     legendreCoeffs(ell, m, outLegendreCoeff);

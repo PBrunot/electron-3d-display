@@ -7,6 +7,7 @@
 // (atom_cloud.h).
 #pragma once
 
+#include <algorithm>
 #include <array>
 
 #include "physics/pointcloud.h"
@@ -41,10 +42,11 @@ inline constexpr std::array<OrbitalAngularTables, kAngularLibraryCount> kAngular
  * @return  Pointer to the matching OrbitalAngularTables, or nullptr if (ell,m) isn't in
  *          kAngularLibraryDescriptors (shouldn't happen for any ell<=3, |m|<=ell pair).
  */
-inline const OrbitalAngularTables* findAngularTables(int ell, int m) {
-    for (int i = 0; i < kAngularLibraryCount; i++) {
-        if (kAngularLibraryDescriptors[i].ell == ell && kAngularLibraryDescriptors[i].m == m)
-            return &kAngularLibrary[i];
-    }
-    return nullptr;
+[[nodiscard]] inline const OrbitalAngularTables* findAngularTables(int ell, int m) {
+    const AngularDescriptor *end = kAngularLibraryDescriptors + kAngularLibraryCount;
+    const AngularDescriptor *found = std::find_if(kAngularLibraryDescriptors, end, [ell, m](const AngularDescriptor &d)
+                                                   { return d.ell == ell && d.m == m; });
+    if (found == end)
+        return nullptr;
+    return &kAngularLibrary[found - kAngularLibraryDescriptors];
 }

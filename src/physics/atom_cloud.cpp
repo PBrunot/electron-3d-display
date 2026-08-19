@@ -3,6 +3,7 @@
 #include "physics/hfs_radial.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 
 #include "render/display.h"  // Display::packColor565
@@ -77,6 +78,10 @@ void splitCounts(const int *weights, int count, int total, int *outCounts)
 ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t seed, AtomSubshellRange *outRanges,
                                    int *outRangeCount)
 {
+    // kAtomSizeCalibFactor[z-1] below only covers Z=1..92 (the display range cap, see
+    // atom_cloud.h's docstring) even though slater.h's electronConfiguration() itself supports
+    // up to kMaxZ=118.
+    assert(z >= 1 && z <= kAtomSizeCalibCount && "buildAtomPointCloud: z outside the size-calibration table's range");
     ElectronConfig config = electronConfiguration(z);
 
     DrawingGroup groups[kMaxDrawingGroups];
@@ -121,6 +126,8 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
         else
         {
             const OrbitalAngularTables *angular = findAngularTables(ell, m);
+            assert(angular != nullptr && "findAngularTables: (ell,m) missing from kAngularLibraryDescriptors "
+                                          "for a value drawingGroups()/slater.h produced");
             for (int i = 0; i < counts[g]; i++)
             {
                 OrbitalPoint p = sampleOrientedPoint(radial, *angular, &rng);
@@ -191,10 +198,12 @@ static orb_real_t p90RadiusOfRange(const AtomPoint *points, int startIndex, int 
         orb_real_t x = points[startIndex + i].x, y = points[startIndex + i].y, z = points[startIndex + i].z;
         radii[i] = std::sqrt(x * x + y * y + z * z);
     }
-    std::sort(radii, radii + count);
     int idx = int(orb_real_t(0.90) * orb_real_t(count - 1));
     if (idx >= count)
         idx = count - 1;
+    // Only radii[idx] itself is ever read -- nth_element partitions it into place in O(count)
+    // instead of paying for a full O(count log count) sort.
+    std::nth_element(radii, radii + idx, radii + count);
     return radii[idx] > orb_real_t(1e-6) ? radii[idx] : orb_real_t(1);
 }
 

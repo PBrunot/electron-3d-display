@@ -24,20 +24,26 @@
  */
 #include "physics/orbital_library.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 
 #include "esp_attr.h" // EXT_RAM_BSS_ATTR
 #include "esp_log.h"
-#include "esp_spiffs.h"
+#include "util/storage_mount.h"
+
+// data/orbital_samplers.bin's tables are fixed at float32 (see tools/orbital_table_gen.py)
+// regardless of how orb_real_t is typedef'd; the fread() calls below read
+// `sizeof(orb_real_t)`-sized chunks straight into orb_real_t buffers (maxR/invRTable/etc,
+// unlike the int32_t-fixed n/ell/m fields), which is only correct because this project's ESP32
+// build always has orb_real_t == float (see orbitals.h). Fail to compile rather than silently
+// misread the file if that ever changes (e.g. a future ORBITAL_USE_DOUBLE build of this TU).
+static_assert(sizeof(orb_real_t) == sizeof(float), "data/orbital_samplers.bin stores tables as float32");
 
 namespace
 {
     constexpr auto kTag = "orbital";
-    constexpr auto kMountPoint = "/storage";
-    // Same partition hfs_radial.cpp/screenshot.cpp mount -- shared, not a separate one, so
-    // there is only one filesystem to keep track of.
-    constexpr auto kPartitionLabel = "storage";
+    constexpr auto kMountPoint = "/storage"; // for log messages only, see util/storage_mount.h
     constexpr auto kPath = "/storage/orbital_samplers.bin";
 
     bool sAttempted = false; // orbitalInit() has run once (whether or not it succeeded)
@@ -71,28 +77,13 @@ namespace
     constexpr long kRecordSize =
         long(sizeof(int32_t)) * 3 + long(sizeof(float)) * (1 + 3 * kOrbitalTableSize);
 
-    /// Registers the "storage" SPIFFS partition at /storage if not already mounted -- same
-    /// idempotent, never-format convention as hfs_radial.cpp's ensureMounted() (see that
-    /// function's comment for why format_if_mount_failed stays false here too).
-    bool ensureMounted()
-    {
-        esp_vfs_spiffs_conf_t conf = {};
-        conf.base_path = kMountPoint;
-        conf.partition_label = kPartitionLabel;
-        conf.max_files = 8;
-        conf.format_if_mount_failed = false;
-
-        esp_err_t err = esp_vfs_spiffs_register(&conf);
-        return err == ESP_OK || err == ESP_ERR_INVALID_STATE;
-    }
-
     void orbitalInit()
     {
         if (sAttempted)
             return;
         sAttempted = true;
 
-        if (!ensureMounted())
+        if (!ensureStorageMounted())
         {
             ESP_LOGE(kTag, "%s mount failed -- orbital presets will render as a single point "
                            "at the origin until this is fixed",
@@ -135,17 +126,12 @@ const OrbitalSampler *findOrbitalSampler(int n, int ell, int m)
 {
     orbitalInit();
 
-    int index = -1;
-    for (int i = 0; i < kOrbitalLibraryCount; i++)
-    {
-        if (kOrbitalLibrary[i].n == n && kOrbitalLibrary[i].ell == ell && kOrbitalLibrary[i].m == m)
-        {
-            index = i;
-            break;
-        }
-    }
-    if (index < 0)
+    const OrbitalDescriptor *end = kOrbitalLibrary + kOrbitalLibraryCount;
+    const OrbitalDescriptor *found = std::find_if(kOrbitalLibrary, end, [n, ell, m](const OrbitalDescriptor &d)
+                                                   { return d.n == n && d.ell == ell && d.m == m; });
+    if (found == end)
         return nullptr; // (n,ell,m) not in kOrbitalLibrary at all -- caller bug, not a data problem
+    int index = int(found - kOrbitalLibrary);
 
     if (sReady)
     {

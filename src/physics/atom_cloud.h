@@ -92,7 +92,11 @@ struct AtomSubshellRange
  * atom_cloud.build_atom_point_cloud() (coloring split out separately, see
  * colorizeAtomSubshells() below).
  *
- * @param z          Atomic number, 1 <= z <= kMaxZ.
+ * @param z          Atomic number, 1 <= z <= kAtomSizeCalibCount (92 -- the display/
+ *                   calibration range cap; see periodic_grid.h's kMaxDisplayZ and
+ *                   atom_size_calib.h, NOT slater.h's kMaxZ=118, which the electron
+ *                   configuration model itself would support but the size-calibration
+ *                   table below does not).
  * @param out        [out] Must hold at least `count` entries.
  * @param count      Total points to sample across every occupied subshell.
  * @param seed       RNG seed (same seed -> same points, matching every other port).
