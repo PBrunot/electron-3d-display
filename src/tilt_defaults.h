@@ -1,6 +1,6 @@
-// Hardcoded default calibration constants, consumed by main.cpp's checkPlanarAtBoot() to
-// skip the interactive Right/Left/Up/Down calibration sequence when the device is already
-// resting in its known-good pose at boot.
+// Hardcoded default calibration constants, consumed by Qmi8658::checkPlanarAtBoot() (imu.h/
+// .cpp) to skip the interactive Right/Left/Up/Down calibration sequence when the device is
+// already resting in its known-good pose at boot.
 //
 // PLACEHOLDER VALUES -- these do not match any real hardware yet. Until they're replaced,
 // checkPlanarAtBoot() will never match (safe: every boot falls through to full interactive

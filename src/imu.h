@@ -46,6 +46,20 @@ public:
      */
     bool readAccelG(orb_real_t *outX, orb_real_t *outY, orb_real_t *outZ);
 
+    /**
+     * @brief Quick go/no-go read to decide whether the device is resting in its known-good
+     *        boot pose (see tilt_defaults.h), so main.cpp can skip interactive calibration.
+     * @note Much faster than TiltGestureDetector::calibrate()'s full ~1s/100-sample average --
+     *       this only needs to decide planar-or-not, not produce a trustworthy baseline --
+     *       but still averages several samples so a momentary bump right at power-on doesn't
+     *       cause a false "not planar". Compares the full 3D reading against tilt_defaults.h's
+     *       hardcoded baseline via cosine similarity (much stricter than tilt_gesture.h's
+     *       cfg.minDirectionSimilarity, which only disambiguates 4 well-separated gesture
+     *       directions) plus a magnitude check (rejects free-fall/being-handled readings whose
+     *       direction happens to line up by chance).
+     */
+    bool checkPlanarAtBoot();
+
 private:
     i2c_master_bus_handle_t bus_ = nullptr;
     i2c_master_dev_handle_t dev_ = nullptr;

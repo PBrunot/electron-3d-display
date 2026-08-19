@@ -101,7 +101,7 @@ void TiltGestureDetector::setMapping(orb_real_t dirX, orb_real_t dirY, orb_real_
 void TiltGestureDetector::logCalibrationForHardcode() const
 {
     // Printed as ready-to-paste C++ -- copy straight into tilt_defaults.h's matching
-    // constant names (see main.cpp's checkPlanarAtBoot() for how they're consumed).
+    // constant names (see Qmi8658::checkPlanarAtBoot() in imu.cpp for how they're consumed).
     ESP_LOGI(kTiltTag, "--- calibration constants for tilt_defaults.h ---");
     ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultBaselineX = orb_real_t(%.4f);", double(baseX_));
     ESP_LOGI(kTiltTag, "constexpr orb_real_t kDefaultBaselineY = orb_real_t(%.4f);", double(baseY_));
