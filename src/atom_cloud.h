@@ -3,13 +3,15 @@
 // compile-time angular tables. Port of micropython/atom_cloud.py's
 // build_atom_point_cloud() -- see that file's module docstring for the full model
 // rationale, and its "Coloring" paragraph for the shell-color/brighten-dim rationale
-// specifically. Points carry (n, ell) so a caller can color by shell/subshell itself --
-// see colorizeAtomPoints() below (M4). Simplification vs the MicroPython version: no psi
-// sign recomputation for anisotropic (Hund's-rule) groups -- that only feeds
-// pc/atom_view_pc.py's PC-only shell-dissection view's phase coloring (one exploded shell
-// at a time). This project DOES now have an on-device dissection view (atom_view.cpp,
-// Down-tilt gesture, built on subshellDissectionPlan() below), but a deliberately simpler
-// one -- shell color only, no phase/sign -- so nothing here consumes per-point sign either.
+// specifically. Points are sampled in contiguous per-subshell runs, described by
+// AtomSubshellRange below, so a caller can color by shell/subshell without every point
+// carrying its own (n, ell) tag -- see colorizeAtomSubshells() below (M4). Simplification
+// vs the MicroPython version: no psi sign recomputation for anisotropic (Hund's-rule)
+// groups -- that only feeds pc/atom_view_pc.py's PC-only shell-dissection view's phase
+// coloring (one exploded shell at a time). This project DOES now have an on-device
+// dissection view (atom_view.cpp, Down-tilt gesture, built on subshellDissectionPlan()
+// below), but a deliberately simpler one -- shell color only, no phase/sign -- so nothing
+// here consumes per-point sign either.
 #pragma once
 
 #include <cstdint>
@@ -18,20 +20,34 @@
 #include "pointcloud.h"
 #include "slater.h"
 
-/** One sampled point of a multi-electron atom's point cloud. */
+/**
+ * One sampled point of a multi-electron atom's point cloud.
+ *
+ * Deliberately just Cartesian coordinates, no per-point (n, ell) tag: buildAtomPointCloud()
+ * always writes points in contiguous per-subshell runs (see its docstring), so which subshell
+ * a point belongs to is fully recoverable from AtomSubshellRange below without paying 8 bytes
+ * of redundant storage per point (kAtomNumPoints of them) for a value that only ever takes
+ * one of config.count <= kMaxConfigSubshells distinct values. Every consumer that used to read
+ * points[i].n/.ell (shell coloring, dissection) now takes an AtomSubshellRange/DissectionEntry
+ * instead -- see colorizeAtomSubshells()/subshellDissectionPlan() below.
+ */
 struct AtomPoint
 {
     orb_real_t x, y, z;
-    int n, ell; // which subshell this point came from (e.g. for shell-based coloring)
 };
 
 constexpr int kMaxDrawingGroups = 25; // see atom_cloud.h's comment: at most ~1 partial subshell (<=7 groups) + up to ~19 full ones, in Madelung order; generous margin for the hardcoded exceptions too.
-constexpr int kAtomNumPoints = 8000;  // atom point-cloud size: sizes AtomPresetState's point/color arrays (atom_view.h) and outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp)
+constexpr int kAtomNumPoints = 8000;  // atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp)
 
 struct DrawingGroup
 {
     int n, ell, m; // m == kIsotropicM means "full subshell, sample isotropically"
     int weight;    // electron count this group represents
+    int subshellIndex; // index into the source ElectronConfig::subshells this group was expanded
+                        // from -- lets buildAtomPointCloud() merge a subshell's (possibly several,
+                        // for a Hund's-rule partial fill) drawing groups back into one
+                        // AtomSubshellRange, since they're always sampled contiguously (see
+                        // buildAtomPointCloud()).
 };
 constexpr int kIsotropicM = -999;
 
@@ -57,18 +73,39 @@ int drawingGroups(const ElectronConfig &config, DrawingGroup *out);
 void splitCounts(const int *weights, int count, int total, int *outCounts);
 
 /**
+ * One occupied subshell's identity and the contiguous run of indices in an AtomPoint array
+ * that were sampled from it -- buildAtomPointCloud() always emits one subshell's points (all
+ * of its drawing groups, e.g. a partially-filled subshell's several Hund's-rule orbitals) back
+ * to back, so a single [startIndex, startIndex+count) range fully describes membership without
+ * any per-point tag. `n`/`ell`/`occ` mirror the source ElectronConfig::subshells entry (kept
+ * here too, rather than forcing every consumer to also carry the config around, since at
+ * config.count <= kMaxConfigSubshells entries the duplication is negligible -- unlike the
+ * per-point case this replaces).
+ */
+struct AtomSubshellRange
+{
+    int n, ell, occ;
+    int startIndex, count;
+};
+
+/**
  * Sample `count` points approximating atomic number z's total electron density. Port of
  * atom_cloud.build_atom_point_cloud() (coloring split out separately, see
- * colorizeAtomPoints() below).
+ * colorizeAtomSubshells() below).
  *
- * @param z       Atomic number, 1 <= z <= kMaxZ.
- * @param out     [out] Must hold at least `count` entries.
- * @param count   Total points to sample across every occupied subshell.
- * @param seed    RNG seed (same seed -> same points, matching every other port).
- * @return        The electron configuration used (config.count subshells), for
- *                caller-side logging/title display.
+ * @param z          Atomic number, 1 <= z <= kMaxZ.
+ * @param out        [out] Must hold at least `count` entries.
+ * @param count      Total points to sample across every occupied subshell.
+ * @param seed       RNG seed (same seed -> same points, matching every other port).
+ * @param outRanges  [out] One entry per occupied subshell, in the same order as the returned
+ *                   config's own subshells; must hold at least kMaxConfigSubshells entries.
+ * @param outRangeCount  [out] Number of entries written to outRanges (== the returned
+ *                       config's own count).
+ * @return           The electron configuration used (config.count subshells), for
+ *                    caller-side logging/title display.
  */
-ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t seed);
+ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t seed, AtomSubshellRange *outRanges,
+                                   int *outRangeCount);
 
 // --- Shell coloring (M4) ---
 //
@@ -123,7 +160,7 @@ constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward 
 /**
  * Which subshell (n, ell) has the largest measured p90 radius in THIS specific point
  * cloud, and that radius -- this is what actually defines an atom's on-screen size and
- * which points get brightened by colorizeAtomPoints(), NOT the whole cloud's own p90
+ * which subshell gets brightened by colorizeAtomSubshells(), NOT the whole cloud's own p90
  * (dominated by core electrons for any atom past helium, since points are split strictly
  * proportional to electron count). Port of atom_cloud.outer_subshell_r_ref(), simplified:
  * only the single outermost entry of subshellDissectionPlan() below is needed for scale
@@ -136,37 +173,46 @@ struct OuterSubshell
     int n = 0, ell = 0;
     orb_real_t rRef = orb_real_t(1);
 };
-OuterSubshell outerSubshellRRef(const AtomPoint *points, int count, const ElectronConfig &config);
+OuterSubshell outerSubshellRRef(const AtomPoint *points, const AtomSubshellRange *ranges, int rangeCount);
 
-/** One subshell's identity, p90 radius, and electron occupancy, as produced by
- * subshellDissectionPlan() below. */
+/** One subshell's identity, point-index range, p90 radius, and electron occupancy, as
+ * produced by subshellDissectionPlan() below. */
 struct DissectionEntry
 {
     int n, ell;
     orb_real_t rRef;
-    int occ; // this subshell's own electron count, e.g. 4 for 2p4 -- see ElectronConfig::occ
+    int occ;               // this subshell's own electron count, e.g. 4 for 2p4 -- see ElectronConfig::occ
+    int startIndex, count; // contiguous point-index range in the AtomPoint array this subshell owns
 };
 
 /**
- * Every occupied subshell's (n, ell) and p90 radius (same measure outerSubshellRRef() uses),
- * sorted descending by radius -- outermost first, innermost last. Port of
- * atom_cloud.subshell_dissection_plan(), device-path subset: p90 radius only, no phase/sign
- * recomputation (this project's on-device dissection has no phase coloring, same "not worth
- * the effort" call this file's header comment already makes about that). Used by
- * atom_view.cpp's on-device shell-by-shell dissection (Down-tilt gesture).
+ * Every occupied subshell's (n, ell), point range, and p90 radius (same measure
+ * outerSubshellRRef() uses), sorted descending by radius -- outermost first, innermost last.
+ * Port of atom_cloud.subshell_dissection_plan(), device-path subset: p90 radius only, no
+ * phase/sign recomputation (this project's on-device dissection has no phase coloring, same
+ * "not worth the effort" call this file's header comment already makes about that). Used by
+ * atom_view.cpp's on-device shell-by-shell dissection (Down-tilt gesture) both for the
+ * outer-to-inner peel order and, via each entry's startIndex/count, to build that level's
+ * render groups directly -- no point data ever needs to move (see camera.h's PointGroup).
  *
  * @param out  [out] Must hold at least kMaxConfigSubshells entries.
- * @return     Number of entries written (== config.count, minus any subshell with zero
- *             matched points in this specific cloud).
+ * @return     Number of entries written (== rangeCount).
  */
-int subshellDissectionPlan(const AtomPoint *points, int count, const ElectronConfig &config, DissectionEntry *out);
+int subshellDissectionPlan(const AtomPoint *points, const AtomSubshellRange *ranges, int rangeCount,
+                           DissectionEntry *out);
 
 /**
- * Pack point i's shell color (shellBaseRgb(points[i].n)) into outColors[i], brightened
- * toward white if it belongs to `outer`'s subshell (kAtomOuterShellBrighten) or dimmed
- * toward black otherwise (kAtomInnerShellDim).
+ * Compute each subshell's render color into outColors[s] (parallel to `ranges`): its shell
+ * color (shellBaseRgb(ranges[s].n)) brightened toward white if it's `outer`'s own subshell
+ * (kAtomOuterShellBrighten), dimmed toward black otherwise (kAtomInnerShellDim). One entry per
+ * subshell, not per point -- every point in a subshell shares the same color, so
+ * AtomPresetState (atom_view.h) pairs this with `ranges` to build camera.h PointGroups instead
+ * of a kAtomNumPoints-sized colors array.
+ *
+ * @param outColors  [out] Must hold at least rangeCount entries.
  */
-void colorizeAtomPoints(const AtomPoint *points, int count, const OuterSubshell &outer, uint16_t *outColors);
+void colorizeAtomSubshells(const AtomSubshellRange *ranges, int rangeCount, const OuterSubshell &outer,
+                           uint16_t *outColors);
 
 constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py's SEED
 

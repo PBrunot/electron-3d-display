@@ -14,7 +14,7 @@ int drawingGroups(const ElectronConfig &config, DrawingGroup *out)
         int n = config.subshells[i].n, ell = config.subshells[i].ell, occ = config.subshells[i].occ;
         if (occ == subshellCapacity(ell))
         {
-            out[count++] = {n, ell, kIsotropicM, occ};
+            out[count++] = {n, ell, kIsotropicM, occ, i};
         }
         else
         {
@@ -22,7 +22,7 @@ int drawingGroups(const ElectronConfig &config, DrawingGroup *out)
             int mCount = hundFillM(ell, occ, mOcc);
             for (int j = 0; j < mCount; j++)
             {
-                out[count++] = {n, ell, mOcc[j].m, mOcc[j].occ};
+                out[count++] = {n, ell, mOcc[j].m, mOcc[j].occ, i};
             }
         }
     }
@@ -72,7 +72,8 @@ void splitCounts(const int *weights, int count, int total, int *outCounts)
     }
 }
 
-ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t seed)
+ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t seed, AtomSubshellRange *outRanges,
+                                   int *outRangeCount)
 {
     ElectronConfig config = electronConfiguration(z);
 
@@ -89,18 +90,20 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
 
     XorShift32 rng(seed);
     int idx = 0;
+    int rangeCount = 0;
     for (int g = 0; g < groupCount; g++)
     {
         int n = groups[g].n, ell = groups[g].ell, m = groups[g].m;
         orb_real_t zEff = zEffRadial(z, config, n, ell);
         const RadialTable &radial = buildRadialSamplerRuntime(n, ell, zEff);
 
+        int groupStart = idx;
         if (m == kIsotropicM)
         {
             for (int i = 0; i < counts[g]; i++)
             {
                 OrbitalPoint p = sampleIsotropicPoint(radial, &rng);
-                out[idx++] = {p.x, p.y, p.z, n, ell};
+                out[idx++] = {p.x, p.y, p.z};
             }
         }
         else
@@ -109,10 +112,19 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
             for (int i = 0; i < counts[g]; i++)
             {
                 OrbitalPoint p = sampleOrientedPoint(radial, *angular, &rng);
-                out[idx++] = {p.x, p.y, p.z, n, ell};
+                out[idx++] = {p.x, p.y, p.z};
             }
         }
+
+        // Drawing groups from a Hund's-rule partial fill (several per subshell, one per
+        // occupied m) are always sampled back to back for the same subshellIndex -- merge them
+        // into that subshell's single AtomSubshellRange instead of one range per drawing group.
+        if (g > 0 && groups[g].subshellIndex == groups[g - 1].subshellIndex)
+            outRanges[rangeCount - 1].count += counts[g];
+        else
+            outRanges[rangeCount++] = {n, ell, config.subshells[groups[g].subshellIndex].occ, groupStart, counts[g]};
     }
+    *outRangeCount = rangeCount;
 
     return config;
 }
@@ -130,71 +142,60 @@ namespace
     // re-entrantly -- both only ever run on the main render task) rather than each keeping
     // its own kAtomNumPoints-sized copy: on real hardware, unrelated extra static buffers
     // added while building the dissection view already starved Display::Display()'s frame
-    // buffer allocation once (see atom_view.cpp's compactDissectLevelInPlace() docstring for
-    // the bigger instance of this same lesson) -- not worth risking a repeat over one
-    // harmless-looking duplicate static array.
+    // buffer allocation once (see atom_view.cpp's AtomPresetState comment for the bigger
+    // instance of this same lesson) -- not worth risking a repeat over one harmless-looking
+    // duplicate static array.
     EXT_RAM_BSS_ATTR orb_real_t sSubshellRadii[kAtomNumPoints];
 } // namespace
 
-OuterSubshell outerSubshellRRef(const AtomPoint *points, int count, const ElectronConfig &config)
+/// p90 radius of `points[startIndex, startIndex+count)`, via sSubshellRadii scratch. Shared by
+/// outerSubshellRRef()/subshellDissectionPlan() below -- both just measure a different set of
+/// ranges over the same underlying computation.
+static orb_real_t p90RadiusOfRange(const AtomPoint *points, int startIndex, int count)
 {
     orb_real_t *radii = sSubshellRadii;
+    for (int i = 0; i < count; i++)
+    {
+        orb_real_t x = points[startIndex + i].x, y = points[startIndex + i].y, z = points[startIndex + i].z;
+        radii[i] = std::sqrt(x * x + y * y + z * z);
+    }
+    std::sort(radii, radii + count);
+    int idx = int(orb_real_t(0.90) * orb_real_t(count - 1));
+    if (idx >= count)
+        idx = count - 1;
+    return radii[idx] > orb_real_t(1e-6) ? radii[idx] : orb_real_t(1);
+}
 
+OuterSubshell outerSubshellRRef(const AtomPoint *points, const AtomSubshellRange *ranges, int rangeCount)
+{
     OuterSubshell best;
     orb_real_t bestR = orb_real_t(-1);
-    for (int s = 0; s < config.count; s++)
+    for (int s = 0; s < rangeCount; s++)
     {
-        int n = config.subshells[s].n, ell = config.subshells[s].ell;
-        int matchCount = 0;
-        for (int i = 0; i < count; i++)
-        {
-            if (points[i].n == n && points[i].ell == ell)
-            {
-                orb_real_t x = points[i].x, y = points[i].y, z = points[i].z;
-                radii[matchCount++] = std::sqrt(x * x + y * y + z * z);
-            }
-        }
-        if (matchCount == 0)
+        const AtomSubshellRange &r = ranges[s];
+        if (r.count == 0)
             continue;
-        std::sort(radii, radii + matchCount);
-        int idx = int(orb_real_t(0.90) * orb_real_t(matchCount - 1));
-        if (idx >= matchCount)
-            idx = matchCount - 1;
-        orb_real_t rRef = radii[idx] > orb_real_t(1e-6) ? radii[idx] : orb_real_t(1);
+        orb_real_t rRef = p90RadiusOfRange(points, r.startIndex, r.count);
         if (rRef > bestR)
         {
             bestR = rRef;
-            best = {n, ell, rRef};
+            best = {r.n, r.ell, rRef};
         }
     }
     return best;
 }
 
-int subshellDissectionPlan(const AtomPoint *points, int count, const ElectronConfig &config, DissectionEntry *out)
+int subshellDissectionPlan(const AtomPoint *points, const AtomSubshellRange *ranges, int rangeCount,
+                           DissectionEntry *out)
 {
-    orb_real_t *radii = sSubshellRadii;
-
     int written = 0;
-    for (int s = 0; s < config.count; s++)
+    for (int s = 0; s < rangeCount; s++)
     {
-        int n = config.subshells[s].n, ell = config.subshells[s].ell;
-        int matchCount = 0;
-        for (int i = 0; i < count; i++)
-        {
-            if (points[i].n == n && points[i].ell == ell)
-            {
-                orb_real_t x = points[i].x, y = points[i].y, z = points[i].z;
-                radii[matchCount++] = std::sqrt(x * x + y * y + z * z);
-            }
-        }
-        if (matchCount == 0)
+        const AtomSubshellRange &r = ranges[s];
+        if (r.count == 0)
             continue;
-        std::sort(radii, radii + matchCount);
-        int idx = int(orb_real_t(0.90) * orb_real_t(matchCount - 1));
-        if (idx >= matchCount)
-            idx = matchCount - 1;
-        orb_real_t rRef = radii[idx] > orb_real_t(1e-6) ? radii[idx] : orb_real_t(1);
-        out[written++] = {n, ell, rRef, config.subshells[s].occ};
+        orb_real_t rRef = p90RadiusOfRange(points, r.startIndex, r.count);
+        out[written++] = {r.n, r.ell, rRef, r.occ, r.startIndex, r.count};
     }
 
     // Small array (<= kMaxConfigSubshells, at most ~20 entries) -- insertion sort descending
@@ -231,12 +232,13 @@ static uint8_t dimChannel(uint8_t c, orb_real_t factor)
     return uint8_t(orb_real_t(c) * (orb_real_t(1) - factor));
 }
 
-void colorizeAtomPoints(const AtomPoint *points, int count, const OuterSubshell &outer, uint16_t *outColors)
+void colorizeAtomSubshells(const AtomSubshellRange *ranges, int rangeCount, const OuterSubshell &outer,
+                           uint16_t *outColors)
 {
-    for (int i = 0; i < count; i++)
+    for (int i = 0; i < rangeCount; i++)
     {
-        const uint8_t *base = shellBaseRgb(points[i].n);
-        bool isOuter = points[i].n == outer.n && points[i].ell == outer.ell;
+        const uint8_t *base = shellBaseRgb(ranges[i].n);
+        bool isOuter = ranges[i].n == outer.n && ranges[i].ell == outer.ell;
         uint8_t r, g, b;
         if (isOuter)
         {

@@ -19,7 +19,9 @@ void runAtomValidationTest()
     {
         int z = kValidationZs[zi];
         const char *symbol = elementSymbol(z);
-        ElectronConfig config = buildAtomPointCloud(z, points, kValidationPoints, kValidationSeed);
+        AtomSubshellRange ranges[kMaxConfigSubshells];
+        int rangeCount = 0;
+        ElectronConfig config = buildAtomPointCloud(z, points, kValidationPoints, kValidationSeed, ranges, &rangeCount);
 
         for (int i = 0; i < config.count; i++)
         {

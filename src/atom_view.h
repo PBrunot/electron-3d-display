@@ -44,18 +44,22 @@ constexpr int kAtomViewDefaultZ = 6;
 /**
  * @brief Everything one loaded element needs to render.
  *
- * Point coordinates, their shell-colored (brightened/dimmed) encoded colors, and the electron
+ * Point coordinates, plus per-SUBSHELL (not per-point, see atom_cloud.h's AtomSubshellRange)
+ * point ranges and their shell-colored (brightened/dimmed) render groups, and the electron
  * configuration used (for the title).
  */
 struct AtomPresetState
 {
     AtomPoint points[kAtomNumPoints];
-    uint16_t colors[kAtomNumPoints];
+    AtomSubshellRange ranges[kMaxConfigSubshells]; ///< This element's subshells and their point ranges.
+    int rangeCount = 0;
+    PointGroup groups[kMaxConfigSubshells]; ///< `ranges` paired with each subshell's render color.
+    int groupCount = 0;
     ElectronConfig config;
     int z = 0;
     orb_real_t baseScale, zoomAmplitude;
 
-    /// Build this element's point cloud, shell colors, and renormalized scale.
+    /// Build this element's point cloud, subshell ranges/colors, and renormalized scale.
     void load(int zIn);
 };
 

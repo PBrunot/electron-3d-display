@@ -222,6 +222,65 @@ void renderScene(uint16_t *frameBuf, const PointT *points, const uint16_t *color
     renderPointsColored(frameBuf, points, colors, count, trig, scale, frameSalt, buzzThreshold);
 }
 
+/**
+ * @brief One contiguous run of points (by index into a PointT array) that all share a single
+ *        render color.
+ *
+ * For clouds where color is a property of a whole group of points rather than each point
+ * individually (e.g. atom_cloud.h's per-subshell shell coloring, see AtomSubshellRange), this
+ * lets the renderer read that one shared color straight off the group instead of every point
+ * carrying its own redundant copy. Not useful for orbital_view.cpp's hydrogen clouds, where
+ * brightness/phase genuinely varies per point (rank-equalized |psi|^2) -- those keep using the
+ * plain colors[] array above.
+ */
+struct PointGroup
+{
+    int startIndex, count;
+    uint16_t color;
+};
+
+/**
+ * @brief Like renderPointsColored(), but colors come from `groups` (each covering
+ *        `groups[g].count` consecutive points starting at `groups[g].startIndex`) instead of a
+ *        parallel per-point array. Groups need not cover every index in `points` -- indices
+ *        outside every group are simply never drawn (see atom_view.cpp's dissection sequence,
+ *        which uses this to skip peeled-away outer shells without moving any point data).
+ */
+template <typename PointT>
+void renderPointsGrouped(uint16_t *frameBuf, const PointT *points, const PointGroup *groups, int groupCount,
+                         const RotationTrig &t, orb_real_t scale, uint32_t frameSalt = 0, uint32_t buzzThreshold = 0)
+{
+    for (int g = 0; g < groupCount; g++)
+    {
+        const PointGroup &grp = groups[g];
+        for (int k = 0; k < grp.count; k++)
+        {
+            int i = grp.startIndex + k;
+            uint32_t hv = ((uint32_t(i) * 668265261u + frameSalt * 374761393u) >> 16) & 0xFFFFu;
+            if (hv < buzzThreshold)
+                continue;
+            int sx, sy;
+            if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
+            {
+                int idx = sy * Display::kDisplayWidth + sx;
+                frameBuf[idx] = Display::blendColor565(frameBuf[idx], grp.color, kElectronAlphaQ8);
+            }
+        }
+    }
+}
+
+/** Like renderScene(), but grouped-color (see renderPointsGrouped()) instead of per-point. */
+template <typename PointT>
+void renderSceneGrouped(uint16_t *frameBuf, const PointT *points, const PointGroup *groups, int groupCount,
+                        uint16_t protonColor, const CameraState &camera, orb_real_t scale, uint32_t frameSalt = 0,
+                        uint32_t buzzThreshold = 0)
+{
+    fadeFrameBuffer(frameBuf);
+    drawProtonMarker(frameBuf, protonColor);
+    RotationTrig trig = computeRotationTrig(camera);
+    renderPointsGrouped(frameBuf, points, groups, groupCount, trig, scale, frameSalt, buzzThreshold);
+}
+
 /// Uniform random float in [0, 1), via the hardware RNG (esp_random()) -- used only for
 /// animation timing/targets (zoom excursions, chooser backdrops), not for anything that needs
 /// to be reproducible (that's XorShift32's job, see pointcloud.h).

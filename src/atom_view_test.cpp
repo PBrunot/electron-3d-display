@@ -42,7 +42,9 @@ void runAtomViewTest(Display &display)
     // only the rotation/projection below runs every frame.
     static AtomPoint points[kNumPoints];
     int64_t buildStartUs = esp_timer_get_time();
-    ElectronConfig config = buildAtomPointCloud(kAtomicNumber, points, kNumPoints, kRngSeed);
+    AtomSubshellRange ranges[kMaxConfigSubshells];
+    int rangeCount = 0;
+    ElectronConfig config = buildAtomPointCloud(kAtomicNumber, points, kNumPoints, kRngSeed, ranges, &rangeCount);
     int64_t buildMs = (esp_timer_get_time() - buildStartUs) / 1000;
 
     ESP_LOGI(kAtomViewTestTag, "%s (Z=%d): %d subshells, %d points, built in %lldms", elementSymbol(kAtomicNumber),

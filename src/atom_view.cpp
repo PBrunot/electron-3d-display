@@ -82,9 +82,13 @@ void AtomPresetState::load(int zIn)
     ESP_LOGI(kAtomViewTag, "loading Z=%d (%s)...", zIn, elementSymbol(zIn));
     int64_t startUs = esp_timer_get_time();
 
-    config = buildAtomPointCloud(zIn, points, kAtomNumPoints, kAtomCloudSeed);
-    OuterSubshell outer = outerSubshellRRef(points, kAtomNumPoints, config);
-    colorizeAtomPoints(points, kAtomNumPoints, outer, colors);
+    config = buildAtomPointCloud(zIn, points, kAtomNumPoints, kAtomCloudSeed, ranges, &rangeCount);
+    OuterSubshell outer = outerSubshellRRef(points, ranges, rangeCount);
+    uint16_t subshellColors[kMaxConfigSubshells];
+    colorizeAtomSubshells(ranges, rangeCount, outer, subshellColors);
+    groupCount = rangeCount;
+    for (int s = 0; s < rangeCount; s++)
+        groups[s] = PointGroup{ranges[s].startIndex, ranges[s].count, subshellColors[s]};
 
     AtomScale scale = scaleForAtom(outer.rRef);
     baseScale = scale.baseScale;
@@ -189,52 +193,42 @@ namespace
 
     void refreshDissectPlan(const AtomPresetState &preset)
     {
-        dissectPlanCount = subshellDissectionPlan(preset.points, kAtomNumPoints, preset.config, dissectPlan);
-    }
-
-    int rankInPlan(int n, int ell)
-    {
-        for (int i = 0; i < dissectPlanCount; i++)
-            if (dissectPlan[i].n == n && dissectPlan[i].ell == ell)
-                return i;
-        return -1; // every point's subshell is in `config`, so this shouldn't happen for a real cloud
+        dissectPlanCount = subshellDissectionPlan(preset.points, preset.ranges, preset.rangeCount, dissectPlan);
     }
 
     /**
-     * @brief Compact `points`/`colors` in place down to the subset visible at dissect level
-     *        `level` (1..dissectPlanCount).
+     * @brief Build the render groups visible at dissect level `level` (1..dissectPlanCount),
+     *        without moving any point data.
      *
-     * Operates on (and shrinks) whatever `count` entries are currently valid. Deliberately not
-     * a second kAtomNumPoints-sized pair of buffers: two full extra ~3000-point arrays would
-     * leave too little contiguous DMA-capable RAM for Display::Display()'s frame buffer
-     * allocation. Point order doesn't matter for rendering, so compacting the same array in
-     * place is safe -- the sequence rebuilds the full cloud fresh (preset.load()) at the end,
-     * undoing the compaction.
+     * dissectPlan is sorted outermost-first (see subshellDissectionPlan()), and each entry
+     * already carries its own contiguous point range -- so "peeling away" the subshells outer
+     * of level `level` is just excluding their groups from the output, not compacting/copying
+     * points[] (unlike this function's predecessor, compactDissectLevelInPlace(), which used to
+     * physically shrink a copy of the cloud on every level change; see this file's prior
+     * revision if that history is ever needed). dissectPlan[level-1] itself (the newly-revealed
+     * outermost remaining shell) draws at full shell color; every deeper shell draws flat gray
+     * (kDissectDimColor).
      *
-     * Subshells outer of dissectPlan[level-1] are dropped (peeled away); dissectPlan[level-1]
-     * itself (the newly-revealed outermost remaining shell) draws at full shell color; every
-     * deeper shell draws flat gray (kDissectDimColor). Returns the count remaining.
+     * @param outGroups  [out] Must hold at least kMaxConfigSubshells entries.
+     * @return           Number of groups written (== dissectPlanCount - (level - 1)).
      */
-    int compactDissectLevelInPlace(AtomPoint *points, uint16_t *colors, int count, int level)
+    int buildDissectGroups(int level, PointGroup *outGroups)
     {
-        int keepRank = level - 1;
         int written = 0;
-        for (int i = 0; i < count; i++)
+        for (int rank = level - 1; rank < dissectPlanCount; rank++)
         {
-            int rank = rankInPlan(points[i].n, points[i].ell);
-            if (rank < keepRank)
-                continue;
-            points[written] = points[i];
-            if (rank == keepRank)
+            const DissectionEntry &e = dissectPlan[rank];
+            uint16_t color;
+            if (rank == level - 1)
             {
-                const uint8_t *base = shellBaseRgb(points[written].n);
-                colors[written] = Display::packColor565(base[0], base[1], base[2]);
+                const uint8_t *base = shellBaseRgb(e.n);
+                color = Display::packColor565(base[0], base[1], base[2]);
             }
             else
             {
-                colors[written] = kDissectDimColor;
+                color = kDissectDimColor;
             }
-            written++;
+            outGroups[written++] = PointGroup{e.startIndex, e.count, color};
         }
         return written;
     }
@@ -262,13 +256,14 @@ namespace
     /// Render one frame at a fixed `scale`, for the real-time hold (which doesn't need
     /// easing). `frameSalt`/`buzzThreshold` feed renderScene()'s hidden-points buzz (see
     /// camera.h's kHiddenPointsFraction); the caller owns the per-call frameSalt counter.
-    void renderDissectFrame(Display &display, const AtomPoint *points, const uint16_t *colors, int count,
+    void renderDissectFrame(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
                             uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, const CameraState &camera,
                             orb_real_t scale, const char *bigLabel, const char *caption, int occ,
                             uint32_t frameSalt = 0, uint32_t buzzThreshold = 0)
     {
         display.waitForFlushDone();
-        renderScene(display.getFrameBuf(), points, colors, count, protonColor, camera, scale, frameSalt, buzzThreshold);
+        renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, camera, scale, frameSalt,
+                           buzzThreshold);
         drawAtomProtonMarker(display.getFrameBuf(), protonColor);
         drawDissectTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor, bigLabel, caption, occ);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
@@ -299,7 +294,7 @@ namespace
      * itself be interruptible.
      */
     template <typename TitleDrawFn>
-    bool easeScaleTimed(Display &display, const AtomPoint *points, const uint16_t *colors, int count,
+    bool easeScaleTimed(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
                         TitleDrawFn drawTitle, uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor,
                         CameraState &camera, orb_real_t startScale, orb_real_t endScale, uint32_t durationMs,
                         TiltGestureDetector *tilt = nullptr, uint32_t buzzThreshold = 0)
@@ -319,8 +314,8 @@ namespace
             orb_real_t scale = startScale + (endScale - startScale) * t;
 
             display.waitForFlushDone();
-            renderScene(display.getFrameBuf(), points, colors, count, protonColor, camera, scale, frameSalt,
-                        buzzThreshold);
+            renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, camera, scale,
+                               frameSalt, buzzThreshold);
             drawAtomProtonMarker(display.getFrameBuf(), protonColor); // keep it visible over the cloud
             drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
             drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
@@ -382,9 +377,11 @@ namespace
      * subshell with its label, hold for kDissectHoldUs while continuing to tumble, then move to
      * the next level. `tilt` is polled every eased and held frame; any movement breaks out of
      * the level loop early. Either way (completed or interrupted) execution falls through to
-     * the same tail: rebuild the full cloud fresh (preset.load()) and ease back out to
-     * preset.baseScale, so an interrupted dissection lands back on the full element exactly
-     * like a finished one does.
+     * the same tail: ease back out to preset.baseScale using preset's own unmodified render
+     * groups. Unlike an earlier revision of this function, `preset.points`/`preset.groups` are
+     * never touched during the loop -- buildDissectGroups() only ever reads dissectPlan's
+     * point ranges into a level-local group list, so there's nothing to rebuild/undo here, and
+     * an interrupted dissection lands back on the full element exactly like a finished one does.
      */
     void runDissectionSequence(Display &display, AtomPresetState &preset, CameraState &camera, uint16_t protonColor,
                                uint16_t textColor, uint16_t scaleBarColor, TiltGestureDetector &tilt)
@@ -392,7 +389,6 @@ namespace
         showElectronConfigIntro(display, elementNameIt(preset.z));
 
         orb_real_t scale = preset.baseScale;
-        int count = kAtomNumPoints;
         // Seeded to dissectPlan[0]'s own radius (the outermost shell, numerically the same
         // reference used for preset.baseScale) so the very first hop -- level 1, already
         // framed by the full-atom view -- computes a near-zero distance and just hits
@@ -402,7 +398,11 @@ namespace
         for (int level = 1; level <= dissectPlanCount; level++)
         {
             DissectionEntry active = dissectPlan[level - 1];
-            count = compactDissectLevelInPlace(preset.points, preset.colors, count, level);
+            PointGroup levelGroups[kMaxConfigSubshells];
+            int levelGroupCount = buildDissectGroups(level, levelGroups);
+            int visibleCount = 0;
+            for (int g = 0; g < levelGroupCount; g++)
+                visibleCount += levelGroups[g].count;
             AtomScale s = scaleForAtom(active.rRef);
 
             char bigLabel[8];
@@ -416,10 +416,10 @@ namespace
 
             uint32_t flyMs = dissectFlyDurationMs(prevRRef, active.rRef);
             ESP_LOGI(kAtomViewTag, "dissecting shell %d%c (%d pts, level %d/%d, fly %ums)", active.n,
-                     subshellLabelChar(active.ell), count, level, dissectPlanCount, flyMs);
+                     subshellLabelChar(active.ell), visibleCount, level, dissectPlanCount, flyMs);
 
-            bool completed = easeScaleTimed(display, preset.points, preset.colors, count, title, protonColor, textColor,
-                                            scaleBarColor, camera, scale, s.baseScale, flyMs, &tilt,
+            bool completed = easeScaleTimed(display, preset.points, levelGroups, levelGroupCount, title, protonColor,
+                                            textColor, scaleBarColor, camera, scale, s.baseScale, flyMs, &tilt,
                                             kHiddenPointsThreshold);
             scale = s.baseScale;
             prevRRef = active.rRef;
@@ -440,8 +440,9 @@ namespace
                     aborted = true;
                     break;
                 }
-                renderDissectFrame(display, preset.points, preset.colors, count, protonColor, textColor, scaleBarColor,
-                                   camera, scale, bigLabel, caption, active.occ, holdFrameSalt, kHiddenPointsThreshold);
+                renderDissectFrame(display, preset.points, levelGroups, levelGroupCount, protonColor, textColor,
+                                   scaleBarColor, camera, scale, bigLabel, caption, active.occ, holdFrameSalt,
+                                   kHiddenPointsThreshold);
                 stepCamera(&camera);
                 holdFrameSalt++;
                 vTaskDelay(pdMS_TO_TICKS(1));
@@ -450,16 +451,15 @@ namespace
                 break;
         }
 
-        // Rebuild the full cloud fresh (undoes every level's in-place compaction above) and
-        // ease back out to it, at the same fixed pm/s pace (a single hop covering the full
-        // innermost-to-outermost distance, since we're returning straight to the full view).
+        // Ease back out to the full view, at the same fixed pm/s pace (a single hop covering
+        // the full innermost-to-outermost distance, since we're returning straight to the full
+        // view) -- preset.points/preset.groups are already the full, untouched cloud.
         uint32_t returnFlyMs = dissectFlyDurationMs(prevRRef, dissectPlanCount > 0 ? dissectPlan[0].rRef : prevRRef);
-        preset.load(preset.z);
         auto fullTitle = [&](uint16_t *fb, int x, int y, uint16_t color)
         {
             drawAtomTitle(fb, x, y, preset.z, color, kFontLarge);
         };
-        easeScaleTimed(display, preset.points, preset.colors, kAtomNumPoints, fullTitle, protonColor, textColor,
+        easeScaleTimed(display, preset.points, preset.groups, preset.groupCount, fullTitle, protonColor, textColor,
                        scaleBarColor, camera, scale, preset.baseScale, returnFlyMs, nullptr, kHiddenPointsThreshold);
     }
 
@@ -468,9 +468,10 @@ namespace
     /// switches, and random zoom excursions; easeScaleTimed()/renderDissectFrame() above get
     /// the same redraw inline since they're already local to this file.
     template <typename TitleDrawFn>
-    void atomFlyOver(Display &display, const AtomPoint *points, const uint16_t *colors, int count, TitleDrawFn drawTitle,
-                     uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, CameraState *camera,
-                     orb_real_t startScale, orb_real_t endScale, int frames, uint32_t buzzThreshold = 0)
+    void atomFlyOver(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
+                     TitleDrawFn drawTitle, uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor,
+                     CameraState *camera, orb_real_t startScale, orb_real_t endScale, int frames,
+                     uint32_t buzzThreshold = 0)
     {
         for (int i = 0; i < frames; i++)
         {
@@ -478,8 +479,8 @@ namespace
             orb_real_t scale = startScale + (endScale - startScale) * t;
 
             display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-            renderScene(display.getFrameBuf(), points, colors, count, protonColor, *camera, scale, uint32_t(i),
-                        buzzThreshold);
+            renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, *camera, scale,
+                               uint32_t(i), buzzThreshold);
             drawAtomProtonMarker(display.getFrameBuf(), protonColor);
             drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
             drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
@@ -494,9 +495,11 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
 {
     ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxZ);
 
-    // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: this struct (~66KB+ of points+colors) is
-    // large enough that placing it in internal RAM left too little contiguous DMA-capable
-    // memory for Display::Display()'s frame-buffer allocation, which aborted at boot.
+    // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: this struct (~94KB of points, plus a
+    // negligible few hundred bytes of per-subshell ranges/groups -- see AtomPresetState's
+    // docstring) is large enough that placing it in internal RAM left too little contiguous
+    // DMA-capable memory for Display::Display()'s frame-buffer allocation, which aborted at
+    // boot.
     static EXT_RAM_BSS_ATTR AtomPresetState preset;
     if (preset.z == 0)                  // first-ever call this boot -- later calls (after a menu round-trip)
         preset.load(kAtomViewDefaultZ); // keep whatever element was last showing
@@ -516,13 +519,13 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
     CameraState camera;
     orb_real_t zoomAngle = orb_real_t(0);
 
-    atomFlyOver(display, preset.points, preset.colors, kAtomNumPoints, drawTitle, kProtonColor, kTextColor,
+    atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
                 kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, kIntroFrames,
                 kHiddenPointsThreshold);
 
     int frameCount = 0;
     int64_t fpsWindowStartUs = esp_timer_get_time();
-    uint32_t buzzFrame = 0; // per-frame salt for renderScene()'s hidden-points buzz, see camera.h
+    uint32_t buzzFrame = 0; // per-frame salt for renderSceneGrouped()'s hidden-points buzz, see camera.h
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
     int64_t lastActivityUs = esp_timer_get_time();
     // Caps idle auto-advance to at most one dissection per element before it's forced to jump,
@@ -540,7 +543,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         preset.load(newZ);
         refreshDissectPlan(preset);
         idleDissectedThisElement = false; // fresh element -- fresh idle dissection budget
-        atomFlyOver(display, preset.points, preset.colors, kAtomNumPoints, drawTitle, kProtonColor, kTextColor,
+        atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
                     kScaleBarColor, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames,
                     kHiddenPointsThreshold);
         zoomAngle = orb_real_t(0);
@@ -632,10 +635,10 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
             orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
-            atomFlyOver(display, preset.points, preset.colors, kAtomNumPoints, drawTitle, kProtonColor, kTextColor,
+            atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
                         kScaleBarColor, &camera, currentScale, targetScale, kZoomExcursionEaseFrames,
                         kHiddenPointsThreshold);
-            atomFlyOver(display, preset.points, preset.colors, kAtomNumPoints, drawTitle, kProtonColor, kTextColor,
+            atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
                         kScaleBarColor, &camera, targetScale, preset.baseScale, kZoomExcursionEaseFrames,
                         kHiddenPointsThreshold);
             zoomAngle = orb_real_t(0);
@@ -647,8 +650,8 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-        renderScene(display.getFrameBuf(), preset.points, preset.colors, kAtomNumPoints, kProtonColor, camera,
-                    scale, buzzFrame, kHiddenPointsThreshold);
+        renderSceneGrouped(display.getFrameBuf(), preset.points, preset.groups, preset.groupCount, kProtonColor,
+                           camera, scale, buzzFrame, kHiddenPointsThreshold);
         drawAtomProtonMarker(display.getFrameBuf(), kProtonColor); // see its docstring -- keep it visible over the cloud
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
         drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, kTextColor, kFontLarge);
