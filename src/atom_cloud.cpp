@@ -1,4 +1,5 @@
 #include "atom_cloud.h"
+#include "atom_size_calib.h"
 
 #include <algorithm>
 #include <cmath>
@@ -125,6 +126,22 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
             outRanges[rangeCount++] = {n, ell, config.subshells[groups[g].subshellIndex].occ, groupStart, counts[g]};
     }
     *outRangeCount = rangeCount;
+
+    // Clementi-Raimondi size calibration (see atom_size_calib.h): scale the
+    // whole cloud so the valence subshell's mode radius lands on the
+    // literature value, keeping the internal shell structure and relative
+    // sizes. The device zoom-to-fits via kAtomTargetPx/rRef (scaleForAtom),
+    // so on-device this mainly makes the pm scale bar and the dissection
+    // zoom depths CR-consistent; the hydrogenic-model radii themselves are
+    // the model's own (CR Z_eff to Z=54, Slater fallback past it).
+    orb_real_t calib = kAtomSizeCalibFactor[z - 1];
+    if (calib != orb_real_t(1))
+        for (int i = 0; i < idx; i++)
+        {
+            out[i].x *= calib;
+            out[i].y *= calib;
+            out[i].z *= calib;
+        }
 
     return config;
 }

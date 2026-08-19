@@ -147,9 +147,27 @@ the PC viewer, and the web viewer all stop their navigation at 92
 own coverage. The Z=93..118 data (configs/symbols/names) stays available to
 physics/validation code.
 
+### Size calibration across ports
+
+Every display port renders CR-correct atom sizes (valence mode radius =
+Clementi-Raimondi literature) on top of its own radial model:
+
+- PC viewer with tables: `atom_view_pc.clementi_size_factor()` =
+  CR / LDA-table valence mode (the LDA SIE correction).
+- PC viewer hydrogenic path, micropython viewer, web viewer, and the
+  device (`src/atom_cloud.cpp`): the generated hydrogenic factor table
+  `src/atom_size_calib.h` / `micropython/atom_size_calib.py`
+  (f = CR / hydrogenic valence mode; the inverse of the old hydrogenic
+  model's CR ratios, ~1.0 for H/He/B..Ne, ~0.65 for alkali/transition
+  metals, ~0.2-0.45 for the Z>54 Slater fallback). Regenerate with
+  `tools/atom_size_calib_gen.py`. The device zoom-to-fits every atom
+  (`kAtomTargetPx`/rRef), so there the calibration mainly makes the pm
+  scale bar and dissection depths CR-consistent.
+
 ### Device note
 
-The device (`src/atom_cloud.cpp`) still uses the hydrogenic model; porting
-the Z=1..92 tables to PROGMEM is the standing follow-up. When it lands,
-embed the per-element CR calibration factors alongside the radial data (they
-are a pure per-Z array computable from `clementi_size_factor`).
+The device (`src/atom_cloud.cpp`) still uses the hydrogenic model (with the
+CR size calibration applied); porting the Z=1..92 tables to PROGMEM is the
+standing follow-up. When the tables land, the atom-size calibration should
+switch to the tables-based factors (CR / table valence mode) used by the PC
+tables path.

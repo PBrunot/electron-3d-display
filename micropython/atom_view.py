@@ -35,6 +35,7 @@ import array
 import framebuf
 
 import atom_cloud
+import atom_size_calib
 import device_render_common as drc
 import display as display_mod
 import slater
@@ -113,6 +114,19 @@ class AtomPresetState:
         t0 = time.ticks_ms()
 
         xs, ys, zs, colors_rgb, shells, ells, _signs, config = atom_cloud.build_atom_point_cloud(z, count=N_POINTS)
+
+        # Clementi-Raimondi display-size calibration (see atom_size_calib.py):
+        # rescale the whole cloud so the valence subshell's mode radius lands
+        # on the literature value -- the same per-element factor table the
+        # device (src/atom_cloud.cpp) and the PC viewer's hydrogenic path
+        # use. Scaling preserves the internal shell structure; only the
+        # atom's overall size changes (and hence its size relative to other
+        # elements, which is what the calibration is for).
+        f = atom_size_calib.FACTOR[z - 1]
+        if f != 1.0:
+            xs = array.array('f', (v * f for v in xs))
+            ys = array.array('f', (v * f for v in ys))
+            zs = array.array('f', (v * f for v in zs))
 
         self.xs_fx = drc.to_fixed(xs)
         self.ys_fx = drc.to_fixed(ys)

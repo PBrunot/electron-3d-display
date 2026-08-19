@@ -24,9 +24,11 @@ pio_run1.log
 /build
 /tools/font_gen/__pycache__
 /tools/equation_gen/__pycache__
+/tools/__pycache__
 /examples/nis data
 /examples/SPARC-atomSFE
 
 /pc/hfs_tables*.npz
 /pc/_atomsfe_vendor
 /pc/_tmp
+/tools/__pycache__
