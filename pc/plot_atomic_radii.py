@@ -221,7 +221,7 @@ def main():
     ax_i.set_xlabel('Atomic number (Z)')
     ax_i.set_ylabel('First ionization energy (eV)')
     ax_i.set_title('First ionization energy vs atomic number: Koopmans estimate vs literature (Z=1-%d)' % zmax)
-    _style_axes(ax_i)
+    _style_axes(ax_i, True)
     ax_i.legend(frameon=False, loc='upper right')
 
     fig.text(0.01, 0.01,
