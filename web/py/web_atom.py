@@ -36,10 +36,12 @@ that module for the chooser and scene-switching logic, and index.html for
 how it wires up Pyodide/input.
 """
 
+import array
 import math
 import time
 
 import atom_cloud
+import atom_size_calib
 import cloud_common
 import slater
 
@@ -201,6 +203,16 @@ class AtomPreset:
         t0 = time.time()
 
         xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(z, count=N_POINTS)
+
+        # Clementi-Raimondi display-size calibration (see atom_size_calib.py):
+        # same per-element factor the PC viewer's hydrogenic path, the
+        # micropython viewer, and the device use -- rescale so the valence
+        # subshell's mode lands on the literature radius.
+        f = atom_size_calib.FACTOR[z - 1]
+        if f != 1.0:
+            xs = array.array('f', (v * f for v in xs))
+            ys = array.array('f', (v * f for v in ys))
+            zs = array.array('f', (v * f for v in zs))
 
         self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
             xs, ys, zs, colors, shells, ells, signs, config)

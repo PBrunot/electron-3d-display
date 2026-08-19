@@ -85,21 +85,34 @@ def _valence_subshell(config):
 
 
 def clementi_size_factor(radial_tables, z):
-    """Display size calibration for the screened-potential tables.
+    """Display size calibration: CR literature radius / the radial model's
+    valence-subshell mode radius.
 
-    The SPARC-atomSFE LDA tables reproduce the NIST LDA eigenvalues to
-    ~1e-6 Ha (see pc/nist_compare_atomsfe.py) but their valence orbitals are
-    systematically more diffuse than the Hartree-Fock based Clementi-Raimondi
-    reference (LDA self-interaction error -- worst for light elements: H
-    ~2.2x, period 2 ~1.7x, Fe ~1.1x). This returns the per-element factor
-    that rescales the rendered cloud so the valence subshell's mode radius
-    lands on the CR literature value, while the internal shell structure and
-    shapes stay the (NIST-exact) table's own.
+    With the SPARC-atomSFE tables (`radial_tables`): the LDA eigenvalues are
+    NIST-exact (~1e-6 Ha, pc/nist_compare_atomsfe.py) but the valence
+    orbitals are more diffuse than the HF-based Clementi-Raimondi reference
+    (LDA self-interaction error -- worst for light elements: H ~2.2x,
+    period 2 ~1.7x, Fe ~1.1x). Without tables (hydrogenic model): the
+    z_eff substitution already matches CR for the lightest elements but
+    drifts for alkali/transition metals and strongly past Z=54 (Slater
+    fallback) -- atom_size_calib.py carries the hydrogenic factors
+    (shared with the micropython and C++ ports).
 
-    Returns lit/mode (pm/pm); 1.0 when the literature value or the table
-    entry is unavailable (Z>92, missing subshell, or the hydrogenic model,
-    which is already CR-calibrated via z_eff).
+    Either way the returned factor rescales the rendered cloud so the
+    valence subshell's mode radius lands on the CR literature value while
+    the internal shell structure stays the model's own. Returns 1.0 when
+    the literature value or the model entry is unavailable (Z>92, missing
+    subshell/table entry).
     """
+    if radial_tables is None:
+        # Hydrogenic model: generated factor table (tools/atom_size_calib_gen.py).
+        try:
+            import atom_size_calib
+            if 1 <= z <= len(atom_size_calib.FACTOR):
+                return atom_size_calib.FACTOR[z - 1]
+        except ImportError:
+            pass
+        return 1.0
     lit = clementi_radii.CLEMENTI_RADIUS_PM.get(z)
     if not lit:
         return 1.0
@@ -367,19 +380,19 @@ class AtomPreset:
         xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(
             z, count=N_POINTS, radial_tables=radial_tables)
 
-        # Clementi-Raimondi display-size calibration for the screened-
-        # potential tables (see clementi_size_factor()): rescale the whole
-        # cloud so the valence subshell's mode lands on the literature
-        # radius. The hydrogenic model (radial_tables=None) needs no
-        # correction -- its Z_eff are CR-derived already. Scaling preserves
-        # signs (R(r/f) keeps the node structure of R(r)) and the internal
+        # Clementi-Raimondi display-size calibration (see
+        # clementi_size_factor()): rescale the whole cloud so the valence
+        # subshell's mode lands on the literature radius -- tables-based for
+        # the screened-potential tables, hydrogenic-factor for the no-tables
+        # path (shared with the micropython and C++ ports via
+        # atom_size_calib.py / atom_size_calib.h). Scaling preserves signs
+        # (R(r/f) keeps the node structure of R(r)) and the internal
         # relative shell structure; only the atom's overall size changes.
-        if radial_tables is not None:
-            f = clementi_size_factor(radial_tables, z)
-            if f != 1.0:
-                xs = array.array('f', (v * f for v in xs))
-                ys = array.array('f', (v * f for v in ys))
-                zs = array.array('f', (v * f for v in zs))
+        f = clementi_size_factor(radial_tables, z)
+        if f != 1.0:
+            xs = array.array('f', (v * f for v in xs))
+            ys = array.array('f', (v * f for v in ys))
+            zs = array.array('f', (v * f for v in zs))
 
         self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
             xs, ys, zs, colors, shells, ells, signs, config)
