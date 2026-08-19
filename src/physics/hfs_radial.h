@@ -58,7 +58,7 @@ void hfsInit();
  *          (see this file's header comment); callers should fall back to the hydrogenic model
  *          in either case.
  */
-const orb_real_t *hfsFindU(int z, int n, int ell);
+[[nodiscard]] const orb_real_t *hfsFindU(int z, int n, int ell);
 
 /**
  * R(r) = u(r)/r by linear interpolation on the loaded grid -- port of pc/hfs_tables.py's

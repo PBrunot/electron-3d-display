@@ -1,6 +1,7 @@
 #include "views/orbital_view.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdio>
 
@@ -113,6 +114,7 @@ void OrbitalPresetState::load(int index)
     buildOrbitalPointCloud(d.n, d.ell, d.m, points, psi2, signs, kOrbitalNumPoints, kOrbitalViewSeed,
                            &resample.rng, resample.radialCoeff, resample.legendreCoeff);
     resample.sampler = findOrbitalSampler(d.n, d.ell, d.m);
+    assert(resample.sampler != nullptr && "findOrbitalSampler: kOrbitalLibrary entry not found for its own (n,ell,m)");
     resample.n = d.n;
     resample.ell = d.ell;
     resample.m = d.m;

@@ -18,6 +18,9 @@
 // unlike orbitals.h/pointcloud.h's table-BUILDING functions.
 #pragma once
 
+#include <algorithm>
+#include <cassert>
+
 #include "physics/slater_data.h"
 
 inline constexpr int kMaxZ = 118;
@@ -87,22 +90,20 @@ constexpr int subshellCapacity(int ell)
  */
 inline ElectronConfig electronConfiguration(int z)
 {
+    assert(z >= 1 && z <= kMaxZ && "electronConfiguration: z out of range");
     ElectronConfig config{};
 
-    for (int i = 0; i < kExceptionZsCount; i++)
+    if (std::find(kExceptionZs, kExceptionZs + kExceptionZsCount, z) != kExceptionZs + kExceptionZsCount)
     {
-        if (kExceptionZs[i] == z)
+        for (int j = 0; j < kConfigExceptionsCount; j++)
         {
-            for (int j = 0; j < kConfigExceptionsCount; j++)
+            if (kConfigExceptions[j].z == z)
             {
-                if (kConfigExceptions[j].z == z)
-                {
-                    config.subshells[config.count++] = {kConfigExceptions[j].n, kConfigExceptions[j].ell,
-                                                        kConfigExceptions[j].occ};
-                }
+                config.subshells[config.count++] = {kConfigExceptions[j].n, kConfigExceptions[j].ell,
+                                                    kConfigExceptions[j].occ};
             }
-            return config;
         }
+        return config;
     }
 
     int remaining = z;
@@ -204,15 +205,13 @@ inline orb_real_t nStar(int n)
  */
 inline bool zEffCr(int z, int n, int ell, orb_real_t *outZeff)
 {
-    for (int i = 0; i < kCrZEffCount; i++)
-    {
-        if (kCrZEff[i].z == z && kCrZEff[i].n == n && kCrZEff[i].ell == ell)
-        {
-            *outZeff = orb_real_t(kCrZEff[i].zeff);
-            return true;
-        }
-    }
-    return false;
+    const CrZEffEntry *end = kCrZEff + kCrZEffCount;
+    const CrZEffEntry *found = std::find_if(kCrZEff, end, [z, n, ell](const CrZEffEntry &e)
+                                             { return e.z == z && e.n == n && e.ell == ell; });
+    if (found == end)
+        return false;
+    *outZeff = orb_real_t(found->zeff);
+    return true;
 }
 
 /**
@@ -284,5 +283,6 @@ inline int hundFillM(int ell, int occ, MOcc *out)
 /// @return char pointer to the element symbol string (e.g. "H", "He", "Li", ..., "Og")
 inline const char *elementSymbol(int z)
 {
+    assert(z >= 1 && z <= kMaxZ && "elementSymbol: z out of range");
     return kElementSymbols[z - 1];
 }

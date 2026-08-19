@@ -96,4 +96,4 @@ inline constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz
  *       fine for a library this small, called once per preset switch, not once per frame or
  *       per sampled point.
  */
-const OrbitalSampler *findOrbitalSampler(int n, int ell, int m);
+[[nodiscard]] const OrbitalSampler *findOrbitalSampler(int n, int ell, int m);
