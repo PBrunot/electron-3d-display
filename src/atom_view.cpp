@@ -34,10 +34,6 @@ constexpr int64_t kIdleJumpUs = 60'000'000;
 /// Side length in pixels of the solid nucleus marker drawn each frame.
 constexpr int kAtomProtonMarkerSize = 7;
 
-/// Text scale for the big element-symbol title (drawAtomTitle()); kFontLarge is this
-/// project's biggest baked font, so size comes from scaling rather than a bigger font.
-constexpr int kAtomTitleSymbolScale = 3;
-
 // --- Element-switch intro ticker (scrollElementIntro()) ---
 constexpr int kElementIntroMaxNameScale = 4;    ///< Largest text scale tried for the sliding element name.
 constexpr int kElementIntroMinNameScale = 2;    ///< Fallback scale if the name doesn't fit at any larger size.
@@ -51,7 +47,6 @@ constexpr uint32_t kElementIntroFlashHalfPeriodMs = 1000; ///< Flash on/off half
 // --- On-device shell dissection (runDissectionSequence() and helpers) ---
 constexpr uint16_t kDissectDimColor = Display::packColor565(70, 70, 70); ///< Flat shade for shells peeled inward of the active one.
 constexpr int64_t kDissectHoldUs = 2 * 1000 * 1000; ///< Real-time (not frame-count) hold on each revealed shell before advancing.
-constexpr int kDissectBigScale = 3;             ///< Text scale for the big shell-notation label (e.g. "2p").
 constexpr int kDissectOccMarginPx = 4;          ///< Margin for the small electron-count corner note.
 constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(30); ///< Camera-ease speed between shells, picometers per real second.
 constexpr uint32_t kDissectFlyMinMs = 700;      ///< Floor on ease duration so a near-zero hop still eases briefly instead of cutting instantly.
@@ -102,12 +97,9 @@ void AtomPresetState::load(int zIn)
              double(baseScale), double(outer.rRef * baseScale));
 }
 
-void drawAtomTitle(uint16_t *frameBuf, int x, int y, int z, uint16_t textColor, const Font &font)
+void drawAtomTitle(uint16_t *frameBuf, int x, int y, int z, uint16_t textColor)
 {
-    drawTextScaled(frameBuf, x, y, elementSymbol(z), textColor, font, kAtomTitleSymbolScale);
-    char zLabel[16];
-    std::snprintf(zLabel, sizeof(zLabel), "Z=%d", z);
-    drawText(frameBuf, x, y + font.height * kAtomTitleSymbolScale + 4, zLabel, textColor, font);
+    drawText(frameBuf, x, y, elementSymbol(z), textColor, kFontHuge);
 }
 
 // --- Element-switch intro ticker (Right/Left tilt-hold) -------------------------------
@@ -245,8 +237,12 @@ namespace
     void drawDissectTitle(uint16_t *frameBuf, int x, int y, uint16_t color, const char *bigLabel, const char *caption,
                           int occ)
     {
-        drawTextScaled(frameBuf, x, y, bigLabel, color, kFontLarge, kDissectBigScale);
-        drawText(frameBuf, x, y + kFontLarge.height * kDissectBigScale + 4, caption, color, kFontLarge);
+        // kFontHuge at its own true size, not kFontLarge integer-upscaled -- its design
+        // size (54px) happens to land almost exactly on kFontLarge's old x3 scale, so this
+        // swap keeps the label the same visual size while replacing blocky tripled pixels
+        // with real glyph shapes (same fix kFontHuge exists for on the element-symbol title).
+        drawText(frameBuf, x, y, bigLabel, color, kFontHuge);
+        drawText(frameBuf, x, y + kFontHuge.height + 4, caption, color, kFontLarge);
 
         char occText[8];
         std::snprintf(occText, sizeof(occText), "%de-", occ);
@@ -458,7 +454,7 @@ namespace
         uint32_t returnFlyMs = dissectFlyDurationMs(prevRRef, dissectPlanCount > 0 ? dissectPlan[0].rRef : prevRRef);
         auto fullTitle = [&](uint16_t *fb, int x, int y, uint16_t color)
         {
-            drawAtomTitle(fb, x, y, preset.z, color, kFontLarge);
+            drawAtomTitle(fb, x, y, preset.z, color);
         };
         easeScaleTimed(display, preset.points, preset.groups, preset.groupCount, fullTitle, protonColor, textColor,
                        scaleBarColor, camera, scale, preset.baseScale, returnFlyMs, nullptr, kHiddenPointsThreshold);
@@ -514,7 +510,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
     // orbital_view.cpp's drawTitle for the same pattern.
     auto drawTitle = [](uint16_t *frameBuf, int x, int y, uint16_t color)
     {
-        drawAtomTitle(frameBuf, x, y, preset.z, color, kFontLarge);
+        drawAtomTitle(frameBuf, x, y, preset.z, color);
     };
 
     CameraState camera;
@@ -657,7 +653,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
                            camera, scale, buzzFrame, kHiddenPointsThreshold);
         drawAtomProtonMarker(display.getFrameBuf(), kProtonColor); // see its docstring -- keep it visible over the cloud
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
-        drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, kTextColor, kFontLarge);
+        drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, kTextColor);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         if (tiltEv.phase != TiltPhase::kIdle)
             drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);

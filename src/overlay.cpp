@@ -42,7 +42,6 @@ static constexpr int kScaleBarMarginY = 16;
 static constexpr orb_real_t kScaleBarMaxPx = orb_real_t(180); ///< Longest the bar is allowed to render, px.
 static constexpr int kScaleBarTickPx = 8;                     ///< End-tick half-height, px.
 static constexpr int kScaleBarLabelGapPx = 4;                 ///< Gap between label bottom and the tick top.
-static constexpr int kScaleBarTextScale = 2;                  ///< Label text scale, on top of kFontSmall.
 static constexpr int kScaleBarLineThicknessPx = 2;            ///< Bar/tick stroke width, px.
 
 /**
@@ -97,6 +96,8 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
 
     char text[32];
     std::snprintf(text, sizeof(text), "%s %s", len.label, unitLabel);
-    drawTextScaled(frameBuf, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontSmall.height * kScaleBarTextScale,
-                   text, textColor, kFontSmall, kScaleBarTextScale);
+    // kFontLarge at its own true size, not kFontSmall integer-upscaled -- the doubled
+    // pixels read as blocky on-device (same issue kFontHuge exists to avoid for the
+    // element-symbol title, see font.h).
+    drawText(frameBuf, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontLarge.height, text, textColor, kFontLarge);
 }

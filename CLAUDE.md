@@ -1,482 +1,223 @@
 # CLAUDE.md — Ologramma a piramide su ESP32-S3 (orbitali atomici)
 
-Istruzioni di progetto per Claude Code. Leggi questo file per intero prima di
-scrivere codice: definisce hardware, linguaggio scelto (e perché), pinout
-reale, architettura software e roadmap.
+Istruzioni di progetto per Claude Code. Il progetto è oltre le milestone
+iniziali (vedi §7): questo file descrive lo stato attuale, non solo il piano.
 
-## 1. Obiettivo
+## 1. Obiettivo e stato
 
-Costruire un "ologramma" tipo Pepper's Ghost su un display 240×240 con cubo
-prisma, capace di mostrare in prima battuta una **nuvola di punti 3D** che
-ruota nello spazio, per poi arrivare a rappresentare **orbitali elettronici**
-di vari elementi (nuvole di probabilità |ψ|² campionate come point cloud).
+Ologramma tipo Pepper's Ghost su display 240×240 + cubo prisma. Implementato
+e funzionante su hardware reale:
 
-Milestone 1 (questo repo, per ora): far ruotare in tempo reale una nuvola di
-punti 3D qualsiasi (sfera, toro, o un primo orbitale 1s) dentro la piramide,
-con un frame rate percepito fluido (target 20–30 FPS).
+- **Orbital viewer**: nuvole di punti |ψ|² per orbitali idrogenoidi (1s..3d),
+  colorate per segno di ψ (blu/arancio).
+- **Atom viewer**: nuvole multi-elettrone (Clementi-Raimondi, Z=1..54),
+  colorate per shell, con dissezione automatica subshell-per-subshell.
+- **Menu/chooser**: tilt Up → orbitali, tilt Down → elementi; navigazione
+  tabella periodica, auto-advance idle, calibrazione IMU guidata al boot.
+
+Vedi §5 per la mappa dei moduli e §7 per lo storico milestone.
 
 ## 2. Hardware
 
-**Scheda**: Waveshare `ESP32-S3-LCD-1.3` (venduta anche come
-`ESP32-S3-LCD-1.3-B` con case, `-C` con case+cubo prisma).
+**Scheda**: Waveshare `ESP32-S3-LCD-1.3` (`-B` con case, `-C` con case+prisma).
 
-- SoC: ESP32-S3R8, Xtensa LX7 dual-core @ 240 MHz, Wi-Fi/BLE 5
-- RAM/Flash: 512 KB SRAM interna + 8 MB PSRAM (OPI) + 16 MB Flash esterna
-- Display: 1.3", 240×240, 262K colori, driver **ST7789V2**, bus **SPI**
-- IMU: QMI8658 (accelerometro + giroscopio 3 assi) su I2C
-- Slot TF card, connettore USB-C, header GPIO 13/16 pin
-- Cubo prisma opzionale per l'effetto olografico (Pepper's Ghost a 4 facce)
+- SoC: ESP32-S3R8, Xtensa LX7 dual-core @ 240 MHz
+- 512 KB SRAM + 8 MB PSRAM (OPI) + 16 MB Flash
+- Display 1.3" 240×240 262K colori, driver ST7789V2, bus SPI
+- IMU QMI8658 (accel+gyro 3 assi) su I2C
 
-Wiki ufficiale: https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3
-Datasheet ST7789VW: https://files.waveshare.com/wiki/ESP32-S3-LCD-1.3/ST7789VW_ESP32S3.pdf
-Datasheet QMI8658: https://files.waveshare.com/wiki/common/QMI8658C_datasheet_rev_0.9.pdf
-Schema elettrico: https://files.waveshare.com/wiki/ESP32-S3-LCD-1.3/ESP32S3_1.3inch.pdf
+Wiki: https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3
 
-### Pinout reale (verificato in demo funzionanti per questa scheda esatta)
+### Pinout reale (verificato, vedi `src/display.cpp`/`src/imu.cpp`)
 
 ```
-Display (SPI, ST7789V2):
-  TFT_MOSI  41
-  TFT_SCLK  40
-  TFT_CS    39
-  TFT_DC    38
-  TFT_RST   42
-  Backlight 20   (GPIO, HIGH = accesa)
-
-IMU QMI8658 (I2C):
-  SDA  47
-  SCL  48
-
-Config display: 240x240, TFT_INVERSION_ON, TFT_RGB_ORDER = RGB
-SPI_FREQUENCY: 40 MHz (verificato stabile nelle demo ufficiali;
-  provare 60-80MHz solo dopo aver validato 40MHz, con margine per glitch)
+Display (SPI, ST7789V2):        IMU QMI8658 (I2C):
+  MOSI 41   CS  39                SDA 47
+  SCLK 40   DC  38                SCL 48
+  RST  42   Backlight 20 (GPIO, HIGH=accesa)
 ```
 
-Questi valori sono presi da `User_Setup.h` di TFT_eSPI usato realmente nei
-progetti per questa scheda (non dedotti da datasheet generico), quindi sono
-il punto di partenza corretto: non serve ridedurli.
+### Colore RGB565: rgb_ele_order + data_endian, non uno swap di bit
 
-### Correzione verificata: mirror pannello e ordine colore
+Su questa unità fisica, via `esp_lcd` (framework `espidf`), il fix corretto
+verificato su hardware è nella config del pannello (`src/display.cpp`,
+`Display()`):
 
-Durante l'esperimentazione in `esp32Prism` (repo sorella, stessa scheda
-fisica) sono emersi due problemi hardware **non coperti dal `User_Setup.h`
-sopra**, entrambi da applicare in `display.cpp` quando verrà scritto (vedi
-`examples/cube/README.md` e `examples/corner_calibration/README.md` per la
-derivazione completa):
-
-1. **Il pannello di quella unità è specchiato orizzontalmente rispetto a
-   quanto il bit `MX` di `MADCTL` assume di default.** `tft.setRotation()`
-   da solo non può correggerlo — tutte le sue 4 combinazioni standard
-   (0/90/180/270°) sono rotazioni proprie e preservano lo specchiamento
-   invece di rimuoverlo (dimostrato sia matematicamente che empiricamente:
-   `setRotation(2)`, cioè `MX+MY`, risultava ancora specchiato). Serve una
-   scrittura raw del registro dopo `setRotation()`:
-   ```c
-   tft.writecommand(TFT_MADCTL);
-   tft.writedata(TFT_MAD_MX | TFT_MAD_BGR);  // solo MX, non MX|MY
-   ```
-2. **Ordine colore BGR, non RGB come indicato sopra** — su quella unità,
-   `TFT_RGB_ORDER = RGB` mostra i colori con R e B scambiati (giallo →
-   ciano, verde invariato: firma classica dello scambio canali). Il
-   `TFT_MAD_BGR` nello snippet sopra copre già questo, ma se si passa per
-   `User_Setup.h`/`build_flags` invece che una scrittura raw, impostare
-   `TFT_RGB_ORDER TFT_BGR` (non `TFT_RGB`).
-
-**Possibile variazione di lotto/pannello tra unità**: questi due valori sono
-stati verificati su UNA scheda fisica specifica. Prima di fidarsi ciecamente
-sull'unità di questo progetto, rieseguire il test rapido in
-`examples/corner_calibration/` (4 quadrati colorati negli angoli, nessuna
-matematica 3D) — richiede pochi minuti e isola esattamente questi due
-problemi da qualunque bug nella pipeline di rendering.
-
-### Correzione verificata (unità di questo progetto, via esp_lcd/ESP-IDF): scambio G/B
-
-Rieseguendo il test di cui sopra sull'unità fisica di *questo* progetto (via
-`esp_lcd`, framework `espidf` — non TFT_eSPI, vedi §3), il canale rosso
-risulta corretto, ma verde e blu sono **scambiati fra loro**: inviare il
-pattern RGB565 standard del verde (`0x07E0`) mostra fisicamente blu, e
-viceversa il pattern del blu (`0x001F`) mostra verde. Il rosso puro
-(`0xF800`) è sempre corretto — la coppia R/B non è coinvolta.
-
-Questo è un fenomeno **diverso e indipendente** dallo scambio R/B (BGR) di
-cui sopra: quel bit `MADCTL`/`TFT_MAD_BGR` scambia solo R e B, non tocca mai
-G, e infatti — dato che l'invio di rosso puro esce corretto sotto
-`rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR` — quella impostazione BGR resta
-valida e va mantenuta anche su questa unità. Lo scambio G/B è quindi un
-problema ulteriore, verosimilmente un mis-wiring fisico delle linee G/B sul
-pannello/FPC di questo lotto specifico (nessun registro ST7789 standard
-offre uno scambio G/B: MADCTL/RAMCTRL coprono solo R/B e l'endianness dei
-byte).
-
-**Non esiste un fix via registro**: va compensato in software, scambiando i
-campi bit G e B nel valore RGB565 inviato. Verificato in `src/main.cpp` con
-queste costanti (bits[15:11]=R invariato, bits[10:5]="campo verde" che in
-realtà pilota il blu fisico, bits[4:0]="campo blu" che pilota il verde
-fisico):
-```c
-#define COLOR_RED    0xF800  // invariato
-#define COLOR_GREEN  0x001F  // pattern standard "blu" -> appare verde
-#define COLOR_BLUE   0x07E0  // pattern standard "verde" -> appare blu
-#define COLOR_YELLOW 0xF81F  // R pieno + campo-blu pieno (non campo-verde!)
-```
-Verificato con un test a schermo intero (un colore alla volta, non angoli —
-elimina l'ambiguità geometria/colore) su questa identica unità+prisma:
-rosso, verde, blu e giallo risultano tutti corretti con queste costanti.
-
-**Da fare quando si scrive `display.cpp`/`render3d.cpp` (§5)**: qualunque
-funzione di packing colore (es. `rgb565(r, g, b)`) deve applicare questo
-scambio G/B internamente, non solo le 4 costanti di test qui sopra — occhio
-in particolare alla differenza di ampiezza di bit (G a 6 bit, B a 5 bit): il
-campo "verde" da 6 bit riceverà un valore B già scalato a 5 bit (bit meno
-significativo perso/duplicato secondo convenzione scelta), e viceversa.
-
-**Geometria (mirror/rotazione) su questa unità: ancora da verificare** — i
-dati raccolti finora sugli angoli erano contaminati dal bug colore qui sopra
-(il "violetto" osservato ripetutamente in corrispondenza del giallo era
-proprio la firma di questo scambio G/B, non un problema di geometria).
-Rieseguire `examples/corner_calibration`-style test con le costanti colore
-corrette prima di fidarsi di `MX`/`MY`/rotazione 180° per questa unità.
-
-### CORREZIONE (2026-08-18): la sezione "scambio G/B" sopra era una diagnosi
-### sbagliata — causa reale trovata e risolta
-
-I due `#define` a schermo intero (§ sopra) funzionavano per i 4 colori puri
-testati, ma sull'orbital viewer reale (colori composti, non un solo canale
-alla volta — es. l'arancione classico `(255,120,40)`) il risultato restava
-visibilmente sbagliato ("l'arancione non è arancione ma verde chiaro",
-feedback) anche dopo aver applicato lo scambio bit G/B in
-`Display::packColor565()`. Tentativi di correzione lineare per-canale
-(guadagno su R, poi attenuazione su G) non hanno prodotto ALCUN cambiamento
-visibile su hardware — segno che il modello "scambio di campi bit" non era
-il meccanismo giusto.
-
-Causa reale, individuata confrontando con un esempio OEM di riferimento per
-questo stesso pannello: `esp_lcd_panel_dev_config_t` in `display.cpp` non
-impostava affatto `data_endian` (quindi restava sul default, sbagliato per
-questo pannello) e usava `rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR` invece
-di `RGB`. L'esempio OEM suggeriva:
-```c
-panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
-panel_config.data_endian = LCD_RGB_DATA_ENDIAN_BIG;
-```
-`rgb_ele_order = RGB` è risultato corretto anche su questa unità specifica,
-ma **non** `data_endian = BIG`: verificato empiricamente su hardware che
-questa unità richiede `LCD_RGB_DATA_ENDIAN_LITTLE` invece — stessa lezione
-della sezione precedente (mirror/BGR): un riferimento OEM/datasheet indica
-il punto di partenza corretto, ma va comunque riverificato su QUESTA unità
-fisica, non assunto identico per lotto/pannello. Impostazione finale
-verificata in `src/display.cpp`'s `Display()`:
 ```c
 panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
 panel_config.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE;
 ```
-Con questi due campi impostati correttamente, `Display::packColor565()`
-torna ad essere RGB565 testuale semplice (`(r>>3)<<11 | (g>>2)<<5 | (b>>3)`,
-nessuno scambio di bit, bit-per-bit identico alla macro `RGB565(r,g,b)` di
-Arduino_GFX) — vedi `src/display.h`/`.cpp` per l'implementazione attuale. Lo
-scambio bit G/B in software "funzionava" per i 4 colori puri sopra per pura
-coincidenza (uno scambio di canali e un problema di endianness/byte-order
-possono produrre lo stesso risultato su un valore con un solo canale acceso,
-ma divergono su un colore composto) — da qui la falsa verifica. Le costanti
-`COLOR_RED/GREEN/BLUE/YELLOW` sopra restano valide solo come cronaca storica
-del percorso Arduino/TFT_eSPI (`examples/corner_calibration/`, framework
-diverso, non più quello usato da `src/`) —
-non usarle come riferimento per il path ESP-IDF attuale.
 
-**Nota per asset generati offline** (`tools/splash_gen/render_splash.py` e
-simili che chiamano un porting Python di `packColor565()`): rigenerare dopo
-questa correzione — un asset pre-impacchettato con la vecchia formula a bit
-scambiati risulterebbe ora doppiamente sbagliato con il pannello configurato
-correttamente.
+Con questi due campi, `Display::packColor565()` è RGB565 testuale semplice
+(`(r>>3)<<11 | (g>>2)<<5 | (b>>3)`), nessuno scambio di bit software. Tentativi
+precedenti di "swap G/B in software" erano una diagnosi sbagliata (funzionava
+per coincidenza sui 4 colori puri di test, divergeva su colori composti) — non
+riproporre quel fix, la causa reale era `data_endian` non impostato + BGR
+invece di RGB nel panel config.
 
-## 3. Linguaggio e toolchain — decisione e motivazione
+**Nota per asset generati offline** (`tools/splash_gen/`, `tools/equation_gen/`
+e porting Python di `packColor565()`): rigenerare se mai si tocca questa
+config — un asset pre-impacchettato con la formula sbagliata sarebbe doppiamente
+sbagliato col pannello configurato correttamente.
 
-**Scelto: C++ su framework Arduino (via PlatformIO), libreria `TFT_eSPI`.**
+**Possibile variazione di lotto/pannello tra unità**: questi valori sono
+verificati su QUESTA scheda fisica. Se si cambia unità, riverificare con
+`examples/corner_calibration/` prima di fidarsi ciecamente.
 
-Motivazione (come richiesto: usare MicroPython solo se dimostrabile che
-raggiunge performance comparabili al video-replay delle demo native):
+## 3. Toolchain
 
-- Le uniche demo pubbliche esistenti di ologramma a piramide su *questa
-  identica scheda* (VolosR/esp32Prism, nishad2m8/WS-1.3,
-  LINXX3/ESP32-S3-LCD-1.3-Weather-Station, tutte linkate dalla wiki
-  Waveshare) sono scritte al 99%+ in C/C++ Arduino con `TFT_eSPI` e sprite a
-  doppio buffer (`TFT_eSprite`). Nessuna usa MicroPython.
-- Waveshare stessa offre solo due percorsi ufficiali per questa scheda:
-  Arduino IDE ed ESP-IDF (entrambi C/C++), raccomandando esplicitamente
-  ESP-IDF quando servono "requisiti di performance elevati".
-- Esistono driver MicroPython veloci per ST7789 su ESP32-S3 (es.
-  `russhughes/s3lcd`, che usa DMA via ESP_LCD sotto al cofano — ma è comunque
-  codice C compilato, esposto a MicroPython), quindi il *push* dei pixel via
-  SPI può essere rapido anche da Python. Il vero collo di bottiglia per una
-  nuvola di punti 3D però non è il push SPI: è il loop che ruota/proietta
-  ogni punto ad ogni frame, ed è lì che l'overhead dell'interprete
-  MicroPython pesa (tipicamente uno o due ordini di grandezza più lento di
-  codice C compilato per loop numerici stretti). Non esiste alcun benchmark
-  pubblico che dimostri un frame-rate comparabile alle demo native per
-  contenuto animato pieno-schermo su questo hardware.
-- Conclusione: si parte con C++/Arduino, allineato alle demo esistenti.
-  Se in futuro si vuole comunque tentare MicroPython, la strada più
-  realistica è MicroPython + `ulab` (numpy-like, vettorializzato in C) per la
-  sola matematica di rotazione, mantenendo il rendering via un driver
-  framebuffer nativo — ma è un esperimento separato, non lo starting point.
-
-### Perché PlatformIO e non Arduino IDE
-
-Le demo Waveshare/VolosR usano Arduino IDE (GUI), ma esiste già un progetto
-PlatformIO community-maintained per questa scheda esatta
-(nishad2m8/WS-1.3, cartella `PIO-1.3/`) con board-definition JSON dedicata.
-PlatformIO è preferibile per lavorare con Claude Code perché:
-- build/flash/monitor da CLI, niente dipendenza da IDE grafico
-- gestione dipendenze dichiarativa e riproducibile (`platformio.ini`)
-- stesso framework Arduino sottostante, stesse librerie (TFT_eSPI ecc.)
-
-`platformio.ini` di partenza (adattato da quello verificato funzionante):
+**C++26 su ESP-IDF puro** (non Arduino/TFT_eSPI — quella era la scelta
+iniziale, superata; framework Arduino non più usato in `src/`), via
+PlatformIO. `platformio.ini` reale in root:
 
 ```ini
-[env:WS-ESP32-S3-LCD-1-3]
-platform = espressif32@6.5.0
-board = WS-ESP32-S3-LCD-1-3
-framework = arduino
-monitor_speed = 115200
-
-lib_deps =
-    bodmer/TFT_eSPI
-
-build_flags =
-    -I include
-    -D USER_SETUP_LOADED=1
-    -D ST7789_DRIVER=1
-    -D TFT_WIDTH=240
-    -D TFT_HEIGHT=240
-    -D TFT_INVERSION_ON=1
-    -D TFT_RGB_ORDER=1
-    -D TFT_MOSI=41
-    -D TFT_SCLK=40
-    -D TFT_CS=39
-    -D TFT_DC=38
-    -D TFT_RST=42
-    -D SPI_FREQUENCY=40000000
-    -D LOAD_GLCD=1
+[env:WS_ESP32_S3_LCD_1_3]
+platform = espressif32@7.0.1        ; ESP-IDF 6.0.1
+board = WS-ESP32-S3-LCD-1-3         ; boards/WS-ESP32-S3-LCD-1-3.json
+framework = espidf
+build_flags = -std=gnu++26 -I include -Wall -Wextra
+build_src_flags = -fconstexpr-ops-limit=100000000 -Wstack-usage=2048
+board_build.partitions = partitions_16M.csv
+extra_scripts = pre:tools/extra_script_ccache.py   ; ccache via SCons hook, vedi quel file
 ```
 
-**Nota (2026-08-17): il progetto è da tempo passato a `framework = espidf`**
-(vedi `platformio.ini` reale in root, non lo snippet Arduino sopra, che resta
-solo come cronaca della decisione iniziale). `platformio.ini` reale è pinnato
-a `platform = espressif32@7.0.1`, che risolve a **ESP-IDF 6.0.1** (confermato
-da `version.cmake` nel package `framework-espidf` realmente usato).
+**Setup dev**: interamente da VSCode dentro WSL — `~/.platformio`, `pio` in
+PATH nella home Linux, flash/monitor via `/dev/ttyACM0`. Non buildare/flashare
+in autonomia: chiedere all'utente di eseguire `pio run`/`pio device monitor` e
+riportare eventuali errori (vedi istruzioni globali).
 
-**Setup dev (aggiornato 2026-08-19)**: sviluppo ora interamente da VSCode
-dentro WSL — l'install PlatformIO rilevante è quella WSL (`~/.platformio`,
-`pio` in PATH nella home Linux), che risolve/flasha via `/dev/ttyACM0` senza
-dover passare dal lato Windows. (Nota storica, non più applicabile: in una
-fase precedente il progetto girava da VSCode Windows con build reali sotto
-`/mnt/c/Users/pasca/.platformio`/`D:/GitHub/...`, e l'install WSL conteneva
-invece un `framework-espidf` stale IDF 5.2.2 — quella distinzione non esiste
-più con il setup attuale.)
+Riferimenti demo/community che hanno originato pinout e scelte iniziali
+(VolosR/esp32Prism, nishad2m8/WS-1.3) restano solo come cronaca — il codice
+attuale in `src/` non dipende più da TFT_eSPI/Arduino.
 
-Board definition minima da creare in `boards/WS-ESP32-S3-LCD-1-3.json`
-(basata su quella verificata nel progetto community, adattare se necessario):
-
-```json
-{
-  "build": {
-    "arduino": { "partitions": "default_16MB.csv", "memory_type": "qio_opi" },
-    "core": "esp32",
-    "extra_flags": ["-DARDUINO_ESP32S3_DEV", "-DARDUINO_USB_MODE=1", "-DARDUINO_USB_CDC_ON_BOOT=1"],
-    "f_cpu": "240000000L",
-    "f_flash": "80000000L",
-    "flash_mode": "qio",
-    "psram_type": "opi",
-    "mcu": "esp32s3",
-    "variant": "esp32s3"
-  },
-  "connectivity": ["wifi", "bluetooth"],
-  "frameworks": ["arduino", "espidf"],
-  "name": "Waveshare ESP32-S3-LCD-1.3",
-  "upload": { "flash_size": "16MB", "maximum_ram_size": 327680, "maximum_size": 16777216, "speed": 921600 },
-  "url": "https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3",
-  "vendor": "Waveshare"
-}
-```
-
-Nota: se PlatformIO/build_flags danno problemi con TFT_eSPI (a volte preferisce
-un `User_Setup.h` fisico piuttosto che flag di compilazione), come fallback
-creare `include/User_Setup.h` con lo stesso contenuto e impostare
-`-D USER_SETUP_LOADED=1` puntando a quel file — è il pattern usato nelle demo
-reali (vedi `TFT_eSPI/User_Setup.h` in nishad2m8/WS-1.3).
-
-## 4. Demo di riferimento (analizzate, non solo linkate)
-
-| Repo | Cosa fa | Cosa prendere come riferimento |
-|---|---|---|
-| [VolosR/esp32Prism](https://github.com/VolosR/esp32Prism) | Ologramma a piramide, cartella `holly/`: playback di 79 frame precompilati (immagini RGB565 in PROGMEM) via sprite; cartella `speed/`: quadrante analogico animato disegnato ogni frame | Pattern doppio buffer (`TFT_eSprite` 240×240, `setSwapBytes(true)`, `pushSprite(0,0)`), `tft.setRotation(4)`, `tft.invertDisplay(1)`, backlight su GPIO 20 |
-| [nishad2m8/WS-1.3](https://github.com/nishad2m8/WS-1.3) | Orologio con fasi lunari, versione LVGL + PlatformIO | Progetto PlatformIO funzionante per questa scheda esatta (board json, `User_Setup.h` reale), uso di `WS_QMI8658` per l'IMU |
-| [LINXX3/ESP32-S3-LCD-1.3---Prism-Version---Weather-Station](https://github.com/LINXX3/ESP32-S3-LCD-1.3---Prism-Version---Weather-Station) | Stazione meteo versione prisma | Riferimento aggiuntivo per layout contenuti pensati per la visione attraverso il cubo |
-
-Esempi propri sviluppati in `esp32Prism` e copiati in `examples/` di questo
-repo (non demo esterne — banchi di prova scritti apposta per preparare questo
-progetto):
-
-| Cartella | Cosa fa | Cosa prendere come riferimento |
-|---|---|---|
-| `examples/cube/` | Cubo 3D a facce piene colorate, rotazione continua su 3 assi, illuminazione di profondità | Pipeline di rendering 3D completa (rotazione incrementale, proiezione prospettica, backface culling via area con segno 2D, ombreggiatura per profondità) — mappa direttamente su `render3d.h/.cpp`, vedi §5 |
-| `examples/corner_calibration/` | 4 quadrati colorati negli angoli dello sprite, nessuna matematica 3D | Metodologia per verificare la trasformazione sprite→vista fisica attraverso il cubo prisma prima di fidarsi di ipotesi geometriche — rilevante per la domanda aperta in §8 |
-
-Punto architetturale importante osservato in `holly.ino`: il contenuto è
-centrato sullo schermo (non diviso in quadranti). Per una piramide a 4 facce
-questo funziona bene se il visore guarda **da un lato alla volta** — ogni
-faccia riflette la stessa immagine centrale, quindi qualsiasi lato mostra la
-stessa proiezione. Per un vero effetto "vedo lati diversi dell'oggetto 3D da
-lati diversi della piramide simultaneamente" servirebbe invece dividere lo
-schermo in 4 quadranti, ciascuno con la vista dell'oggetto ruotata per quel
-lato — nessuna delle demo trovate lo fa. **Questa è una decisione di design
-aperta, vedi §7.**
-
-## 5. Architettura software (nuvola di punti)
-
-Struttura consigliata, separando dati statici da rendering real-time (stesso
-principio delle demo: gli asset pesanti — es. i frame di `holly` — sono
-precalcolati, il loop fa solo playback/trasformazioni leggere):
+## 4. Architettura software
 
 ```
 src/
-  main.cpp              // setup(), loop(), orchestrazione
-  display.h/.cpp         // init TFT_eSPI, sprite, backlight, rotazione
-  pointcloud.h/.cpp      // generazione statica dei punti (sfera/toro/orbitale)
-  render3d.h/.cpp        // rotazione, proiezione, rasterizzazione nel buffer
-  imu.h/.cpp              // (M3) lettura QMI8658 per rotazione controllata a mano
+  main.cpp                     app_main(): splash → calibrazione IMU → chooser
+                                (toggle #define in cima per test isolati:
+                                ATOM_VIEW_TEST, COLOR_TEST, BENCHMARK_TEST, ...)
+  chooser.h/.cpp                menu: tilt Up/Down lancia orbital/atom viewer,
+                                idle auto-launch, calibrazione direzioni guidata
+  display.h/.cpp                init esp_lcd/panel ST7789, doppio framebuffer
+                                PSRAM (DMA), packColor565()
+  imu.h/.cpp                    driver QMI8658 (I2C), check planarità al boot
+  tilt_gesture.h/.cpp           gesture tilt-and-hold a 4 direzioni su dati IMU
+  camera.h/.cpp                 rotazione/proiezione/fly-over condivisi dai viewer
+  overlay.h/.cpp                scale bar, tilt arrow, titoli overlay comuni
+  font.h/.cpp + font_data.h     font bitmap proprietario (vedi §5.1)
+  ticker.h/.cpp                 testo scorrevole (banner intro)
+
+  orbital_view.h/.cpp            viewer orbitali idrogenoidi
+  orbital_presets.h/.cpp         libreria preset 1s..3d
+  orbitals.h/.cpp                 |ψ|² campionamento, coefficienti armoniche
+  angular_library.h              armoniche sferiche precalcolate
+
+  atom_view.h/.cpp                viewer atomi multi-elettrone + dissezione
+  atom_cloud.h/.cpp               nuvola multi-subshell, colorazione per shell
+  slater.h/.h + slater_data.h     regole di Slater / raggi Clementi-Raimondi
+  periodic_grid.h                 navigazione tabella periodica (snake order)
+  element_names_it.h              nomi elementi in italiano
+
+  screenshot.h/.cpp                cattura frame → PNG on-device
+  png_writer.h/.cpp                encoder PNG minimale (LZ77+Huffman fisso)
+  screenshot_console.h/.cpp        protocollo seriale SS_LIST/SS_GET/SS_DEL
+  screenshot_batch.h/.cpp          batch capture di tutti i preset (per gallery)
+  splash_bitmap.h/.cpp             splash screen di boot
+
+  *_test.h/.cpp                   harness diagnostici dietro i #define di main.cpp
 ```
 
-### Generazione dei punti (fase "offline", eseguita una volta in `setup()`)
+Strumenti offline (PC, non compilati per il device):
+- `tools/font_gen/` — rasterizza Jersey10-Regular.ttf in `src/font_data.h`
+- `tools/splash_gen/`, `tools/equation_gen/` — asset PROGMEM precalcolati
+- `tools/orbitals_host/` — reference/validation Python per i calcoli orbitali
+- `pc/` — simulatore PC (Tkinter+PIL) degli stessi viewer, per iterare senza
+  flashare; `pc/pull_screenshots.py` scarica screenshot dal device via seriale
 
-- Milestone 1: punti su una sfera o un toro, generati proceduralmente
-  (nessun bisogno di dati esterni).
-- Milestone 2 (orbitali reali): campionare |ψ(r,θ,φ)|² per gli orbitali
-  idrogenoidi (1s, 2s, 2p, 3d, ...) con rejection sampling, per generare N
-  punti distribuiti secondo la densità di probabilità. Questo calcolo è
-  pesante (funzioni trascendenti, rigetto) → farlo **offline su PC in
-  Python**, esportare le coordinate come array C (`PROGMEM`) o come file
-  binario su TF card, esattamente come `images.h` fa per i frame di `holly`.
-  Non ricalcolare l'orbitale sul microcontrollore ad ogni avvio.
+### 4.1 Sistema font (`font.h`/`font.cpp`/`font_data.h`)
 
-### Rendering real-time (nel `loop()`)
+Font bitmap rasterizzato offline da un vero typeface (Jersey10-Regular),
+**dati e logica separati**: `font_data.h` (generato da
+`tools/font_gen/generate_font.py`, non toccare a mano) contiene solo le
+tabelle glifi; `font.cpp` (scritto a mano, mai rigenerato) contiene
+drawText/drawTextScaled/ecc. Tre taglie, ciascuna col tipo riga più stretto
+che le serve (niente sprechi di flash su bit che non useranno mai):
 
-1. Aggiornare una matrice di rotazione 3×3 (incrementale, piccoli angoli per
-   frame — evita di ricalcolare seno/coseno per ogni punto ogni volta:
-   aggiorna gli angoli globali una volta per frame, poi applica la stessa
-   matrice a tutti i punti).
-2. Per ogni punto: `p' = R · p`, poi proiezione (ortografica per iniziare,
-   prospettica se serve profondità più marcata) su coordinate schermo
-   `(x_screen, y_screen)`.
-3. Usare la profondità `z` per: dimensione del punto (1 px lontano, 2 px
-   vicino) e/o luminosità (cue di profondità economico, niente z-buffer
-   vero — per una nuvola di punti sparsa un ordinamento pittore *approssimato*
-   o nessun ordinamento è spesso sufficiente).
-4. Disegnare tutti i punti in un `TFT_eSprite` 240×240 RGB565 (`fillSprite`
-   nero, poi `drawPixel`/`fillCircle` per punto), infine `pushSprite(0,0)`.
+- `kFontSmall` (10px, righe `uint8_t`) — sfondo "e-" della intro dissezione
+- `kFontLarge` (18px, righe `uint16_t`) — titoli standard, legenda scale bar
+- `kFontHuge` (54px, righe `uint64_t`) — titolo grande simbolo elemento in
+  atom_view ed etichetta grande di subshell durante la dissezione, entrambi
+  disegnati alla loro vera dimensione (non kFontLarge upscalato via
+  drawTextScaled, che risultava a blocchi)
 
-### Perché il buffer intero e non update parziali
+Ogni glifo è rasterizzato in modalità PIL `"1"` (rasterizer monocromatico
+hinted di FreeType), non `"L"` (grayscale) sogliato a 128 — le due divergono
+sul bordo di uscita di molti glifi, il che si vedeva on-device come un bordo
+sfocato/aliasato. Il range di righe di ogni glifo è anche ritagliato alla
+vera finestra verticale d'inchiostro dell'intero charset invece che al box
+ascent+descent del font (questo charset non ha maiuscole accentate, quindi
+nessun glifo raggiunge mai il vero ascent) — senza ritaglio, quel padding
+faceva sembrare il testo disegnato a una data `(x, y)` più basso/staccato di
+quanto `(x, y)` fosse realmente. Vedi il docstring di modulo di
+`generate_font.py` per il razionale completo.
 
-Il costo dominante è il trasferimento SPI del frame intero: 240×240×2 byte =
-115200 byte, che a 40 MHz SPI richiedono ~23 ms in teoria pura (quindi
-~40 FPS come tetto teorico a quella frequenza). La matematica di rotazione
-per qualche migliaio di punti su un core a 240 MHz con FPU è invece
-trascurabile al confronto. Conclusione: non ottimizzare prematuramente la
-matematica dei punti; se serve più FPS, il primo posto dove guardare è la
-frequenza SPI (provare ad alzarla oltre 40 MHz con cautela) o ridurre l'area
-ridisegnata.
+Per cambiare font/taglie: editare `SIZES` in `generate_font.py` e rigenerare
+con `python3 generate_font.py > ../../src/font_data.h` (vedi
+`tools/font_gen/README.md`).
 
-## 6. Budget di performance (target)
+## 5. Performance
 
-- Target: 20–30 FPS percepiti per la rotazione (la demo `holly` gira a
-  ~1000/28 ≈ 36 FPS nominali con `delay(28)` fisso, come riferimento di cosa
-  "si vede fluido" su questo stesso hardware/display).
-- Limite teorico SPI a 40 MHz per frame intero 240×240×16bit: ~23 ms → tetto
-  di ~43 FPS. Con overhead di rendering CPU realistico, 25–30 FPS è un target
-  ragionevole per M1.
-- Numero di punti: partire con 500–1500 punti per M1 (sfera/toro di test),
-  poi valutare per gli orbitali reali (nuvole più dense, es. 2000–5000 punti)
-  se il frame rate regge.
+Misurato su hardware reale dopo tuning (240 MHz CPU, `-O2`, SPI/PSRAM a
+80 MHz): **62.5 FPS** (da 35.7 FPS iniziali) sul rendering nuvola di punti a
+schermo intero. Target originale di 20–30 FPS ampiamente superato — non
+serve ottimizzare oltre a meno di regressioni misurate (vedi
+`benchmark_test.cpp`, `BENCHMARK.md`).
 
-## 7. Roadmap
+## 6. Convenzioni di codice
 
-1. **M1 — Nuvola di punti generica che ruota** (obiettivo di questa
-   iterazione): sfera o toro proceduralmente generato, rotazione automatica
-   continua, rendering via sprite, nessuna interazione.
-2. **M2 — Primo orbitale reale**: sostituire i punti procedurali con punti
-   campionati da |ψ|² dell'orbitale 1s (il più semplice, simmetria sferica),
-   generati offline e caricati come `PROGMEM`.
-3. **M3 — Controllo/interattività**: usare l'IMU QMI8658 per orientare la
-   vista a mano (inclinando la scheda) invece della rotazione automatica, o
-   per passare da un orbitale all'altro.
-4. **M4 — Libreria di orbitali**: 2s, 2p (x/y/z), 3d, selezionabili, con
-   eventuale UI minimale (nome elemento/orbitale mostrato a schermo).
+- C++26 stile ESP-IDF (`app_main()`, task FreeRTOS), non `setup()`/`loop()`
+  Arduino — quella era la convenzione iniziale, superata insieme al framework.
+- Nessuna allocazione dinamica nei loop di rendering — buffer pre-allocati
+  (spesso `EXT_RAM_BSS_ATTR`/PSRAM per strutture grandi, vedi `atom_view.cpp`).
+- Punti in coordinate float prima della proiezione; scala a pixel solo
+  nell'ultimo passaggio (`camera.h`).
+- Commenti/nomi variabili in inglese; messaggi log/UI possono restare in
+  italiano (nomi elementi in `element_names_it.h`).
+- Dati generati offline (font, splash, asset PROGMEM) vanno rigenerati con i
+  loro script in `tools/`, mai editati a mano nel file generato.
 
-## 8. Domande aperte da decidere insieme (non assumere, chiedere)
+## 7. Storico milestone (M1–M4: completate)
 
-- **Vista singola vs 4 quadranti**: si accetta il modello "singola proiezione
-  centrata, guardata da un lato per volta" (come tutte le demo trovate,
-  semplice e già efficace per l'effetto Pepper's Ghost) oppure si vuole
-  investire nel rendering a 4 quadranti per una vista simultanea multi-lato?
-  Impatta molto la complessità e il budget di FPS (4× il lavoro di
-  rasterizzazione).
-- **Colore**: mappare la fase/segno della funzione d'onda al colore (es. blu
-  per fase negativa, rosso/arancio per positiva, come nelle visualizzazioni
-  standard di chimica) o restare in monocromatico bianco-su-nero?
-- **Con o senza IMU fin da subito**: rotazione automatica costante per M1 è
-  la scelta più semplice; se preferisci controllare l'orientamento a mano fin
-  dal primo test, si porta avanti l'integrazione IMU prima.
+1. ~~M1 — nuvola di punti generica che ruota~~ ✅
+2. ~~M2 — primo orbitale reale (1s)~~ ✅ (esteso a tutti gli orbitali fino a 3d)
+3. ~~M3 — controllo via IMU QMI8658~~ ✅ (tilt-and-hold a 4 direzioni)
+4. ~~M4 — libreria orbitali + UI~~ ✅ (più atom viewer con dissezione, non
+   solo previsto in origine)
 
-## 9. Convenzioni di codice
+Decisioni prese sulle domande aperte originarie: vista singola centrata (non
+4 quadranti); colore per segno/fase di ψ (blu/arancio); IMU integrato da
+subito, non rimandato.
 
-- C++17, stile Arduino (`setup()`/`loop()`), file `.h/.cpp` separati per
-  modulo come da struttura in §5.
-- Nessuna allocazione dinamica nel `loop()` — pre-allocare tutti i buffer
-  (array punti, sprite) in `setup()` o come variabili globali statiche.
-- Punti in coordinate float in `[-1, 1]` prima della proiezione; scalare a
-  pixel solo nell'ultimo passaggio.
-- Commenti e nomi di variabili in inglese per coerenza con le librerie
-  (TFT_eSPI ecc.); i messaggi utente/log possono restare in italiano.
+Prossimi lavori: non pianificati qui — vedere issue/commit recenti per lo
+stato corrente (`git log`).
 
-## 10. Nota operativa — backtick nelle docstring Python (lavorare con run_code)
+## 8. Nota operativa — backtick nelle docstring Python (lavorare con run_code)
 
-Esperienza verificata su `pc/` (vedi commit b41c292/d5c1c40): quando si
-scrive o modifica codice Python tramite lo strumento `run_code`, il
-contenuto del file viene composto dentro **template literal JavaScript** del
-tool. Ogni backtick (`) nel contenuto **termina il template literal** e fa
-fallire la chiamata con "Expected a semicolon". Le docstring Python citano
-spesso identificatori con i backtick (`buf`, `frames`, ...), quindi il
-problema è reale e ricorrente.
+Quando si scrive/modifica codice Python tramite lo strumento `run_code`, il
+contenuto passa per un template literal JavaScript: ogni backtick (`) nel
+contenuto termina il literal e rompe la chiamata. Le docstring Python citano
+spesso identificatori fra backtick, quindi il problema è ricorrente.
 
 Regole:
+1. **Preferito** — costruire il file come array di righe JS in apici singoli,
+   `content: lines.join("\n")`: nessun escaping necessario.
+2. Se si usa un template literal, escapare ogni backtick come `\`` (`String.raw`
+   non aiuta, il backtick termina comunque il literal).
+3. Non appiattire i newline per passare script a `python -c` — scrivere in un
+   file temporaneo, eseguire, cancellare.
+4. Nei test, `sum(1 for b in buf if b)` per contare byte non-zero (non
+   `sum(1 for b in buf)`, che conta tutti i byte).
 
-1. **Approccio preferito — array di righe**: costruire il file come lista di
-   stringhe JS con apici singoli e scriverlo con
-   `content: lines.join("\n")`. Nessun escaping necessario, backtick
-   compresi (dentro apici singoli JS il backtick è un carattere normale).
-2. Se invece si usa un template literal, **escapare ogni backtick** come
-   `\``. Attenzione: `String.raw` NON aiuta — il backtick termina
-   comunque il literal.
-3. **Non appiattire i newline** per passare uno script a `python -c` (es.
-   `script.replace(/\n/g, " ")`): l'IndentationError rompe gli script
-   multi-riga. Scrivere gli script di test in un file temporaneo, eseguirli,
-   poi cancellarli.
-4. Nei test, `sum(1 for b in buf)` conta **tutti** i byte, non solo i
-   non-zero — usare `sum(1 for b in buf if b)` per contare byte non-zero.
-
-I backtick nelle docstring sono perfettamente validi nei file Python veri
-(sono caratteri normali): il vincolo riguarda solo il trasporto JS, non il
-codice Python — non "correggere" le docstring togliendo i backtick.
-
-Esempio (regola 1):
-
-```js
-const lines = [
-  'def draw_nucleus(buf):',
-  '    """Draw the nucleus marker at screen center.',
-  '    Used by render_frame() and render_dissection_frame().',
-  '    """',
-  '    ...',
-];
-await tools.write({ file_path: "pc/example.py", content: lines.join("\n") });
-```
+I backtick nelle docstring Python vere sono validi caratteri normali — il
+vincolo è solo sul trasporto JS, non "correggere" le docstring togliendoli.
