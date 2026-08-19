@@ -29,15 +29,22 @@ build time per step) and needs no IMU/tilt setup or user interaction.
 
 ## Expected results (baseline: 2026-08-19, ESP32-S3 @ 240MHz, SPI 40MHz, this hardware unit)
 
+Updated 2026-08-19 after the bitmap-font rewrite (proportional Jersey10 fonts, see
+`tools/font_gen/`): `avg_render_ms` dropped ~5-8% at the higher point counts because the
+scale bar's label switched from `drawTextScaled()` (a per-pixel scaling loop) to plain
+`drawText()` at `kFontLarge`'s native size -- both drawn every frame, same as production.
+Physics (`CONFIG`/`ZEFF`/`GEOM`) is unaffected and stayed bit-identical, as expected since
+that commit never touched `slater.h`/point sampling.
+
 ### Performance (`BENCH,STEP`)
 
 | points | build_ms | avg_render_ms | min_render_ms | max_render_ms | avg_wait_ms | fps  |
 |-------:|---------:|---------------:|---------------:|---------------:|------------:|-----:|
-|    500 |       30 |           9.74 |           9.74 |           9.85 |       12.04 | 45.9 |
-|   1000 |       32 |          10.19 |          10.19 |          10.29 |       11.63 | 45.8 |
-|   2000 |       41 |          11.47 |          11.45 |          11.55 |       12.31 | 42.0 |
-|   4000 |       56 |          13.83 |          13.82 |          13.91 |       11.96 | 38.8 |
-|   8000 |       84 |          18.32 |          18.31 |          18.39 |       11.50 | 33.5 |
+|    500 |       30 |           9.68 |           9.68 |           9.77 |       12.09 | 45.9 |
+|   1000 |       32 |          10.08 |          10.08 |          10.15 |       11.72 | 45.9 |
+|   2000 |       36 |          10.88 |          10.87 |          10.96 |       12.89 | 42.1 |
+|   4000 |       44 |          13.07 |          13.06 |          13.14 |       12.70 | 38.8 |
+|   8000 |       62 |          16.83 |          16.82 |          16.90 |       12.92 | 33.6 |
 
 Notes:
 - **8000 points is the production count** (`kAtomNumPoints`, what `atom_view.cpp` actually
