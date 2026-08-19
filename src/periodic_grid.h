@@ -25,7 +25,7 @@ struct ElementGridPos
 };
 
 // Indexed by Z-1.
-constexpr ElementGridPos kElementGrid[118] = {
+inline constexpr ElementGridPos kElementGrid[118] = {
     {1, 1},  {1, 18},                                                                   // H,He
     {2, 1},  {2, 2},  {2, 13}, {2, 14}, {2, 15}, {2, 16}, {2, 17}, {2, 18},              // Li..Ne
     {3, 1},  {3, 2},  {3, 13}, {3, 14}, {3, 15}, {3, 16}, {3, 17}, {3, 18},              // Na..Ar
@@ -47,13 +47,13 @@ constexpr ElementGridPos kElementGrid[118] = {
 
 // Group 3's vertical sequence, with the lanthanide/actinide detour spliced in between La
 // and Ac -- see this file's header comment. Z values, top to bottom.
-constexpr int kGroup3Column[] = {
+inline constexpr int kGroup3Column[] = {
     21, 39, 57,                                                     // Sc, Y, La
     58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,          // Ce..Lu
     89,                                                              // Ac
     90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,      // Th..Lr
 };
-constexpr int kGroup3ColumnCount = sizeof(kGroup3Column) / sizeof(kGroup3Column[0]);
+inline constexpr int kGroup3ColumnCount = sizeof(kGroup3Column) / sizeof(kGroup3Column[0]);
 
 namespace periodic_grid_detail
 {
@@ -145,7 +145,7 @@ inline int buildColumnMembers(int col, int *members)
 // whole project is deliberately limited to that range -- AtomView navigation never steps
 // past kMaxDisplayZ. The Z=93..118 data in kElementGrid/kGroup3Column stays (physics and
 // validation code still read it).
-constexpr int kMaxDisplayZ = 92;
+inline constexpr int kMaxDisplayZ = 92;
 
 /**
  * Step `currentZ` by one position in the periodic table's "read down a column, then jump to

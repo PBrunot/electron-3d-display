@@ -13,7 +13,7 @@
 namespace screenshot
 {
     /// Longest filename this module hands back (matches CONFIG_SPIFFS_OBJ_NAME_LEN).
-    constexpr size_t kMaxNameLen = 32;
+    inline constexpr size_t kMaxNameLen = 32;
 
     /// Mounts the "storage" SPIFFS partition at /storage, formatting it on first use if no
     /// filesystem is found there yet. Call once at boot before capture()/forEachFile()/etc.

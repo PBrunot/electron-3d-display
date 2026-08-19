@@ -5,9 +5,9 @@
 
 #include <cstdint>
 
-constexpr int kEquationBitmapWidth = 231;
-constexpr int kEquationBitmapHeight = 80;
-constexpr int kEquationBitmapRowBytes = 29;
+inline constexpr int kEquationBitmapWidth = 231;
+inline constexpr int kEquationBitmapHeight = 80;
+inline constexpr int kEquationBitmapRowBytes = 29;
 extern const uint8_t kEquationBitmapData[];
 
 /** Blit the equation backdrop, top-left at (x, y), OR'ing `color` into frameBuf

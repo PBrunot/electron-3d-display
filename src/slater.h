@@ -20,8 +20,8 @@
 
 #include "slater_data.h"
 
-constexpr int kMaxZ = 118;
-constexpr int kMaxConfigSubshells = 20; // max observed across Z=1..118 is 19 (see slater_data.h gen)
+inline constexpr int kMaxZ = 118;
+inline constexpr int kMaxConfigSubshells = 20; // max observed across Z=1..118 is 19 (see slater_data.h gen)
 
 struct SubshellOcc
 {
@@ -40,7 +40,7 @@ struct ElectronConfig
 // Z=120). Hardcoded from micropython/slater.py's _aufbau_order() output
 // rather than re-sorted here, to avoid depending on a runtime sort for a
 // fixed, tiny, well-known sequence.
-constexpr int kAufbauOrder[26][2] = {
+inline constexpr int kAufbauOrder[26][2] = {
     {1, 0},
     {2, 0},
     {2, 1},

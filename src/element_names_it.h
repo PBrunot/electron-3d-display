@@ -7,7 +7,7 @@
 // of these 118 happen to need one anyway).
 #pragma once
 
-constexpr const char *kElementNamesIt[118] = {
+inline constexpr const char *kElementNamesIt[118] = {
     "Idrogeno",     // 1 H
     "Elio",         // 2 He
     "Litio",        // 3 Li

@@ -13,7 +13,7 @@ struct CrZEffEntry
     float zeff;
 };
 
-constexpr CrZEffEntry kCrZEff[] = {
+inline constexpr CrZEffEntry kCrZEff[] = {
     {1, 1, 0, 1.0f},
     {2, 1, 0, 1.688f},
     {3, 1, 0, 2.691f},
@@ -390,7 +390,7 @@ constexpr CrZEffEntry kCrZEff[] = {
     {54, 5, 0, 14.218f},
     {54, 5, 1, 12.425f},
 };
-constexpr int kCrZEffCount = sizeof(kCrZEff) / sizeof(kCrZEff[0]);
+inline constexpr int kCrZEffCount = sizeof(kCrZEff) / sizeof(kCrZEff[0]);
 
 struct ConfigExceptionEntry
 {
@@ -400,7 +400,7 @@ struct ConfigExceptionEntry
     uint8_t occ;
 };
 
-constexpr ConfigExceptionEntry kConfigExceptions[] = {
+inline constexpr ConfigExceptionEntry kConfigExceptions[] = {
     {24, 1, 0, 2},
     {24, 2, 0, 2},
     {24, 2, 1, 6},
@@ -668,12 +668,12 @@ constexpr ConfigExceptionEntry kConfigExceptions[] = {
     {103, 7, 0, 2},
     {103, 7, 1, 1},
 };
-constexpr int kConfigExceptionsCount = sizeof(kConfigExceptions) / sizeof(kConfigExceptions[0]);
+inline constexpr int kConfigExceptionsCount = sizeof(kConfigExceptions) / sizeof(kConfigExceptions[0]);
 
-constexpr int kExceptionZs[] = {24, 29, 41, 42, 44, 45, 46, 47, 57, 58, 64, 78, 79, 89, 90, 91, 92, 93, 96, 103};
-constexpr int kExceptionZsCount = sizeof(kExceptionZs) / sizeof(kExceptionZs[0]);
+inline constexpr int kExceptionZs[] = {24, 29, 41, 42, 44, 45, 46, 47, 57, 58, 64, 78, 79, 89, 90, 91, 92, 93, 96, 103};
+inline constexpr int kExceptionZsCount = sizeof(kExceptionZs) / sizeof(kExceptionZs[0]);
 
-constexpr const char *kElementSymbols[118] = {
+inline constexpr const char *kElementSymbols[118] = {
     "H",
     "He",
     "Li",

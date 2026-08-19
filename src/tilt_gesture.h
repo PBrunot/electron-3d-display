@@ -43,7 +43,7 @@ enum class TiltDirection : uint8_t
     kUp,
     kDown,
 };
-constexpr int kTiltDirectionCount = 4; // kLeft..kDown, i.e. excluding kNone
+inline constexpr int kTiltDirectionCount = 4; // kLeft..kDown, i.e. excluding kNone
 
 /// Human-readable name, for logging only.
 const char *tiltDirectionName(TiltDirection dir);
@@ -173,9 +173,9 @@ private:
 };
 
 /// Tunable geometry for drawTiltArrow()'s triangle.
-constexpr int kTiltArrowMarginPx = 14;     ///< Gap between the arrow's tip and the screen edge.
-constexpr int kTiltArrowLengthPx = 24;     ///< Tip-to-base along the pointing direction.
-constexpr int kTiltArrowHalfWidthPx = 14;  ///< Half the base width.
+inline constexpr int kTiltArrowMarginPx = 14;     ///< Gap between the arrow's tip and the screen edge.
+inline constexpr int kTiltArrowLengthPx = 24;     ///< Tip-to-base along the pointing direction.
+inline constexpr int kTiltArrowHalfWidthPx = 14;  ///< Half the base width.
 
 /// Draw a single filled triangle arrow at the center of the screen edge `dir` points toward
 /// (kNone draws nothing). Plain/static -- no animation or text; kTiltArrow*Px above are the

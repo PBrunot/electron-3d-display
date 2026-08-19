@@ -15,18 +15,18 @@
 
 #include "orbitals.h" // orb_real_t
 
-constexpr orb_real_t kDefaultBaselineX = orb_real_t(-0.0334);
-constexpr orb_real_t kDefaultBaselineY = orb_real_t(0.3579);
-constexpr orb_real_t kDefaultBaselineZ = orb_real_t(0.9510);
-constexpr orb_real_t kDefaultDirRefLeftX = orb_real_t(0.9819);
-constexpr orb_real_t kDefaultDirRefLeftY = orb_real_t(-0.0903);
-constexpr orb_real_t kDefaultDirRefLeftZ = orb_real_t(-0.1664);
-constexpr orb_real_t kDefaultDirRefRightX = orb_real_t(-0.9900);
-constexpr orb_real_t kDefaultDirRefRightY = orb_real_t(-0.0510);
-constexpr orb_real_t kDefaultDirRefRightZ = orb_real_t(-0.1312);
-constexpr orb_real_t kDefaultDirRefUpX = orb_real_t(0.0405);
-constexpr orb_real_t kDefaultDirRefUpY = orb_real_t(0.8874);
-constexpr orb_real_t kDefaultDirRefUpZ = orb_real_t(-0.4592);
-constexpr orb_real_t kDefaultDirRefDownX = orb_real_t(0.0305);
-constexpr orb_real_t kDefaultDirRefDownY = orb_real_t(-0.9885);
-constexpr orb_real_t kDefaultDirRefDownZ = orb_real_t(0.1482);
+inline constexpr orb_real_t kDefaultBaselineX = orb_real_t(-0.0334);
+inline constexpr orb_real_t kDefaultBaselineY = orb_real_t(0.3579);
+inline constexpr orb_real_t kDefaultBaselineZ = orb_real_t(0.9510);
+inline constexpr orb_real_t kDefaultDirRefLeftX = orb_real_t(0.9819);
+inline constexpr orb_real_t kDefaultDirRefLeftY = orb_real_t(-0.0903);
+inline constexpr orb_real_t kDefaultDirRefLeftZ = orb_real_t(-0.1664);
+inline constexpr orb_real_t kDefaultDirRefRightX = orb_real_t(-0.9900);
+inline constexpr orb_real_t kDefaultDirRefRightY = orb_real_t(-0.0510);
+inline constexpr orb_real_t kDefaultDirRefRightZ = orb_real_t(-0.1312);
+inline constexpr orb_real_t kDefaultDirRefUpX = orb_real_t(0.0405);
+inline constexpr orb_real_t kDefaultDirRefUpY = orb_real_t(0.8874);
+inline constexpr orb_real_t kDefaultDirRefUpZ = orb_real_t(-0.4592);
+inline constexpr orb_real_t kDefaultDirRefDownX = orb_real_t(0.0305);
+inline constexpr orb_real_t kDefaultDirRefDownY = orb_real_t(-0.9885);
+inline constexpr orb_real_t kDefaultDirRefDownZ = orb_real_t(0.1482);

@@ -27,7 +27,7 @@
 #include "tilt_gesture.h"
 
 /// Fixed (not randomized) point-cloud seed, for a reproducible-looking demo across boots.
-static constexpr uint32_t kOrbitalViewSeed = 12345;
+inline constexpr uint32_t kOrbitalViewSeed = 12345;
 
 /**
  * @brief Everything one loaded preset needs to render and turn over.

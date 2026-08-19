@@ -28,7 +28,7 @@ struct OrbitalDescriptor
 };
 
 /// Fixed library of orbitals shown by orbital_view.cpp, in menu order.
-constexpr OrbitalDescriptor kOrbitalLibrary[] = {
+inline constexpr OrbitalDescriptor kOrbitalLibrary[] = {
     {1, 0, 0, "1s", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},      // 0
     {2, 0, 0, "2s", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},      // 1
     {2, 1, 1, "2px", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},     // 2
@@ -70,8 +70,8 @@ constexpr OrbitalDescriptor kOrbitalLibrary[] = {
     {6, 0, 0, "6s", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},            // 34
     {6, 1, 0, "6pz", Display::kColorOrbitalRed, Display::kColorOrbitalBlue},           // 35
 };
-constexpr int kOrbitalLibraryCount = sizeof(kOrbitalLibrary) / sizeof(kOrbitalLibrary[0]);
-constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz
+inline constexpr int kOrbitalLibraryCount = sizeof(kOrbitalLibrary) / sizeof(kOrbitalLibrary[0]);
+inline constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz
 
 constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> buildOrbitalLibrarySamplers()
 {
@@ -86,7 +86,7 @@ constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> buildOrbitalLibrarySa
 /// ~12KB per orbital x kOrbitalLibraryCount orbitals, trivial next to this board's 16MB
 /// flash. If a build ever times out or hits GCC's constexpr step/loop limit while compiling
 /// this table, raise -fconstexpr-ops-limit rather than shrinking the table.
-constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> kOrbitalSamplers = buildOrbitalLibrarySamplers();
+inline constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> kOrbitalSamplers = buildOrbitalLibrarySamplers();
 
 /**
  * @brief Look up a library orbital's sampler by (n, ell, m).

@@ -13,9 +13,9 @@
 
 #include "orbitals.h" // orb_real_t
 
-constexpr int kAtomSizeCalibCount = 92;
+inline constexpr int kAtomSizeCalibCount = 92;
 
-constexpr orb_real_t kAtomSizeCalibFactor[92] = {
+inline constexpr orb_real_t kAtomSizeCalibFactor[92] = {
     orb_real_t(0.4402), orb_real_t(0.4433), orb_real_t(0.6834), orb_real_t(0.6927),
     orb_real_t(0.5710), orb_real_t(0.5575), orb_real_t(0.5678), orb_real_t(0.5702),
     orb_real_t(0.5723), orb_real_t(0.5806), orb_real_t(0.7579), orb_real_t(0.7684),

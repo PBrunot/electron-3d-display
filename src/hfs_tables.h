@@ -9,6 +9,6 @@
 // do not edit by hand.
 #pragma once
 
-constexpr int kHfsGridSize = 128;
-constexpr int kHfsElementCount = 92;
-constexpr int kHfsSubshellCount = 915;
+inline constexpr int kHfsGridSize = 128;
+inline constexpr int kHfsElementCount = 92;
+inline constexpr int kHfsSubshellCount = 915;
