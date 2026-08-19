@@ -203,9 +203,84 @@ def occupied_by_l(config):
     return out
 
 
-def solve_element(z, alpha=1.0, max_iter=80, mix=0.35, e_tol=1e-7, q_tol=1e-5,
-                  grid=None, verbose=False):
+def _scf(z, config, by_l, r, dt, alpha, q0, max_iter, mix, e_tol, q_tol,
+         verbose, detail, tag):
+    """One SCF run at a fixed exchange factor alpha, starting from charge
+    density q0, with PLAIN density damping (fraction `mix`). Note: for the
+    transition metals at alpha=2/3 the SCF is multi-stable -- a metastable
+    solution where the outer ns electron collapses into the (n-1)d shell
+    (Cr, Cu). Which fixed point a run lands on depends on the damping and
+    the starting density; the combination warm-start-from-alpha=1 + low
+    damping (0.3) lands on the PHYSICAL one (verified for Fe/Cr/Cu),
+    while Anderson/DIIS mixing consistently drives INTO the collapsed
+    state -- so this stays plain damping (see solve_element)."""
+    q = q0
+    q_prev = q.copy()
+    E_prev = None
+    it = 0
+    for it in range(1, max_iter + 1):
+        V = potential_from_q(z, r, q, alpha=alpha, latter=True)
+        states = []
+        E_all = []
+        for ell, lst in by_l.items():
+            # NOTE: no sigma warm-start -- the ARPACK shift is always the
+            # safe default (far below the whole spectrum). A per-l warm
+            # shift based on the previous iteration's eigenvalues is UNSAFE:
+            # when the eigenvalues move between SCF iterations (e.g. the
+            # 3d dropping from -0.06 to -1.35 during the transition-metal
+            # SCF), the warm sigma can sit ABOVE an occupied state, and
+            # ARPACK then returns an UNOCCUPIED eigenvalue in its place --
+            # the corrupted density is exactly what drives the SCF into the
+            # collapsed ns-into-d metastable state (Cr/Cu/Au).
+            E, U, interior = solve_states_l(V, r, dt, ell, len(lst), z=z)
+            for j, (n, occ) in enumerate(lst):
+                # full-grid u (u=0 at the Dirichlet boundaries)
+                u_full = np.zeros_like(r)
+                u_full[interior] = U[:, j]
+                states.append((n, ell, occ, E[j], u_full))
+                E_all.append(E[j])
+        E_all = np.array(E_all)
+
+        # New density from the freshly solved states; plain damping.
+        new_q = q_from_orbitals([s[4] for s in states], [s[2] for s in states], r)
+        q = (1.0 - mix) * q_prev + mix * new_q
+        q_prev = q.copy()
+
+        dE = 0.0 if E_prev is None else float(np.max(np.abs(E_all - E_prev)))
+        dq = float(np.sqrt(np.mean((q - new_q) ** 2)))
+        E_prev = E_all
+        if verbose and (it % 5 == 0 or it == 1):
+            labels = ["%d%s" % (s[0], 'spdf'[s[1]]) for s in states]
+            print("  Z=%3d %s it=%3d  max|dE|=%.3e  rms(dq)=%.3e  E=%s"
+                  % (z, tag, it, dE, dq,
+                     " ".join("%s:%.4f" % (lab, E) for lab, E in zip(labels, E_all))))
+
+        if dE < e_tol and dq < q_tol and it > 1:
+            break
+        if detail and (it % 5 == 0 or it == 1):
+            print("    Z=%3d %s SCF it=%2d/%d max|dE|=%.1e rms(dq)=%.1e (deepest %.2f Ha)"
+                  % (z, tag, it, max_iter, dE, dq, E_all[0]), flush=True)
+    return states, q, it
+
+
+def solve_element(z, alpha=1.0, max_iter=80, mix=0.4, e_tol=1e-7, q_tol=1e-5,
+                  grid=None, verbose=False, detail=False, warm_start=False):
     """Self-consistent HFS solution for neutral element z.
+
+    The SCF is stable and converges to the physical solution for every
+    element (verified for Cr/Fe/Cu and the 5d/6s block at alpha=2/3) as
+    long as the ARPACK shift stays at its safe default (far below the
+    whole spectrum) -- an earlier per-l warm-start shift based on the
+    previous iteration's eigenvalues was UNSAFE: when the eigenvalues move
+    between iterations (e.g. the 3d dropping from -0.06 to -1.35 during
+    the transition-metal SCF), the warm sigma can sit above an occupied
+    state and ARPACK returns an UNOCCUPIED eigenvalue in its place; the
+    corrupted density is exactly what drove the SCF into the collapsed
+    ns-into-d metastable state (Cr/Cu/Au: valence ns at 1-6 Ha below its
+    physical ~0.2 Ha, radius 2-3x too small). With that bug removed the
+    result is independent of the damping (0.3-0.5 all give the same
+    physical answer; 0.4 converges fastest), so `warm_start` is off by
+    default and `mix` is just a speed knob.
 
     Returns a dict with the converged states:
         {'z': z, 'config': config, 'r': r, 'states': [(n, ell, occ, E, u), ...],
@@ -218,59 +293,39 @@ def solve_element(z, alpha=1.0, max_iter=80, mix=0.35, e_tol=1e-7, q_tol=1e-5,
     by_l = occupied_by_l(config)
 
     # Initial guess: the current model's hydrogenic radial functions.
-    us, occs, keys = [], [], []
+    us, occs = [], []
     for ell, lst in by_l.items():
         for n, occ in lst:
             z_eff = slater.z_eff_radial(z, config, n, ell)
             us.append(hydrogenic_u(z_eff, n, ell, r))
             occs.append(occ)
-            keys.append((n, ell))
-    q = q_from_orbitals(us, occs, r)
+    q0 = q_from_orbitals(us, occs, r)
 
-    E_prev = None
-    sigma_by_l = {}  # warm-start shifts: previous iteration's deepest E per l
-    q_prev = q.copy()
-    it = 0
-    for it in range(1, max_iter + 1):
-        V = potential_from_q(z, r, q, alpha=alpha, latter=True)
-        states = []
-        E_all = []
-        for ell, lst in by_l.items():
-            sigma = sigma_by_l.get(ell)
-            E, U, interior = solve_states_l(V, r, dt, ell, len(lst), z=z, sigma=sigma)
-            sigma_by_l[ell] = float(np.min(E)) - 0.05
-            for j, (n, occ) in enumerate(lst):
-                # full-grid u (u=0 at the Dirichlet boundaries)
-                u_full = np.zeros_like(r)
-                u_full[interior] = U[:, j]
-                states.append((n, ell, occ, E[j], u_full))
-                E_all.append(E[j])
-        E_all = np.array(E_all)
-
-        # New density from the freshly solved states.
-        new_q = q_from_orbitals([s[4] for s in states], [s[2] for s in states], r)
-        # Mix old/new charge densities.
-        q = (1.0 - mix) * q_prev + mix * new_q
-        q_prev = q.copy()
-
-        dE = 0.0 if E_prev is None else float(np.max(np.abs(E_all - E_prev)))
-        dq = float(np.sqrt(np.mean((q - new_q) ** 2)))
-        E_prev = E_all
-        if verbose and (it % 5 == 0 or it == 1):
-            labels = ["%d%s" % (s[0], 'spdf'[s[1]]) for s in states]
-            print("  Z=%3d it=%3d  max|dE|=%.3e  rms(dq)=%.3e  E=%s"
-                  % (z, it, dE, dq,
-                     " ".join("%s:%.4f" % (lab, E) for lab, E in zip(labels, E_all))))
-
-        if dE < e_tol and dq < q_tol and it > 1:
-            break
+    if warm_start and alpha != 1.0:
+        # Stage 1: Slater exchange alpha=1, FULL budget/tolerance -- an
+        # under-converged stage-1 density was found to tip stage 2 into
+        # the collapsed transition-metal state (Fe needs ~45 iterations at
+        # mix 0.3; a 40-iteration cap broke it).
+        s1, q1, it1 = _scf(z, config, by_l, r, dt, 1.0, q0, max_iter, mix,
+                           e_tol, q_tol, verbose, detail, "(warm alpha=1)")
+        # Rebuild the stage-1 density FROM THE CONVERGED STATES: the mixed
+        # density returned by _scf lags the true converged one slightly,
+        # and that tiny lag was enough to tip the (multi-stable) stage-2
+        # SCF into the collapsed transition-metal state.
+        q1 = q_from_orbitals([s[4] for s in s1], [s[2] for s in s1], r)
+        states, q, it2 = _scf(z, config, by_l, r, dt, alpha, q1, max_iter,
+                              mix, e_tol, q_tol, verbose, detail, "")
+        it = it1 + it2
+    else:
+        states, q, it = _scf(z, config, by_l, r, dt, alpha, q0, max_iter,
+                             mix, e_tol, q_tol, verbose, detail, "")
 
     return {'z': z, 'config': config, 'r': r, 'dt': dt,
             'states': states, 'q': q, 'iterations': it}
 
 
 def solve_element_relativistic(z, alpha=1.0, max_iter=80, mix=0.5,
-                               grid=None, verbose=False):
+                               grid=None, verbose=False, detail=False):
     """Screened-potential solution with the RELATIVISTIC (radial Dirac)
     upgrade for the final states: run the nonrelativistic HFS SCF to
     convergence (see solve_element), then replace every subshell's radial
@@ -291,7 +346,7 @@ def solve_element_relativistic(z, alpha=1.0, max_iter=80, mix=0.5,
     u's and energies, plus 'relativistic': True).
     """
     res = solve_element(z, alpha=alpha, max_iter=max_iter, mix=mix,
-                        grid=grid, verbose=verbose)
+                        grid=grid, verbose=verbose, detail=detail)
     r, dt = res['r'], res['dt']
     t = np.log(r / r[0])
     # converged potential from the converged density
@@ -300,6 +355,11 @@ def solve_element_relativistic(z, alpha=1.0, max_iter=80, mix=0.5,
 
     states = []
     for n, ell, occ, _E_nr, _u_nr in res['states']:
+        if detail:
+            print("    Z=%3d Dirac %d%s (kappa %s): solving..."
+                  % (z, n, 'spdf'[ell],
+                     "-1" if ell == 0 else "%+d,%+d" % (-(ell + 1), ell)),
+                  flush=True)
         if ell == 0:
             eps, P, Q = solve_dirac_state(V, r, t, dt, -1, n, z)
             u = np.array(P)
@@ -462,10 +522,9 @@ def main(argv):
     ap.add_argument('--alpha', type=float, default=1.0,
                     help='Slater exchange factor alpha (1.0 = Slater/HFS, 2/3 = Dirac/K-S)')
     ap.add_argument('--max-iter', type=int, default=80)
-    ap.add_argument('--mix', type=float, default=0.35,
-                    help='SCF density mixing fraction (0.35: stable for the '
-                         'transition-metal 3d/4s; 0.5 drifts Fe into a '
-                         'metastable diffuse-3d solution at alpha=2/3)')
+    ap.add_argument('--mix', type=float, default=0.4,
+                    help='SCF density damping fraction (speed knob only; the '
+                         'result is independent of it -- 0.3-0.5 agree)')
     ap.add_argument('--relativistic', action='store_true',
                     help='solve the final states with the radial Dirac equation '
                          '(one-shot on the nonrelativistic SCF potential)')
@@ -483,6 +542,10 @@ def main(argv):
     ap.add_argument('--coulomb-check', action='store_true',
                     help='run the exact-hydrogen machinery gate and exit')
     ap.add_argument('--verbose', action='store_true')
+    ap.add_argument('--detail', action='store_true',
+                    help='print intra-element progress (SCF iteration status '
+                         'every 5 iterations, per-subshell Dirac solves) so a '
+                         'long-running element does not look hung')
     args = ap.parse_args(argv)
 
     if args.coulomb_check:
@@ -522,15 +585,26 @@ def main(argv):
             done_z = set()
     pending = [z for z in z_range if z not in done_z]
     t_start = _time.time()
+    failed = []
     for i, z in enumerate(pending):
         t0 = _time.time()
-        if args.relativistic and z >= args.rel_min:
-            res = solve_element_relativistic(z, alpha=args.alpha,
-                                             max_iter=args.max_iter,
-                                             mix=args.mix, grid=grid)
-        else:
-            res = solve_element(z, alpha=args.alpha, max_iter=args.max_iter,
-                                mix=args.mix, grid=grid)
+        try:
+            if args.relativistic and z >= args.rel_min:
+                res = solve_element_relativistic(z, alpha=args.alpha,
+                                                 max_iter=args.max_iter,
+                                                 mix=args.mix, grid=grid,
+                                                 detail=args.detail)
+            else:
+                res = solve_element(z, alpha=args.alpha, max_iter=args.max_iter,
+                                    mix=args.mix, grid=grid,
+                                    detail=args.detail)
+        except Exception as exc:  # noqa: BLE001 -- keep the batch alive
+            import traceback
+            print("ERROR Z=%d (%s): %r -- skipped (re-run with --resume to retry)"
+                  % (z, slater.element_symbol(z), exc), flush=True)
+            traceback.print_exc()
+            failed.append(z)
+            continue
         all_results.append(res)
         n, ell = valence_subshell(res['config'])
         u = dict(((s[0], s[1]), s) for s in res['states'])[(n, ell)][4]
@@ -548,6 +622,12 @@ def main(argv):
         # element, so an interruption loses at most the element in flight.
         all_results.sort(key=lambda r: r['z'])
         save_tables(all_results, args.out)
+    if failed:
+        print("batch finished with %d failed element(s): %s (retry: re-run "
+              "with --resume)" % (len(failed),
+                                  ", ".join("%d %s" % (z, slater.element_symbol(z))
+                                            for z in failed)), flush=True)
+        return 1
     return 0
 
 
