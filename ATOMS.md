@@ -334,6 +334,20 @@ Accuratezza fisica (in ordine di impatto):
    --alpha 0.6666667 --relativistic --out pc/hfs_tables.npz\ — relativistico
    solo per Z≥55 via --rel-min) + \pc/validate_atoms.py
    --model hfs --strict --all\.
+3. **Bug SCF trovato e corretto (2026-08-19)**: lo warm-start sigma di
+   ARPACK per-l (autovalore più profondo dell'iterazione precedente − 0.05)
+   poteva finire SOPRA uno stato occupato quando gli autovalori si
+   spostano tra iterazioni (Fe 3d: −0.06 → −1.35 Ha); ARPACK restituiva
+   allora un autovalore NON occupato al suo posto e la densità corrotta
+   guidava il collasso ns→d dei metalli di transizione (Cr/Cu/Au: 4s a
+   1–6 Ha sotto il valore fisico ~0.2, raggio 2–3× troppo piccolo).
+   Rimosso: l'SCF è stabile e indipendente dal damping (0.3–0.5
+   concordano). Risultati: Cr 0.95, Fe 0.90, Cu 0.96, Au 0.95 (NR).
+   Pd (Z=46) resta una limitazione documentata del modello (contrazione
+   d-shell Xα/LDA; l'autovalore 4d combacia con la NIST LDA). I raggi
+   Z≥55 sono relativistici (Dirac) mentre la tabella Clementi è
+   non-relativistica: lo scostamento sistematico ~0.7 sui blocchi 5d/6s è
+   atteso e documentato.
 3. **Porting ESP32** (obiettivo finale): formato compatto per sottoshell
    (fit STO o griglia log ~64 punti) → PROGMEM C arrays; \src/pointcloud.h   guadagna il sampler da tabella (già costruisce le inverse-CDF a runtime);
    \src/atom_cloud.h\ seleziona la sorgente radiale per (Z,n,l); benchmark
