@@ -51,12 +51,12 @@ OUT_CPP = os.path.join(_REPO, "src", "equation_bitmap.cpp")
 
 
 def rasterize():
-    # "I can't see the equation" (feedback, 2026-08-17): bold weight + a larger size (was 11,
-    # regular) thickens the glyph strokes so they survive the panel + Pepper's Ghost prism's
-    # inherent contrast/brightness loss -- the thin anti-aliased strokes at the old size were
-    # apparently too fine to read even before accounting for the backdrop's dim gray color
-    # (bumped separately in orbital_view.cpp). Lowered alpha threshold (was 96) picks up more
-    # of the anti-aliased edge pixels too, effectively thickening strokes further.
+    # Bold weight + a larger size thickens the glyph strokes so they survive
+    # the panel + Pepper's Ghost prism's inherent contrast/brightness loss
+    # -- thin anti-aliased strokes read poorly even before accounting for
+    # the backdrop's dim gray color (bumped separately in orbital_view.cpp).
+    # A lowered alpha threshold picks up more of the anti-aliased edge
+    # pixels too, effectively thickening strokes further.
     fig = plt.figure(figsize=(WIDTH_PX / DPI, HEIGHT_PX / DPI), dpi=DPI)
     fig.patch.set_alpha(0.0)
     for i, line in enumerate(LINES):
@@ -68,12 +68,12 @@ def rasterize():
     alpha = buf[:, :, 3]
     mask = alpha > 48  # binarize -- True where a glyph was drawn
 
-    # "still barely visible" (feedback, 2026-08-17, after the bold/larger regen + brighter
-    # gray still wasn't enough) -- morphological dilation (no scipy dependency: OR the mask
-    # with itself shifted 1px in each of the 4 cardinal directions), growing every stroke by
-    # a full pixel on each side. Bold mathtext alone barely thickens strokes at this pixel
-    # size; this is a much bigger, guaranteed effect since it works on the rasterized bitmap
-    # directly instead of hoping the font renderer's bold variant helps at ~12pt.
+    # Morphological dilation (no scipy dependency: OR the mask with itself
+    # shifted 1px in each of the 4 cardinal directions), growing every
+    # stroke by a full pixel on each side. Bold mathtext alone barely
+    # thickens strokes at this pixel size; this is a much bigger,
+    # guaranteed effect since it works on the rasterized bitmap directly
+    # instead of hoping the font renderer's bold variant helps at ~12pt.
     dilated = mask.copy()
     dilated[1:, :] |= mask[:-1, :]
     dilated[:-1, :] |= mask[1:, :]

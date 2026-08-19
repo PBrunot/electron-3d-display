@@ -41,8 +41,7 @@ CHOICE_ATOM = 'atom'
 CHOICE_ORDER = [CHOICE_ORBITALS, CHOICE_ATOM]
 CHOICE_LABELS = {
     # Plain names, matching pc/launcher.py -- the browser also navigates with
-    # arrow keys, not gestures, so no UP/DOWN prefixes ("on PC we dont use
-    # UP/DOWN only Orbitals or Atoms", 2026-08-17).
+    # arrow keys, not gestures, so no UP/DOWN prefixes.
     CHOICE_ORBITALS: 'Orbitals',
     CHOICE_ATOM: 'Atoms',
 }
@@ -52,10 +51,9 @@ CHOICE_LABELS = {
 # fixed pixel counts (this canvas is WIDTH x HEIGHT = 480 x 480, nowhere
 # near PC's 960x960 window, so a literal port of PC's pixel constants would
 # have been badly oversized here). No title text over the backdrop, matching
-# PC ("remove atom cube text from the splash screen", 2026-08-17 -- the web
-# keeps its tumbling backdrop instead of the static image: Pyodide has no
-# JPEG decoder, so the splash image can't be loaded in-browser without a JS
-# decode bridge).
+# PC -- the web keeps its tumbling backdrop instead of PC's static splash
+# image, since Pyodide has no JPEG decoder to load it in-browser without a
+# JS decode bridge.
 BUTTON_WIDTH_FRAC = 0.50
 BUTTON_HEIGHT_FRAC = 0.10
 BUTTON_FONT_FRAC = 0.042

@@ -9,17 +9,14 @@ This module does NOT cover micropython/atom_view.py: the device has no
 dissection feature (see that module's own docstring), so there is nothing
 to share with it here.
 
-Why build_dissection_steps() exists: pc/atom_view_pc.py's old
-_run_dissection() and web/py/web_atom.py's old dissection_sequence() computed
-the Phase 0-5 scale/clip/timing plan with genuinely duplicated arithmetic --
-proven real (not just superficial similarity) by the 2026-08-17 pacing tweak
-(DISSECT_ZOOM_SLOWDOWN) needing a hand-port across pc, web, AND the C++
-device. This function computes that plan ONCE as a list of opaque step
-tuples; each platform just executes the steps with its own ease/hold
-primitive (pc: blocking _dissect_ease()/_dissect_hold(); web: generators
-dissect_ease_gen()/dissect_hold_gen()) and its own hold-duration units (pc:
-wall-clock seconds; web: a frame count -- hold_duration is never interpreted
-here, just threaded through unchanged).
+build_dissection_steps() computes the Phase 0-5 scale/clip/timing plan ONCE
+as a list of opaque step tuples, so a pacing or ordering change (e.g. to
+DISSECT_ZOOM_SLOWDOWN) is made in one place instead of hand-ported across
+pc and web separately. Each platform just executes the steps with its own
+ease/hold primitive (pc: blocking _dissect_ease()/_dissect_hold(); web:
+generators dissect_ease_gen()/dissect_hold_gen()) and its own hold-duration
+units (pc: wall-clock seconds; web: a frame count -- hold_duration is never
+interpreted here, just threaded through unchanged).
 """
 
 import array

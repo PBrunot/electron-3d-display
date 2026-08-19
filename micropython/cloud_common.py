@@ -81,7 +81,7 @@ ORBITAL_PRESETS = (
 )
 DEFAULT_PRESET_INDEX = 4
 
-COLOR_MIN_LEVEL = 80  # "should be bright colors" (2026-08-17) -- raised from 60 so even the dimmest points read clearly
+COLOR_MIN_LEVEL = 80  # dimmest point's color floor, raised from 60 so even faint points read clearly
 COLOR_MAX_LEVEL = 255
 
 # Projection scale target: the p90-radius point should land P90_TARGET_PX

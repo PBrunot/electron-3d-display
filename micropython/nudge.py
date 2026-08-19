@@ -14,15 +14,14 @@ as "left" vs "up" on screen depends on how the board sits in the pyramid rig
 -- the same category of hardware assumption CLAUDE.md section 2 flags for
 the display's mirror/color order (verify on real hardware, don't assume).
 
-Calibration status (2026-08-15): a 20s on-device capture during development,
-covering one nudge per direction (L, R, U, D) in sequence, gave inconsistent
-dominant-axis/sign per direction -- most likely the nudges in that trial
-weren't clean isolated single-axis pushes, not a driver bug (the same rig
-gave a sane ~1g-at-rest reading in an earlier, static test). The mapping
-below is therefore a placeholder based on the *strongest* two events in that
-capture, not a verified calibration. Run nudge_calibrate.py (one clean nudge
-per direction, paused between each) and edit the table below before relying
-on direction control.
+Calibration status: UNVERIFIED. A short on-device capture covering one nudge
+per direction (L, R, U, D) in sequence gave inconsistent dominant-axis/sign
+per direction -- most likely unclean, non-isolated single-axis pushes in
+that capture rather than a driver bug (the same rig reads a sane ~1g at rest
+in a static test). The mapping below is therefore a placeholder based on the
+*strongest* two events from that capture, not a verified calibration. Run
+nudge_calibrate.py (one clean nudge per direction, paused between each) and
+edit the table below before relying on direction control.
 """
 
 import time

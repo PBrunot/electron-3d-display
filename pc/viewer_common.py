@@ -59,11 +59,9 @@ ZOOM_ANGLE_STEP = 0.016
 # can't move axis-aligned lobes at all), so even frame 0 isn't axis-locked.
 _TILT_ANGLE_START = 0.9
 _ROLL_ANGLE_START = 2.1
-# Throttle between _tick() frames. Was 20ms when the pure-Python render was
-# the bottleneck (the delay was invisible); with the numpy fast path the
-# render is a few ms and the frame is ~30ms, so the delay is a small pacing
-# idle, not the throttle -- 5ms leaves the loop at ~30-40 fps (target:
-# "30 fps like the ESP32", 2026-08-17).
+# Throttle between _tick() frames. With the numpy fast path the render
+# itself is a few ms, so this delay is a small pacing idle, not the
+# bottleneck -- 5ms leaves the loop at ~30-40 fps, matching the ESP32.
 FRAME_DELAY_MS = 5
 
 # --- Intro / preset-switch transitions --------------------------------------
@@ -180,13 +178,13 @@ ELECTRON_SIZE = 1
 # 240x240x3 bytes/frame) instead of clearing, so points leave a trailing glow
 # and skipped "buzz" points fade out instead of vanishing.
 ENABLE_PERSISTENCE = True
-# Raised from 100 to 150 to match the device's kPersistenceKeepQ8 -- then
-# pulled back to 120 ("persistence is a bit too much", 2026-08-17): slower
-# decay keeps a hit pixel's glow alive longer between re-hits as points sweep
+# Matches the device's kPersistenceKeepQ8 in spirit, not value: slower decay
+# keeps a hit pixel's glow alive longer between re-hits as points sweep
 # across the screen during rotation, filling in the gaps that otherwise read
-# as fading -- but with the numpy fast path restoring ~30 fps, the same decay
-# value now spans roughly half as many wall-clock seconds, so 150 read as too
-# long a trail and 120 (~0.47 kept/frame) splits the difference.
+# as fading -- but at the numpy fast path's ~30 fps, a given decay value
+# spans roughly half as many wall-clock seconds as it would at half that
+# frame rate, so 120 (~0.47 kept/frame) reads as the right trail length here
+# where the device's own value would read as too long.
 PERSISTENCE_DECAY = 120  # /256 kept per frame (~0.47); lower = shorter trails, 256 = never fades
 _PERSISTENCE_TABLE = bytes((i * PERSISTENCE_DECAY) // 256 for i in range(256))
 
@@ -466,17 +464,17 @@ def draw_scale_bar(draw, pixels_per_unit, unit_label, canvas_height=HEIGHT, max_
     y = canvas_height - SCALE_BAR_MARGIN_Y
     x1 = x0 + bar_px
 
-    # Thicker bar + ticks (SCALE_BAR_LINE_WIDTH), matching the device's
-    # post-feedback doubling -- the old 1px lines read as too thin.
+    # Thicker bar + ticks (SCALE_BAR_LINE_WIDTH), matching the device's own
+    # bar weight -- a single-pixel line reads as too thin at this canvas size.
     draw.line((x0, y, x1, y), fill=SCALE_BAR_COLOR, width=SCALE_BAR_LINE_WIDTH)
     draw.line((x0, y - SCALE_BAR_TICK_PX, x0, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR,
               width=SCALE_BAR_LINE_WIDTH)
     draw.line((x1, y - SCALE_BAR_TICK_PX, x1, y + SCALE_BAR_TICK_PX), fill=SCALE_BAR_COLOR,
               width=SCALE_BAR_LINE_WIDTH)
 
-    # Label at SCALE_BAR_FONT_SIZE (2x the old default font), sitting above
-    # the tick with SCALE_BAR_LABEL_GAP_PX clearance -- was PIL's tiny default
-    # font, same "illegible" complaint the device fixed.
+    # Label at SCALE_BAR_FONT_SIZE, sitting above the tick with
+    # SCALE_BAR_LABEL_GAP_PX clearance -- explicit size instead of PIL's
+    # tiny, hard-to-read default font.
     draw.text((x0, y - SCALE_BAR_TICK_PX - SCALE_BAR_LABEL_GAP_PX - SCALE_BAR_FONT_SIZE),
               "%s %s" % (label, unit_label), fill=SCALE_BAR_COLOR, font=_SCALE_BAR_FONT)
 

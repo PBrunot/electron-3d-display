@@ -4,7 +4,7 @@
 # project, and points ccache's cache dir at ./.ccache.
 #
 # Why this is not done via `board_build.cmake_extra_args` /
-# CMAKE_C_COMPILER_LAUNCHER (verified 2026-08-18, platform-espressif32@7.0.1):
+# CMAKE_C_COMPILER_LAUNCHER (verified against platform-espressif32@7.0.1):
 #
 #   PlatformIO's espidf builder runs CMake with the Ninja generator, but it
 #   NEVER RUNS NINJA. `build.ninja` is generated only so PlatformIO can read

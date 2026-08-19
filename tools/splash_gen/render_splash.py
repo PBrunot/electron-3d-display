@@ -3,21 +3,18 @@
 holding it as a raw, already-panel-packed RGB565 pixel array -- the boot splash screen shown
 by main.cpp before the tilt calibration/chooser flow starts.
 
-"I need to embed as splash screen a JPG file; we need a JPG decompressor onboard" (feedback,
-2026-08-17) -- decided instead (see conversation) to decode the JPG ONCE here, offline, and
-embed the raw pixels, rather than adding a JPEG decoder library + decode step to the
-firmware: this project already uses that same offline-precompute pattern for
-tools/equation_gen/render_equations.py's equation backdrop and the orbital/atom point clouds
-(CLAUDE.md section 5), the splash is a single static 240x240 image (no decoder needed for
-anything ELSE onboard), and a raw blit at boot is both the simplest and the fastest possible
-path (a plain memcpy, no decode-time cost at all).
+Decodes the JPG ONCE here, offline, and embeds the raw pixels, rather than adding a JPEG
+decoder library + decode step to the firmware: this project already uses that same
+offline-precompute pattern for tools/equation_gen/render_equations.py's equation backdrop
+and the orbital/atom point clouds (CLAUDE.md section 5), the splash is a single static
+240x240 image (no decoder needed for anything ELSE onboard), and a raw blit at boot is both
+the simplest and the fastest possible path (a plain memcpy, no decode-time cost at all).
 
 Pixels are packed through the exact same bit formula as Display::packColor565() (src/
-display.h) -- plain textbook RGB565 (the panel's real quirk turned out to be a missing
-esp_lcd data_endian/rgb_ele_order config, not a G/B bit-swap needed in software here, see
-display.cpp's Display() constructor and CLAUDE.md, 2026-08-18) -- so the emitted array is
-ALREADY in this panel's native format; drawSplashScreen() just copies bytes, no per-pixel
-packing on-device.
+display.h) -- plain textbook RGB565 (see CLAUDE.md section 2 for why: this panel's real
+quirk is a missing esp_lcd data_endian/rgb_ele_order config, not a G/B bit-swap needed in
+software here) -- so the emitted array is ALREADY in this panel's native format;
+drawSplashScreen() just copies bytes, no per-pixel packing on-device.
 
 Regenerate with: python3 tools/splash_gen/render_splash.py
 """
