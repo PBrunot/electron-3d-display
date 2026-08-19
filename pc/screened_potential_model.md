@@ -232,10 +232,16 @@ Two interchangeable back-ends:
 
 ## 7. Device (ESP32) port plan — final goal, not this milestone
 
-1. PC: solver → validated tables (this milestone).
+1. PC: solver → validated tables (this milestone). **Done (2026-08)** —
+   SPARC-atomSFE LDA_SVWN tables, Z=1..92, NIST-exact eigenvalues (see
+   pc/RUN_HFS.md §5; pc/hfs_atomsfe.py).
 2. PC: compact per-subshell representation (STO fit or 64-pt log grid) +
    accuracy check of the *sampled* distribution vs the dense table
-   (KS-style distance on the inverse CDFs).
+   (KS-style distance on the inverse CDFs). **Partial**: the 128-pt log-grid
+   reference (`pc/hfs_tables_reduced.npz`) is committed (valence modes
+   within 1.5% of the full tables; `pc/hfs_tables.py --compact ... 128`);
+   the STO fit / 64-pt-Hermite form and the sampled-distribution KS check
+   remain.
 3. Firmware: `tools/orbitals_host`-style codegen → PROGMEM C arrays;
    `src/pointcloud.h` gains a table-fed radial sampler (it already builds
    inverse-CDF tables at runtime from hydrogenic R — the table-fed variant

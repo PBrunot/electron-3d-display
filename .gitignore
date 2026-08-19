@@ -29,6 +29,7 @@ pio_run1.log
 /examples/SPARC-atomSFE
 
 /pc/hfs_tables*.npz
+!/pc/hfs_tables_reduced.npz
 /pc/_atomsfe_vendor
 /pc/_tmp
 /tools/__pycache__

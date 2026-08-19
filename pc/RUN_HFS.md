@@ -164,6 +164,25 @@ Clementi-Raimondi literature) on top of its own radial model:
   (`kAtomTargetPx`/rRef), so there the calibration mainly makes the pm
   scale bar and dissection depths CR-consistent.
 
+### Reduced reference table (committed, for embedding in the ports)
+
+`pc/hfs_tables_reduced.npz` (COMMITTED, unlike the full tables) is the
+reduced orbital-data reference the ports embed (device PROGMEM /
+micropython / web codegen): all 92 elements, every subshell's u(r) on a
+**128-point log grid** (r = 1e-6..100 Bohr) plus eigenvalue and occupancy --
+same npz schema as the full tables (`pc/hfs_tables.py` loader reads both).
+Accuracy vs the full 2001-pt tables: valence-subshell modes within **1.5%**
+(worst: Pd 4d 1.4%; the coarser core-orbital deviations -- up to ~5% on the
+1s of heavy elements -- are sub-pixel at 240x240 and invisible). Regenerate:
+
+```bash
+python pc/hfs_tables.py --compact pc/hfs_tables.npz pc/hfs_tables_reduced.npz 128
+```
+
+The documented STO-fit / 64-pt-Hermite device form and the per-port codegen
+are still the standing follow-ups (pc/screened_potential_model.md §7); this
+file is the committed source of truth for that work.
+
 ### Device note
 
 The device (`src/atom_cloud.cpp`) still uses the hydrogenic model (with the
