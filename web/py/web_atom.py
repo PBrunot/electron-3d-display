@@ -3,10 +3,15 @@ web_common.py's canvas/generator backend instead of viewer_common.py's
 tkinter/PIL one. See web_common.py's module docstring for why the animation
 loop is generator-based here instead of blocking.
 
-AtomPreset and render_dissection_frame() below are copied unchanged from
-pc/atom_view_pc.py -- neither ever touched PIL or tkinter (AtomPreset is
-pure atom_cloud.py model calls; render_dissection_frame() only ever wrote
-into a plain RGB bytearray), so there was nothing to port in them.
+AtomPreset and the Phase 0-5 dissection plan are SHARED with
+pc/atom_view_pc.py via pc/atom_dissection_common.py (fetched into Pyodide
+the same way pc/render_core.py already is -- see index.html's PY_FILES):
+neither ever touched PIL or tkinter (AtomPreset is pure atom_cloud.py model
+calls; the plan is pure scale/clip/timing arithmetic), so there was nothing
+web-specific about them. render_dissection_frame() below stays local (its
+numpy fast path already delegates to the truly shared render_core.py; only
+its no-numpy pure-Python fallback loop is a local copy of
+pc/atom_view_pc.py's, since numpy is always present in Pyodide in practice).
 
 What actually changed shape, mirroring web_common.py:
   - _dissect_ease()/_dissect_hold() were blocking loops (root.update() +
@@ -15,9 +20,10 @@ What actually changed shape, mirroring web_common.py:
     DISSECT_HOLD_SECONDS (a wall-clock pause) becomes DISSECT_HOLD_FRAMES (a
     frame count) for the same reason: there's no blocking sleep to pace
     against once a browser's requestAnimationFrame is driving frames.
-  - _run_dissection() is now dissection_sequence(), a generator composing
-    the above via `yield from` -- structurally identical to the original,
-    just non-blocking.
+  - dissection_sequence() executes atom_dissection_common.build_dissection_steps()'s
+    plan via `yield from` per step -- see that function's docstring for the
+    phase-by-phase rationale (shared with pc/atom_view_pc.py's
+    _run_dissection()).
   - AtomViewApp's tkinter event bindings become plain functions
     (request_z()/request_dissect()/zoom_by(), exposed at module level for
     index.html's JS to call) and its `_tick()` gains one new branch at the
@@ -36,14 +42,14 @@ that module for the chooser and scene-switching logic, and index.html for
 how it wires up Pyodide/input.
 """
 
-import array
 import math
-import time
 
 import atom_cloud
-import atom_size_calib
 import cloud_common
 import slater
+
+import atom_dissection_common
+from atom_dissection_common import dissection_plan
 
 import render_core  # shared numpy render core (same module pc/atom_view_pc.py uses)
 
@@ -177,11 +183,18 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
     draw_nucleus(buf)
 
 
-def draw_atom_title_canvas(x, y, z, config):
+def draw_atom_title_canvas(x, y, z, config, outer_n=None, outer_ell=None):
     """Canvas counterpart of pc/atom_view_pc.py's draw_atom_title(): same
     per-shell-colored electron-configuration label, drawn segment by segment
     since Canvas 2D's fillText() is single-color per call just like PIL's
     ImageDraw.text(), advancing x by each segment's measured width.
+
+    (outer_n, outer_ell), when given (AtomPreset.outer_n/outer_ell -- the
+    subshell with the largest MEASURED radius, see
+    atom_dissection_common.AtomPreset), gets its segment brightened toward
+    white the same way that subshell's own points are
+    (atom_cloud._brighten_outer_shell, same helper/factor as the PC viewer
+    uses -- reused directly rather than a second constant that could drift).
     """
     prefix = "%s (Z=%d) " % (slater.element_symbol(z), z)
     draw_text_canvas(x, y, prefix, (255, 255, 255))
@@ -189,46 +202,21 @@ def draw_atom_title_canvas(x, y, z, config):
     for n, ell, occ in config:
         segment = "%s%d " % (slater.subshell_label(n, ell), occ)
         color = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
+        if n == outer_n and ell == outer_ell:
+            color = atom_cloud._brighten_outer_shell(color)
         draw_text_canvas(cursor_x, y, segment, color)
         cursor_x += measure_text_canvas(segment)
 
 
-class AtomPreset:
-    """Unchanged from pc/atom_view_pc.py's AtomPreset -- pure atom_cloud.py
-    model calls, no PIL/tkinter dependency to begin with.
+def make_atom_preset(z):
+    """AtomPreset for this viewer's own N_POINTS/PIXELS_PER_BOHR and the
+    hydrogenic Clementi-Raimondi factor (atom_dissection_common's default --
+    same one the PC viewer's no-tables path, micropython, and the device
+    use). See atom_dissection_common.AtomPreset's docstring for the shared
+    shape.
     """
-
-    def __init__(self, z):
-        print("atom: loading Z=%d (%s)..." % (z, slater.element_symbol(z)))
-        t0 = time.time()
-
-        xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(z, count=N_POINTS)
-
-        # Clementi-Raimondi display-size calibration (see atom_size_calib.py):
-        # same per-element factor the PC viewer's hydrogenic path, the
-        # micropython viewer, and the device use -- rescale so the valence
-        # subshell's mode lands on the literature radius.
-        f = atom_size_calib.FACTOR[z - 1]
-        if f != 1.0:
-            xs = array.array('f', (v * f for v in xs))
-            ys = array.array('f', (v * f for v in ys))
-            zs = array.array('f', (v * f for v in zs))
-
-        self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
-            xs, ys, zs, colors, shells, ells, signs, config)
-        self.title = atom_cloud.title_for_atom(z, config)
-        outer_plan = atom_cloud.subshell_dissection_plan(xs, ys, zs, shells, ells, config)
-        r_ref = outer_plan[0][5] if outer_plan else 1.0
-        self.base_scale, self.zoom_amplitude, self.r_ref = atom_cloud.scale_for_atom(
-            r_ref, PIXELS_PER_BOHR)
-        self.inner_r_ref = outer_plan[-1][5] if outer_plan else r_ref
-        self.shell_count = len(outer_plan) if outer_plan else 1
-
-        print("atom: %s loaded in %.2fs, scale=%.1f" % (
-            slater.element_symbol(z), time.time() - t0, self.base_scale))
-
-    def resample(self, count):
-        pass  # static cloud -- see atom_cloud.py's module docstring
+    return atom_dissection_common.AtomPreset(
+        z, N_POINTS, PIXELS_PER_BOHR, size_factor=atom_dissection_common.default_size_factor(z))
 
 
 class WebAtomApp:
@@ -239,7 +227,7 @@ class WebAtomApp:
     def __init__(self):
         self.buf = bytearray(WIDTH * HEIGHT * 3)
         self.z = DEFAULT_Z
-        self.preset = AtomPreset(self.z)
+        self.preset = make_atom_preset(self.z)
         self.pending_z = None
         self.zoom_factor = 1.0
         self.dissecting = False
@@ -265,7 +253,8 @@ class WebAtomApp:
         draw_orbit_marker_canvas(self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle,
                                   slater.element_symbol(self.z))
         draw_scale_bar_canvas(cloud_common, scale / atom_cloud.PM_PER_BOHR, "pm")
-        draw_atom_title_canvas(TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config)
+        draw_atom_title_canvas(TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config,
+                               self.preset.outer_n, self.preset.outer_ell)
 
     def blit_dissection(self, scale, r_ref, title):
         """Device-style dissection HUD (same as pc/atom_view_pc.py's
@@ -323,12 +312,13 @@ class WebAtomApp:
             yield
 
     def dissection_sequence(self):
-        """Structurally identical to pc/atom_view_pc.py's _run_dissection()
-        -- see that method's docstring for the phase-by-phase rationale.
+        """The Phase 0-5 plan itself is computed once by
+        atom_dissection_common.build_dissection_steps(), shared with
+        pc/atom_view_pc.py's _run_dissection() -- see that function's
+        docstring for the phase-by-phase rationale. This just executes the
+        resulting steps with the generator ease/hold primitives above.
         """
-        plan = atom_cloud.subshell_dissection_plan(
-            self.preset.xs, self.preset.ys, self.preset.zs, self.preset.shells, self.preset.ells,
-            self.preset.config)
+        plan = dissection_plan(self.preset)
 
         shell_count = self.preset.shell_count
         orient_frames = shell_count_frames(DISSECT_ORIENT_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
@@ -341,47 +331,20 @@ class WebAtomApp:
         outer_scale = outer_bound_scale(self.preset.r_ref)
         inner_scale = inner_bound_scale(self.preset.inner_r_ref)
 
-        # Phase 0: ease out to the guaranteed "outside" overview, cut closed.
-        # full_tumble=True: the cut has no effect yet (clip stays closed
-        # this whole leg), so yaw/tilt can keep rotating normally instead of
-        # locking to roll-only the instant Dissect is pressed -- see
-        # dissect_ease_gen()'s docstring.
-        yield from self.dissect_ease_gen(resting_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
-                                          None, self.preset.r_ref, zoom_frames, full_tumble=True)
-        # Phase 1: open the cut at that overview scale.
-        yield from self.dissect_ease_gen(outer_scale, outer_scale, DISSECT_CLIP_CLOSED, DISSECT_CLIP_OPEN,
-                                          None, self.preset.r_ref, orient_frames)
+        steps = atom_dissection_common.build_dissection_steps(
+            plan, self.preset.r_ref, resting_scale, outer_scale, inner_scale,
+            orient_frames, zoom_frames, close_frames, DISSECT_HOLD_FRAMES,
+            DISSECT_TARGET_PX, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
+            slater.element_symbol(self.z))
 
-        # Phase 2: outermost subshell to innermost; the last one is pinned to
-        # inner_scale (deeper than its own radius), the rest fill DISSECT_TARGET_PX.
-        # Title is the device-style triple: big "2p" + "Fe (k/N)" caption
-        # (element symbol, not the shell notation already shown by the big
-        # label) + corner "<occ>e-" note (see blit_dissection()).
-        prev_scale = outer_scale
-        for i, (n, ell, letter, subshell_str, electron_count, r_ref) in enumerate(plan):
-            target_scale = inner_scale if i == len(plan) - 1 else DISSECT_TARGET_PX / max(r_ref, 1e-6)
-            subshell = slater.subshell_label(n, ell)
-            title = (subshell, "%s (%d/%d)" % (slater.element_symbol(self.z), i + 1, len(plan)), electron_count)
-            yield from self.dissect_ease_gen(prev_scale, target_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                                              (n, ell), r_ref, zoom_frames, title)
-            yield from self.dissect_hold_gen(target_scale, DISSECT_CLIP_OPEN, (n, ell), r_ref,
-                                              DISSECT_HOLD_FRAMES, title)
-            prev_scale = target_scale
-
-        # Phase 3: back out to the overview scale, still open.
-        yield from self.dissect_ease_gen(prev_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_OPEN,
-                                          None, self.preset.r_ref, zoom_frames)
-        # Phase 4: close the cut at the overview scale.
-        yield from self.dissect_ease_gen(outer_scale, outer_scale, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
-                                          None, self.preset.r_ref, close_frames)
-        # Phase 5: ease back in to the SAME resting_scale Phase 0 started
-        # from (not effective_base_scale(), which omits the breathing sin()
-        # term Phase 0's start point included -- see pc/atom_view_pc.py's
-        # matching comment), cut already closed. full_tumble=True for the
-        # same reason as Phase 0.
-        yield from self.dissect_ease_gen(outer_scale, resting_scale,
-                                          DISSECT_CLIP_CLOSED, DISSECT_CLIP_CLOSED,
-                                          None, self.preset.r_ref, zoom_frames, full_tumble=True)
+        for step in steps:
+            if step[0] == 'ease':
+                _, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, title, full_tumble = step
+                yield from self.dissect_ease_gen(scale0, scale1, clip0, clip1, active_subshell, r_ref,
+                                                  frames, title, full_tumble)
+            else:
+                _, scale, clip, active_subshell, r_ref, frames, title = step
+                yield from self.dissect_hold_gen(scale, clip, active_subshell, r_ref, frames, title)
 
     def dissection_wrapper(self):
         self.dissecting = True
@@ -428,7 +391,7 @@ class WebAtomApp:
         if self.pending_z is not None:
             self.z = self.pending_z
             self.pending_z = None
-            self.preset = AtomPreset(self.z)
+            self.preset = make_atom_preset(self.z)
             self.sequence = fly_over_gen(self, self.effective_base_scale() * SWITCH_START_SCALE_FACTOR,
                                           self.effective_base_scale(), SWITCH_TRANSITION_FRAMES)
             return

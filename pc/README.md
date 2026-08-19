@@ -236,9 +236,13 @@ On the PC side, `orbital_view_pc.py` and `atom_view_pc.py` share their own
 render/camera layer via `viewer_common.py` (display geometry, yaw/tilt/roll
 tumble, intro/switch fly-overs, random zoom excursions, nucleus/marker/
 scale-bar drawing, phosphor persistence) — change it once there too, instead
-of in whichever viewer happened to define it. Genuinely per-viewer state
-(the `Preset`/`AtomPreset` classes, `N_POINTS`, the tkinter `App` class and
-its input handling) stays in each viewer's own file.
+of in whichever viewer happened to define it. `atom_view_pc.py`'s `AtomPreset`
+class and the shell-dissection Phase 0-5 plan live in
+`atom_dissection_common.py` instead, shared with `web/py/web_atom.py`
+(fetched into Pyodide the same way `render_core.py` already is) — the device
+has no dissection feature, so that module is PC/web-only. Genuinely
+per-viewer state (`Preset`, `N_POINTS`, the tkinter `App` class and its input
+handling) stays in each viewer's own file.
 
 ## Ported device polish (2026-08-17)
 

@@ -48,7 +48,7 @@ import hfs_tables
 import slater
 
 from atom_view_pc import (
-    AtomPreset, draw_atom_title, render_dissection_frame,
+    make_atom_preset, draw_atom_title, render_dissection_frame,
     DISSECT_TARGET_PX, DISSECT_CLIP_CLOSED, Z_NOTE_COLOR, ROLL_ANGLE_STEP,
     DISSECT_ZOOM_FRAMES, DISSECT_FRAME_DELAY_S,
     DISSECT_TITLE_COLOR, DISSECT_BIG_FONT_SIZE, DISSECT_CAPTION_FONT_SIZE,
@@ -335,7 +335,7 @@ def atom_screenshots(z_list, zoom_target=ATOM_ZOOM_TARGET_PX):
     tables = _atom_tables()
     for z in z_list:
         sym = slater.element_symbol(z)
-        preset = AtomPreset(z, radial_tables=tables)
+        preset = make_atom_preset(z, radial_tables=tables)
         buf = fresh_buf()
         scale = preset.base_scale * (zoom_target / max(preset.r_ref * preset.base_scale, 1e-6))
         render_frame(buf, preset, angle, tilt, roll, scale)
@@ -412,7 +412,7 @@ def atom_gallery():
     cfg_font = ImageFont.load_default(size=18)
     for z in sorted(PERIODIC_TABLE):
         period, group = PERIODIC_TABLE[z]
-        preset = AtomPreset(z, radial_tables=tables)
+        preset = make_atom_preset(z, radial_tables=tables)
         buf = fresh_buf()
         scale = preset.base_scale * 2
         def overlays(draw):
@@ -505,7 +505,7 @@ def dissection_screenshots(z):
     caption) cells in journey order for the montage.
     """
     sym = slater.element_symbol(z)
-    preset = AtomPreset(z, radial_tables=_atom_tables())
+    preset = make_atom_preset(z, radial_tables=_atom_tables())
     plan = atom_cloud.subshell_dissection_plan(
         preset.xs, preset.ys, preset.zs, preset.shells, preset.ells, preset.config)
 
@@ -570,7 +570,7 @@ def dissection_animation_gif(z=DEFAULT_DISSECT_GIF_Z):
     DISSECT_FRAME_DELAY_S. Output: img/dissect_<sym>.gif.
     """
     sym = slater.element_symbol(z)
-    preset = AtomPreset(z, radial_tables=_atom_tables())
+    preset = make_atom_preset(z, radial_tables=_atom_tables())
     plan = atom_cloud.subshell_dissection_plan(
         preset.xs, preset.ys, preset.zs, preset.shells, preset.ells, preset.config)
 
