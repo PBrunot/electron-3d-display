@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert img/atomic_cube.jpg into a generated C header+source (src/splash_bitmap.h/.cpp)
+"""Convert img/atomic_cube.jpg into a generated C header+source (src/render/splash_bitmap.h/.cpp)
 holding it as a raw, already-panel-packed RGB565 pixel array -- the boot splash screen shown
 by main.cpp before the tilt calibration/chooser flow starts.
 
@@ -10,7 +10,7 @@ and the orbital/atom point clouds (CLAUDE.md section 5), the splash is a single 
 240x240 image (no decoder needed for anything ELSE onboard), and a raw blit at boot is both
 the simplest and the fastest possible path (a plain memcpy, no decode-time cost at all).
 
-Pixels are packed through the exact same bit formula as Display::packColor565() (src/
+Pixels are packed through the exact same bit formula as Display::packColor565() (src/render/
 display.h) -- plain textbook RGB565 (see CLAUDE.md section 2 for why: this panel's real
 quirk is a missing esp_lcd data_endian/rgb_ele_order config, not a G/B bit-swap needed in
 software here) -- so the emitted array is ALREADY in this panel's native format;
@@ -21,17 +21,17 @@ Regenerate with: python3 tools/splash_gen/render_splash.py
 from PIL import Image
 
 SRC_IMAGE = "/mnt/d/GitHub/electron-3d-display/img/atomic_cube.jpg"
-OUT_H = "/mnt/d/GitHub/electron-3d-display/src/splash_bitmap.h"
-OUT_CPP = "/mnt/d/GitHub/electron-3d-display/src/splash_bitmap.cpp"
+OUT_H = "/mnt/d/GitHub/electron-3d-display/src/render/splash_bitmap.h"
+OUT_CPP = "/mnt/d/GitHub/electron-3d-display/src/render/splash_bitmap.cpp"
 
-# Matches Display::kDisplayWidth/kDisplayHeight (src/display.h) -- the splash is drawn as one
+# Matches Display::kDisplayWidth/kDisplayHeight (src/render/display.h) -- the splash is drawn as one
 # opaque full-frame blit, not a positioned/composited backdrop like equation_bitmap.h's.
 WIDTH_PX = 240
 HEIGHT_PX = 240
 
 
 def pack_color565(r, g, b):
-    """Bit-for-bit port of Display::packColor565() (src/display.h) -- MUST stay identical to
+    """Bit-for-bit port of Display::packColor565() (src/render/display.h) -- MUST stay identical to
     that formula. Plain textbook RGB565; the panel-specific correction lives in the esp_lcd
     config (display.cpp), not in this bit layout."""
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)

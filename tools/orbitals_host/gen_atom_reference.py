@@ -1,4 +1,4 @@
-"""Host-side reference generator for validating src/slater.h + src/atom_cloud.h
+"""Host-side reference generator for validating src/physics/slater.h + src/physics/atom_cloud.h
 (the ESP32 C++ atom point-cloud port) against the already cross-validated
 MicroPython implementation (micropython/slater.py + micropython/atom_cloud.py).
 
@@ -17,7 +17,7 @@ three validation passes in ATOMS.md's validation plan:
     <symbol>_points.csv  -- index,x,y,z for POINTS_PER_CASE points (float,
                             rtol~2e-3 expected) -- same seed/count as the
                             device capture, so per-point order and content
-                            should match if src/atom_cloud.h's drawing-group
+                            should match if src/physics/atom_cloud.h's drawing-group
                             order and Hund filling are correct.
 """
 import os

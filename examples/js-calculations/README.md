@@ -40,7 +40,7 @@ sole 7 funzioni matematiche pure (nessuna dipendenza da DOM/THREE.js):
 `hydrogenRadialFunction`, `initLookupTableRadial`, `getValueFromLookupTable`.
 Resta nel repo (decisione esplicita, non un'svista) perché è il riferimento
 di verità (ground truth) usato per cross-validare il porting C++ in
-`src/orbitals.h/.cpp` e quello MicroPython in `micropython/orbitals.py` — vedi
+`src/physics/orbitals.h/.cpp` e quello MicroPython in `micropython/orbitals.py` — vedi
 `tools/orbitals_host/README.md` per come si esegue il confronto.
 
 ## Cosa NON era direttamente riusabile

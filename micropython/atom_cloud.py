@@ -251,7 +251,7 @@ def pixels_per_bohr_for_canvas(canvas_center, radius_fraction=_CALIBRATION_RADIU
 # the palette doubles as an energy-scale legend across every element's
 # cloud instead of just a K/L/M/... layer-separator with no physical
 # reading. Also ported to the C++ device build's own copy in
-# src/atom_cloud.h (kAtomShellRgb) -- keep the two in sync.
+# src/physics/atom_cloud.h (kAtomShellRgb) -- keep the two in sync.
 SHELL_RGB = (
     (255, 255, 255),  # unused (n=0)
     (140, 60, 255),    # n=1 K - deep violet-indigo (highest binding energy)

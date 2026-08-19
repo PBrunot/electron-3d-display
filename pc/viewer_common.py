@@ -41,7 +41,7 @@ _preset_np = render_core.preset_np
 WIDTH = 480
 HEIGHT = 480
 CENTER = WIDTH // 2
-DISPLAY_SCALE = 2  # tkinter window is WIDTH*DISPLAY_SCALE square; math stays at WIDTH/HEIGHT
+DISPLAY_SCALE = 1  # tkinter window is WIDTH*DISPLAY_SCALE square; math stays at WIDTH/HEIGHT
 DISPLAY_SIZE = (WIDTH * DISPLAY_SCALE, HEIGHT * DISPLAY_SCALE)
 
 # --- Camera motion ----------------------------------------------------------
@@ -77,7 +77,7 @@ SWITCH_TRANSITION_FRAMES = 20
 # own extent, so the dive clearly passes into/through it), then back. TARGET_PX
 # matches cloud_common.P90_TARGET_PX/the dissection's own on-screen framing
 # target, so "radius R fills TARGET_PX" means the same thing everywhere.
-ZOOM_BOUNDS_TARGET_PX = 150.0
+ZOOM_BOUNDS_TARGET_PX = 350.0
 ZOOM_OUTER_RADIUS_FACTOR = 1.25   # outer bound: outer radius x2 fills TARGET_PX (zoomed OUT)
 ZOOM_INNER_RADIUS_FACTOR = 0.35  # inner bound: first-shell radius x0.25 fills TARGET_PX (zoomed IN)
 
@@ -142,7 +142,7 @@ _MARKER_FONT = ImageFont.load_default(size=MARKER_FONT_SIZE)  # loaded once, not
 # --- Nucleus ----------------------------------------------------------------
 # 14px, not the device's 7: the PC buffer is 480x480 = 2x the 240 panel, so 2x
 # the panel px gives the same relative on-screen size. Matches today's device
-# change (src/orbital_view.cpp's kOrbitalProtonMarkerSize / atom_view.cpp's
+# change (src/views/orbital_view.cpp's kOrbitalProtonMarkerSize / atom_view.cpp's
 # kAtomProtonMarkerSize 3->7, "proton not visible enough, give him a bigger
 # radius"). Drawn AFTER the cloud (see render_frame()) so it's always a fully
 # opaque bright-red point on top and can't be dimmed out by points landing on
@@ -157,7 +157,7 @@ PROTON_COLOR = (255, 0, 0)
 # translucent point cloud reads. The nucleus above is NOT blended (one literal
 # particle, not a probability cloud).
 # Raised from 0.8 to ~0.92 to match today's device-side change
-# (src/camera.h's kElectronAlphaQ8 205->235): during rotation a given point
+# (src/render/camera.h's kElectronAlphaQ8 205->235): during rotation a given point
 # rarely lands on the exact same pixel two frames running, so it gets
 # essentially one blend toward full brightness before the persistence fade
 # below starts pulling that pixel back down -- the cloud reads visibly dimmer
@@ -193,7 +193,7 @@ _PERSISTENCE_TABLE = bytes((i * PERSISTENCE_DECAY) // 256 for i in range(256))
 # (pick_scale_bar_length()), shared with the device renderer so a bar reads
 # the same physical length on both. What's left here is PIL-specific geometry.
 # Every dimension doubled to match today's device-side change
-# (src/overlay.cpp: "la scaletta risulta illegibile, raddoppia le sue
+# (src/render/overlay.cpp: "la scaletta risulta illegibile, raddoppia le sue
 # dimensioni font compresa") -- margins, tick height, bar line thickness, and
 # the label now at a 2x font instead of PIL's tiny default.
 SCALE_BAR_MARGIN_X = 16
@@ -567,7 +567,7 @@ def maybe_zoom_excursion(app, base_scale, zoom_amplitude, outer_r_ref, inner_r_r
     inner_scale = inner_bound_scale(inner_r_ref, scale_factor)
     # ease_frames_base overrides the shared ZOOM_EXCURSION_EASE_FRAMES_BASE for
     # callers that want a different dive cadence -- e.g. orbital_view_pc.py's
-    # 1.5x-slower zooms (mirroring src/orbital_view.cpp's local 1.5x copies of
+    # 1.5x-slower zooms (mirroring src/views/orbital_view.cpp's local 1.5x copies of
     # camera.h's pacing constants).
     frames = shell_count_frames(ease_frames_base or ZOOM_EXCURSION_EASE_FRAMES_BASE,
                                 ZOOM_EXCURSION_EASE_FRAMES_PER_SHELL, shell_count)

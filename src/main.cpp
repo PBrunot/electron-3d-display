@@ -11,36 +11,34 @@
 // #define COLOR_TEST
 // #define BENCHMARK_TEST
 
-#include "chooser.h"
+#include "ux/chooser.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "imu.h"
-#include "screenshot_console.h"
-#include "splash_bitmap.h"
-#include "tilt_defaults.h"
-#include "tilt_gesture.h"
+#include "ux/imu.h"
+#include "debug/screenshot_console.h"
+#include "render/splash_bitmap.h"
+#include "config/hardware_constants.h"
+#include "config/visual_constants.h" // kSplashHoldMs
+#include "ux/tilt_gesture.h"
 
 #ifdef ATOM_VALIDATION_TEST
-#include "atom_validation_test.h"
+#include "debug/atom_validation_test.h"
 #endif
 
 #ifdef COLOR_TEST
-#include "color_calibration_test.h"
+#include "debug/color_calibration_test.h"
 #endif
 
 #ifdef BENCHMARK_TEST
-#include "benchmark_test.h"
+#include "debug/benchmark_test.h"
 #endif
 
-#include "atom_view_test.h"
-#include "atom_view.h"
+#include "debug/atom_view_test.h"
+#include "views/atom_view.h"
 
 static const char *kMainTag = "main";
-
-/// How long the boot splash (see splash_bitmap.h) is held before IMU/tilt setup starts.
-constexpr uint32_t kSplashHoldMs = 2000;
 
 extern "C" void app_main(void)
 {

@@ -24,7 +24,7 @@ it: precompute the inverse function itself, not just the CDF, so there's no
 search at sample time either.
 
 Same three-way porting/cross-check discipline as orbitals.py: a small
-portable PRNG (XorShift32) is mirrored bit-for-bit in src/pointcloud.h/.cpp
+portable PRNG (XorShift32) is mirrored bit-for-bit in src/physics/pointcloud.h/.cpp
 and tools/orbitals_host/js_reference.js, so the same seed produces the same
 accepted point sequence across all three ports -- see tools/orbitals_host/
 for the cross-check that relies on this.
@@ -292,7 +292,7 @@ def sample_orbital_point(sampler, rng):
     inverse table via linear interpolation
     (orbitals.get_value_from_lookup_table()). Always exactly 3 RNG draws per
     point, in the fixed order (r, theta, phi) -- mirrored exactly in
-    src/pointcloud.h/.cpp and tools/orbitals_host/js_reference.js so the
+    src/physics/pointcloud.h/.cpp and tools/orbitals_host/js_reference.js so the
     same seed produces the same point.
 
     Args:

@@ -67,7 +67,7 @@ import render_core  # shared numpy render core (also imported by web/py/web_comm
 import tkinter as tk
 
 # --- Cloud / defaults -------------------------------------------------------
-N_POINTS = 10000
+N_POINTS = 20000
 DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
 
 # Calibrated once for THIS canvas's own CENTER (see
@@ -157,7 +157,7 @@ DISSECT_FRAMES_PER_SHELL = 8  # extra frames added to every eased leg per subshe
 DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0
 
 # --- Dissection HUD ---------------------------------------------------------
-# Port of src/atom_view.cpp's drawDissectTitle(): a big subshell label
+# Port of src/views/atom_view.cpp's drawDissectTitle(): a big subshell label
 # ("2p") with a plain-size caption ("Fe (2/5)", the element symbol)
 # underneath, and the electron count as a small "<occ>e-" note in the
 # top-right corner, kept visually distinct from the orbital name.
@@ -168,7 +168,7 @@ DISSECT_TITLE_COLOR = (255, 255, 255)
 DISSECT_OCC_MARGIN_PX = 8
 
 # --- Element-switch intro (name slide-in + 0.5Hz flash) ---------------------
-# Port of src/atom_view.cpp's scrollElementIntro(): before switching to a new
+# Port of src/views/atom_view.cpp's scrollElementIntro(): before switching to a new
 # element, slide its Italian name in from the right over a big pale symbol
 # watermark with a "Z=n" caption, hold, then flash the name on/off once at
 # 0.5Hz (1s visible, 1s blank) instead of sliding back out.
@@ -181,7 +181,7 @@ ELEMENT_INTRO_SYMBOL_FONT_SIZE = 170
 ELEMENT_INTRO_Z_FONT_SIZE = 28
 
 # --- Dissection intro card --------------------------------------------------
-# Port of src/atom_view.cpp's showElectronConfigIntro(): a static 3-line
+# Port of src/views/atom_view.cpp's showElectronConfigIntro(): a static 3-line
 # "Configurazione / elettronica / <nome>" title card over a tiled dim "e-"
 # backdrop, held before the dissection sequence itself starts.
 DISSECT_INTRO_LINE1 = "Configurazione"

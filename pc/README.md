@@ -49,7 +49,7 @@ python3 pc/main.py
 
 A window opens on a 2s boot splash -- the atomic-cube image
 (`img/atomic_cube.jpg`, the same image the device embeds as a packed RGB565
-array in `src/splash_bitmap.h/.cpp`; the PC just loads the JPEG directly) --
+array in `src/render/splash_bitmap.h/.cpp`; the PC just loads the JPEG directly) --
 then a chooser screen (`pc/launcher.py`) over that SAME static image as its
 background: an electric-blue "ATOM CUBE" title and two bigger options, "UP:
 Orbitals" vs "DOWN: Elements" (port of the device's chooser: same fixed
@@ -259,7 +259,7 @@ ported here idea-for-idea, re-implemented per platform:
   the whole library, rather than each preset having its own distinguishing
   hue (an earlier, since-superseded scheme). Defined once in
   `micropython/cloud_common.py` (`ORBITAL_PHASE_COLORS`, used by PC + web),
-  mirrored in `src/orbital_library.h`'s `OrbitalDescriptor` for the device.
+  mirrored in `src/physics/orbital_library.h`'s `OrbitalDescriptor` for the device.
   The dim-point floor was raised too (`COLOR_MIN_LEVEL` 60→80, and the
   C++'s `kOrbitalColorMinLevel`).
 - **Proton always visible**: bigger (14px) and drawn on top of the cloud
@@ -319,7 +319,7 @@ ported here idea-for-idea, re-implemented per platform:
   idle auto-advance) remain PC/device-only.
 
 Orbital-name fix: the (n=5, l=2, m=0) preset was mislabeled "5p_z3"/"5pz3"
-in `micropython/cloud_common.py` and `src/orbital_library.h` (a d orbital,
+in `micropython/cloud_common.py` and `src/physics/orbital_library.h` (a d orbital,
 not p) -- corrected to `5d_z2`/`5dz2` in both, which fixes the PC and web
 ports too since they read the shared `ORBITAL_PRESETS` list.
 
@@ -453,7 +453,7 @@ sample *density*, not just occupancy, the way a translucent point cloud
 reads. `1.0` = opaque (the old direct-overwrite behavior).
 
 `ELECTRON_ALPHA`/`PERSISTENCE_DECAY` were raised together (0.8→0.92,
-100→150) to match the device's change (src/camera.h's
+100→150) to match the device's change (src/render/camera.h's
 `kElectronAlphaQ8`/`kPersistenceKeepQ8`): during rotation a point rarely
 lands on the exact same pixel two frames running, so it gets essentially one
 blend toward full brightness before the persistence fade starts pulling that
@@ -496,7 +496,7 @@ be. Lower `PERSISTENCE_DECAY` = shorter trails; 256 = never fades.
 
 Every dimension doubled (margins, tick height, line thickness) and the label
 now drawn at a 2× font instead of PIL's tiny default — port of today's device
-change (`src/overlay.cpp`: "la scaletta risulta illegibile, raddoppia le sue
+change (`src/render/overlay.cpp`: "la scaletta risulta illegibile, raddoppia le sue
 dimensioni font compresa"). The "nice" round lengths and the length-picking
 rule live in `micropython/cloud_common.py` (`SCALE_BAR_CANDIDATES` /
 `pick_scale_bar_length()`), shared with the device renderer

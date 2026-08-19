@@ -1,6 +1,6 @@
 # font_gen
 
-Offline generator for `src/font_data.h` (see `src/font.cpp`'s header comment for the
+Offline generator for `src/render/font_data.h` (see `src/render/font.cpp`'s header comment for the
 on-device rendering API/format that reads it). Rasterizes a real typeface into `constexpr`
 glyph tables at build time on a PC -- nothing is decoded or rasterized on the ESP32 itself,
 same "precompute offline, embed as `.rodata`" pattern used elsewhere in this project (e.g.
@@ -9,7 +9,7 @@ same "precompute offline, embed as `.rodata`" pattern used elsewhere in this pro
 ## Regenerating
 
 ```sh
-python3 generate_font.py > ../../src/font_data.h
+python3 generate_font.py > ../../src/render/font_data.h
 ```
 
 Requires Pillow (`pip install pillow`).
@@ -23,7 +23,7 @@ still having genuinely distinct lowercase letterforms (several other tiny pixel 
 e.g. Silkscreen, fall back to uppercase shapes for lowercase at small sizes -- checked
 during evaluation, ruled out for that reason).
 
-Three sizes are baked into `src/font_data.h` (glyph data only -- `src/font.cpp` is the
+Three sizes are baked into `src/render/font_data.h` (glyph data only -- `src/render/font.cpp` is the
 hand-maintained rendering logic that reads it, see that file's header comment):
 - `kFontSmall` (10px) -- secondary/readout text: the tiled "e-" backdrop behind
   atom_view.cpp's dissection intro card.
@@ -48,7 +48,7 @@ true ascent) -- untrimmed, that padding made text drawn at a given `(x, y)` look
 started several pixels lower than `(x, y)` actually is. See `generate_font.py`'s module
 docstring for the full rationale on both.
 
-Row data is stored as plain hex literals in `src/font_data.h`, one per pixel row per
+Row data is stored as plain hex literals in `src/render/font_data.h`, one per pixel row per
 glyph -- there is no ASCII-art intermediate to eyeball; `generate_font.py`'s rasterization
 is the source of truth, and a rendered preview (or an on-device screenshot) is what
 actually catches a bad glyph.

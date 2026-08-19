@@ -1,6 +1,6 @@
 # Rendering benchmark
 
-`src/benchmark_test.h`/`.cpp` sweeps a fixed atom (Fe, Z=26) across several point-cloud sizes,
+`src/debug/benchmark_test.h`/`.cpp` sweeps a fixed atom (Fe, Z=26) across several point-cloud sizes,
 timing real production-path rendering at each size, and logs both performance numbers and a
 handful of deterministic physics numbers usable as a correctness regression check. See that
 file's header comment for the full rationale.

@@ -7,7 +7,7 @@ Joffre, www.quantum-physics.polytechnique.fr (see examples/js-calculations/
 and tools/orbitals_host/ for the JS reference and the cross-validation
 harness used to verify this port against it).
 
-Same algorithms as src/orbitals.h/.cpp (the C++ port), renamed to snake_case
+Same algorithms as src/physics/orbitals.h/.cpp (the C++ port), renamed to snake_case
 per Python convention, so the two can be compared directly -- this module
 exists to let the "MicroPython on ESP32" firmware option be evaluated against
 the "C++/ESP-IDF" option before committing to either. Written against the
@@ -51,11 +51,11 @@ _pow = math.pow
 _pi = math.pi
 
 # Maximum principal quantum number supported by laguerre_coeffs()'s
-# fixed-length coefficient list. Matches kOrbitalNMax in src/orbitals.h so
+# fixed-length coefficient list. Matches kOrbitalNMax in src/physics/orbitals.h so
 # the two ports behave identically for the same inputs.
 N_MAX = 16
 
-# Default lookup table resolution, matching kOrbitalTableSize in src/orbitals.h.
+# Default lookup table resolution, matching kOrbitalTableSize in src/physics/orbitals.h.
 TABLE_SIZE = 1001
 
 

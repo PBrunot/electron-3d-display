@@ -1,7 +1,7 @@
 """Generate MicroPython-reference CSV artifacts for the hydrogen-orbital math
 cross-check, using micropython/orbitals.py -- a candidate implementation for
 running this project's orbital math directly as MicroPython on the ESP32,
-evaluated here as an alternative to the C++/ESP-IDF port in src/orbitals.h/.cpp.
+evaluated here as an alternative to the C++/ESP-IDF port in src/physics/orbitals.h/.cpp.
 
 Usage (run under the MicroPython unix port, not CPython):
     micropython gen_mpy_reference.py <test_cases.csv> <out_dir>
