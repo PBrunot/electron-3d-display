@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "orbital_library.h"
 #include "overlay.h"
+#include "screenshot_pause.h"
 
 static const char *kOrbitalViewTag = "orbital_view";
 
@@ -260,6 +261,8 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
 
     while (true)
     {
+        screenshot_pause::checkpoint(); // see screenshot_pause.h -- lets a screenshot capture happen safely
+
         TiltEvent tiltEv = tilt.poll();
         if (tiltEv.phase == TiltPhase::kConfirmed)
             lastActivityUs = esp_timer_get_time();
