@@ -6,5 +6,10 @@
   "platformio-ide.useBuiltinPIOCore": true,
   "editor.formatOnSave": true,
   "cmake.configureOnOpen": false,
-  "cmake.configureOnEdit": false
+  "cmake.configureOnEdit": false,
+  "files.exclude": {
+    "**/.ccache": true,
+    "**/.pio": true,
+    "**/obj/": true
+  }
 }
