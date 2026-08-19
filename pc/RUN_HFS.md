@@ -74,7 +74,15 @@ python pc/atom_main.py                    # default: carbon
 | 3  | Li | 2s      | 0.95             | 54 | Xe | 5p      | 0.93      |
 | 6  | C  | 2p      | 0.91             | 55 | Cs | 6s      | 0.93      |
 | 11 | Na | 3s      | 0.94             | 79 | Au | 6s      | ~0.95     |
+| 24 | Cr | 4s      | 0.95             | 79 | Au | 6s (Dirac) | ~0.70* |
 | 26 | Fe | 4s      | 0.90             | 92 | U  | 7s (Dirac) | 0.99   |
+| 29 | Cu | 4s      | 0.96             |    |    |            |        |
+
+\* Z\u226555 tables are RELATIVISTIC (Dirac); Clementi-Raimondi is
+nonrelativistic, so the s/p ratios carry a systematic relativistic-vs-NR
+offset (~0.7 for the 5d/6s block) -- the contraction itself is validated
+against the NIST RLDA eigenvalues. Pd (Z=46, 0.33) is a documented
+X\u03b1/LDA d-shell limitation (4d eigenvalue matches NIST LDA).
 
 (Old hydrogenic model: Li 1.30, Na 1.45, Fe 1.54, Kr 1.52, Cs 3.34,
 Au 3.40, U 4.96.)

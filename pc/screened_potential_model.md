@@ -168,14 +168,28 @@ Two interchangeable back-ends:
    3d/4s ordering (Fe 3d drifting out to 420 pm) turned out to be an SCF
    mixing artifact, not physics: with the default 50% density mixing the
    SCF chases an unstable direction into a metastable diffuse-3d solution;
-   with mix=0.35 (or warm-started from α=1.0) Fe converges to the physical
-   solution (3d mode 36 pm inside 4s 140 pm, ε(3d) −0.268 vs NIST LDA
-   −0.295), so **mix=0.35 is the default**. Final radii at α=2/3/mix=0.35
+   with the ARPACK warm-start sigma bug fixed (see below) the SCF is stable
+   and mix-independent (0.3–0.5 agree), giving the physical solution
+   (Fe 3d 36 pm inside 4s 140 pm, ε(3d) −0.268 vs NIST LDA −0.295),
+   so **mix=0.4 (speed) is the default, warm_start off**. **Actual root
+    cause found and fixed (2026-08-19)**: the per-l ARPACK warm-start
+    shift (previous iteration's deepest eigenvalue − 0.05) could land
+    ABOVE an occupied state when eigenvalues move between iterations
+    (Fe 3d: −0.06 → −1.35 Ha), so ARPACK returned an UNOCCUPIED
+    eigenvalue in its place and the corrupted density drove the
+    collapse. Removed. Final radii at α=2/3
    on the representative set: H 0.99, He 0.92, Li 0.95, Be 1.03, C 0.91,
-   Ne 0.81, Na 0.94, Ar 0.92, Fe 0.90, Kr 0.91, Xe 0.93, Cs 0.99, Au 0.95 — all
+   Ne 0.81, Na 0.94, Ar 0.92, Cr 0.95, Fe 0.90, Cu 0.96, Kr 0.91,
+    Xe 0.93, Cs 0.99, Au 0.95 — all
    within ±10–20% of Clementi, versus the old model's 1.3–5× errors.
     U (NR) is 1.39; with the relativistic (Dirac) final pass the 7s
-    contracts to 173.7 pm vs literature 175 → **0.99**.
+    contracts to 173.7 pm vs literature 175 → **0.99**. The 5d/6s block
+    (Hf–Au) reads ~0.7 vs Clementi: the tables are RELATIVISTIC for
+    Z≥55, while Clementi-Raimondi is nonrelativistic -- the s/p
+    contraction is real (validated against the NIST RLDA eigenvalues) and
+    the offset is a reference mismatch, not an error. Pd (Z=46) is a
+    documented Xα/LDA d-shell limitation (eigenvalue matches NIST LDA;
+    density too compact vs HF).
 4. **NIST "Atomic Reference Data for Electronic Structure Calculations"
    (Kotochigova et al. 1997) [4]**: per-element files (Z=1..92) with total
    energies + orbital eigenvalues in four approximations (LDA, LSD, RLDA,
