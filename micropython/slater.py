@@ -38,6 +38,13 @@ not meant to reproduce spectroscopic-grade energies.
 
 MAX_Z = 118
 
+# Display range cap (2026-08): the SPARC-atomSFE radial tables only cover
+# Z=1..92, and the whole project is deliberately limited to that range --
+# every viewer port (device, micropython, PC, web) stops its navigation at
+# MAX_DISPLAY_Z. The Z=93..118 data (configs/symbols/names) stays available
+# for physics/validation code that still reads it.
+MAX_DISPLAY_Z = 92
+
 from slater_cr_zeff import CR_Z_EFF  # noqa: E402 -- data module, same package
 
 _SUBSHELL_CAPACITY = {0: 2, 1: 6, 2: 10, 3: 14}

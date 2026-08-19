@@ -380,7 +380,7 @@ class WebAtomApp:
 
     def request_z(self, step):
         new_z = self.z + step
-        if 1 <= new_z <= slater.MAX_Z:
+        if 1 <= new_z <= slater.MAX_DISPLAY_Z:
             self.pending_z = new_z
 
     def request_dissect(self):

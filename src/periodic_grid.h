@@ -141,6 +141,12 @@ inline int buildColumnMembers(int col, int *members)
 }
 } // namespace periodic_grid_detail
 
+// Display Z range cap (2026-08): the SPARC-atomSFE radial tables cover Z=1..92 and the
+// whole project is deliberately limited to that range -- AtomView navigation never steps
+// past kMaxDisplayZ. The Z=93..118 data in kElementGrid/kGroup3Column stays (physics and
+// validation code still read it).
+constexpr int kMaxDisplayZ = 92;
+
 /**
  * Step `currentZ` by one position in the periodic table's "read down a column, then jump to
  * the top of the next column" order (delta = +1 "forward"/"down", -1 "backward"/"up"),
@@ -156,7 +162,12 @@ inline int buildColumnMembers(int col, int *members)
  * (buildColumnMembers() above). Each step is the exact inverse of the opposite-delta step
  * from the resulting element, so alternating Up/Down always returns to where you started.
  */
-inline int periodicTableSnakeStep(int currentZ, int delta)
+namespace periodic_grid_detail
+{
+
+// Full 118-element snake step -- the un-capped walk behind the capped
+// periodicTableSnakeStep() below (see its docstring for the walk's order).
+inline int periodicTableSnakeStepFull(int currentZ, int delta)
 {
     if (isGroup3Member(currentZ))
     {
@@ -197,4 +208,24 @@ inline int periodicTableSnakeStep(int currentZ, int delta)
         return delta > 0 ? kGroup3Column[0] : kGroup3Column[kGroup3ColumnCount - 1];
     int nextCount = periodic_grid_detail::buildColumnMembers(nextCol, members);
     return delta > 0 ? members[0] : members[nextCount - 1];
+}
+} // namespace periodic_grid_detail
+
+/**
+ * Capped snake step: the full-table walk with every Z > kMaxDisplayZ skipped, so the cycle
+ * runs over exactly the Z=1..92 elements (forward from the last in-range element wraps to
+ * H, backward from H wraps to the last in-range one -- the same structure the full table
+ * has at 118). Every in-range element keeps exactly one successor/predecessor, so
+ * alternating Up/Down still returns to where you started.
+ */
+inline int periodicTableSnakeStep(int currentZ, int delta)
+{
+    int z = currentZ;
+    for (int guard = 0; guard < 118; guard++)
+    {
+        z = periodic_grid_detail::periodicTableSnakeStepFull(z, delta);
+        if (z <= kMaxDisplayZ)
+            return z;
+    }
+    return currentZ; // unreachable: the full cycle always reaches an in-range element
 }

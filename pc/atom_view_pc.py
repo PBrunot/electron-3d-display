@@ -26,6 +26,7 @@ reference sphere, so the eye has a recognizable sphere shape to track even
 when the active subshell's dimming makes the actual points hard to see.
 """
 
+import array
 import math
 import os
 import random
@@ -37,6 +38,7 @@ import micropython_shim  # noqa: F401 -- must precede micropython/ imports (see 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'micropython'))
 
 import atom_cloud
+import clementi_radii
 import cloud_common
 import slater
 
@@ -72,6 +74,44 @@ DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-e
 # micropython/atom_view.py uses the device's much smaller CENTER and lands
 # on a different, device-appropriate PIXELS_PER_BOHR).
 PIXELS_PER_BOHR = atom_cloud.pixels_per_bohr_for_canvas(CENTER)
+
+
+def _valence_subshell(config):
+    """Highest-l subshell among the highest-n occupied ones -- the subshell
+    the Clementi-Raimondi 'atomic radius' refers to (same rule as
+    pc/validate_atoms.py / pc/hfs_solver.py's valence_subshell())."""
+    n_max = max(n for n, _ell, _occ in config)
+    return max(((n, ell) for n, ell, _occ in config if n == n_max), key=lambda t: t[1])
+
+
+def clementi_size_factor(radial_tables, z):
+    """Display size calibration for the screened-potential tables.
+
+    The SPARC-atomSFE LDA tables reproduce the NIST LDA eigenvalues to
+    ~1e-6 Ha (see pc/nist_compare_atomsfe.py) but their valence orbitals are
+    systematically more diffuse than the Hartree-Fock based Clementi-Raimondi
+    reference (LDA self-interaction error -- worst for light elements: H
+    ~2.2x, period 2 ~1.7x, Fe ~1.1x). This returns the per-element factor
+    that rescales the rendered cloud so the valence subshell's mode radius
+    lands on the CR literature value, while the internal shell structure and
+    shapes stay the (NIST-exact) table's own.
+
+    Returns lit/mode (pm/pm); 1.0 when the literature value or the table
+    entry is unavailable (Z>92, missing subshell, or the hydrogenic model,
+    which is already CR-calibrated via z_eff).
+    """
+    lit = clementi_radii.CLEMENTI_RADIUS_PM.get(z)
+    if not lit:
+        return 1.0
+    try:
+        config = slater.electron_configuration(z)
+        n, ell = _valence_subshell(config)
+        mode_pm = radial_tables.source(z, n, ell).mode_radius() * atom_cloud.PM_PER_BOHR
+    except (KeyError, ValueError):
+        return 1.0
+    if mode_pm <= 0.0:
+        return 1.0
+    return lit / mode_pm
 
 # --- Manual zoom (mouse wheel / +- keys) ------------------------------------
 # A persistent multiplier on top of preset.base_scale, independent of the
@@ -327,6 +367,20 @@ class AtomPreset:
         xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(
             z, count=N_POINTS, radial_tables=radial_tables)
 
+        # Clementi-Raimondi display-size calibration for the screened-
+        # potential tables (see clementi_size_factor()): rescale the whole
+        # cloud so the valence subshell's mode lands on the literature
+        # radius. The hydrogenic model (radial_tables=None) needs no
+        # correction -- its Z_eff are CR-derived already. Scaling preserves
+        # signs (R(r/f) keeps the node structure of R(r)) and the internal
+        # relative shell structure; only the atom's overall size changes.
+        if radial_tables is not None:
+            f = clementi_size_factor(radial_tables, z)
+            if f != 1.0:
+                xs = array.array('f', (v * f for v in xs))
+                ys = array.array('f', (v * f for v in ys))
+                zs = array.array('f', (v * f for v in zs))
+
         self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
             xs, ys, zs, colors, shells, ells, signs, config)
         self.title = atom_cloud.title_for_atom(z, config)
@@ -406,6 +460,16 @@ class AtomViewApp:
 
         self.z = z
         self.radial_tables = radial_tables
+        # Z range: the whole project is limited to Z<=92 (slater.MAX_DISPLAY_Z
+        # -- the SPARC-atomSFE tables' hard cap), for every port including
+        # this one's hydrogenic model; the Z=93..118 data stays in slater but
+        # navigation never goes there. The tables' own coverage is also
+        # respected in case a partial npz is loaded.
+        self._max_z = min(
+            radial_tables.z_list[-1]
+            if radial_tables is not None and hasattr(radial_tables, 'z_list')
+            else slater.MAX_Z,
+            slater.MAX_DISPLAY_Z)
         self.preset = AtomPreset(self.z, radial_tables)
         self._pending_z = None
         self.zoom_factor = 1.0
@@ -514,7 +578,7 @@ class AtomViewApp:
             self.abort_dissection = True
             return
         new_z = self.z + step
-        if 1 <= new_z <= slater.MAX_Z:
+        if 1 <= new_z <= self._max_z:
             self._pending_z = new_z
 
     def _request_dissect(self):
@@ -812,8 +876,8 @@ class AtomViewApp:
         """Random Z in [1, MAX_Z], guaranteed != current (device
         randomIndexExcluding(z-1, kMaxZ)+1).
         """
-        offset = 1 + random.randrange(slater.MAX_Z - 1)
-        return 1 + (current - 1 + offset) % slater.MAX_Z
+        offset = 1 + random.randrange(self._max_z - 1)
+        return 1 + (current - 1 + offset) % self._max_z
 
     def _switch_to_element(self, new_z):
         """Element-name intro + fly-over switch to `new_z` -- the PC

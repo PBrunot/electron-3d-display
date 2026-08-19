@@ -369,6 +369,9 @@ def main(argv):
     if RADIAL_MODEL == 'hfs':
         import hfs_tables
         HFS = hfs_tables.load(tables_path or hfs_tables.DEFAULT_TABLES)
+        # The screened-potential tables cover Z=1..92 (SPARC-atomSFE cap);
+        # don't try to look up elements beyond the tables' own coverage.
+        zmax = min(zmax, max(HFS.z_list))
 
     print("Atom-model validation vs Clementi-Raimondi (model radius = mode of r^2 R^2,")
     if RADIAL_MODEL == 'hfs':

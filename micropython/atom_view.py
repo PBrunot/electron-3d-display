@@ -147,7 +147,7 @@ def run(z=DEFAULT_Z, d=None, detector=None):
     if d is None:
         print("atom: display init...")
         d = display_mod.init()
-    print("atom: display ready, Z=1..%d available" % slater.MAX_Z)
+    print("atom: display ready, Z=1..%d available" % slater.MAX_DISPLAY_Z)
 
     preset = AtomPresetState(z)
 
@@ -180,9 +180,9 @@ def run(z=DEFAULT_Z, d=None, detector=None):
     while True:
         # Nudge check: steps the atomic number Z and re-does the fly-over on
         # a detected L/R, same as orbital_view.py's preset switch except
-        # clamped to [1, MAX_Z] instead of wrapping -- Z has real endpoints
-        # (hydrogen, and this model's practical fallback ceiling), unlike a
-        # cyclic preset list. Out-of-range nudges are silently ignored. U
+        # clamped to [1, MAX_DISPLAY_Z] instead of wrapping -- Z has real
+        # endpoints (hydrogen, and the project's Z<=92 display range), unlike
+        # a cyclic preset list. Out-of-range nudges are silently ignored. U
         # returns to the menu (see this function's docstring); D is unused.
         # LOADING_TEXT covers AtomPresetState()'s rebuild so the display
         # doesn't just freeze on the old cloud.
@@ -199,7 +199,7 @@ def run(z=DEFAULT_Z, d=None, detector=None):
                 step = drc._NUDGE_DIRECTION_STEP.get(direction)
                 if step is not None:
                     new_z = z + step
-                    if 1 <= new_z <= slater.MAX_Z:
+                    if 1 <= new_z <= slater.MAX_DISPLAY_Z:
                         z = new_z
                         fb.fill(0)
                         fb.text(drc.LOADING_TEXT, drc.LOADING_TEXT_POS[0], drc.LOADING_TEXT_POS[1], text_color)

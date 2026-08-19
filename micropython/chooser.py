@@ -76,7 +76,7 @@ def _random_backdrop():
         index = random.randrange(len(cloud_common.ORBITAL_PRESETS))
         print("chooser: backdrop = orbital preset %d" % index)
         return orbital_view.PresetState(index)
-    z = random.randint(1, slater.MAX_Z)
+    z = random.randint(1, slater.MAX_DISPLAY_Z)
     print("chooser: backdrop = element Z=%d" % z)
     return atom_view.AtomPresetState(z)
 
