@@ -7,9 +7,8 @@
   "editor.formatOnSave": true,
   "cmake.configureOnOpen": false,
   "cmake.configureOnEdit": false,
-  "files.exclude": {
+  "files.watcherExclude": {
     "**/.ccache": true,
-    "**/.pio": true,
-    "**/obj/": true
+    "**/.pio": true
   }
 }
