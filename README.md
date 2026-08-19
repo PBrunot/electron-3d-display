@@ -215,18 +215,34 @@ validation seriously:
   comparing histograms (catches missing factors in the density that
   statistical comparison would miss). `tools/orbitals_host/compare.py`
   enforces the tolerances.
-- **Chemistry checks** (`pc/validate_atoms.py`): valence radii vs the
-  Clementi–Raimondi literature (period-2 elements within ~3%; the
-  documented hydrogenic-model drift of periods 3–4 is 1.3–1.5×),
-  Unsöld isotropy of full shells, Hund anisotropy of partial shells,
-  the Fe 3d < 4s ordering, and H/He exactness.
+- **Multi-electron atoms cross-checked against NIST.** The per-element
+  radial model (SPARC-atomSFE, all-electron LDA_SVWN) reproduces the NIST
+  *Atomic Reference Data for Electronic Structure Calculations*
+  (Kotochigova et al., 1997) LDA eigenvalues to ≤7×10⁻⁶ Ha across all 915
+  subshells of Z=1–92, and its ground-state electron configurations match
+  NIST's 92/92 (`pc/nist_compare_atomsfe.py`). LDA valence orbitals are
+  more diffuse than the Hartree–Fock Clementi–Raimondi reference
+  (self-interaction error), so rendered sizes are additionally calibrated
+  per element to land on the Clementi–Raimondi literature radius while the
+  internal shell structure stays NIST-exact
+  (`pc/validate_atoms.py --model hfs --strict --all`,
+  `tools/atom_size_calib_gen.py`). Unsöld isotropy of full shells, Hund
+  anisotropy of partial shells, the Fe 3d < 4s ordering, and H/He
+  exactness are checked the same way.
+- **A real modeling bug surfaced by that cross-check, not assumed away.**
+  An earlier iteration of the in-repo Hartree–Fock–Slater solver (now
+  superseded by SPARC-atomSFE as the default, kept for comparison) was
+  collapsing some transition-metal 3d subshells into a spurious diffuse
+  state; comparing against NIST eigenvalues is what caught it. Root cause
+  and fix: `pc/screened_potential_model.md` §5.
 - **Physical display checks** (`examples/corner_calibration/`): the
   panel mirror and BGR color bugs were found and fixed empirically,
   not assumed.
 
 The full derivations and numbers live in `ORBITALI.md` (hydrogen math),
-`ATOMS.md` (multi-electron model) and `CLAUDE.md` (hardware, pinout,
-perf budget, roadmap) — in Italian.
+`ATOMS.md` (multi-electron model), `pc/screened_potential_model.md` /
+`pc/RUN_HFS.md` (radial-model solver, NIST validation, references) and
+`CLAUDE.md` (hardware, pinout, perf budget, roadmap) — in Italian.
 
 ---
 
@@ -240,6 +256,21 @@ perf budget, roadmap) — in Italian.
   [www.quantum-physics.polytechnique.fr](https://www.quantum-physics.polytechnique.fr/)
   · [about](https://www.quantum-physics.polytechnique.fr/en/html/about.html)
   — offline copy in `examples/js-calculations/`.
+- **SPARC-atomSFE** — [GitHub](https://github.com/SPARC-X/SPARC-atomSFE):
+  the all-electron LDA_SVWN spectral-finite-element solver that generates
+  this project's default per-element radial tables (`pc/hfs_atomsfe.py`),
+  used here purely as an independent solver — this project is not
+  affiliated with or endorsed by the SPARC-X team.
+- **NIST Atomic Reference Data for Electronic Structure Calculations**
+  (S. Kotochigova, Z. H. Levine, E. L. Shirley, M. D. Stiles, C. W. Clark,
+  1997) — [math.nist.gov/DFTdata/atomdata](https://math.nist.gov/DFTdata/atomdata/):
+  the independent LDA eigenvalue/configuration data the multi-electron
+  atom model is validated against (`pc/nist_compare_atomsfe.py`).
+- **NIST SRD 111**, "Ground Levels and Ionization Energies for the Neutral
+  Atoms" (A. Kramida et al.) —
+  [physics.nist.gov/PhysRefData/IonEnergy](https://physics.nist.gov/PhysRefData/IonEnergy/):
+  experimental ionization energies used for the Koopmans check in
+  `pc/validate_atoms.py`.
 - **Waveshare ESP32-S3-LCD-1.3** — [wiki](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3).
 - **VolosR/esp32Prism** — [GitHub](https://github.com/VolosR/esp32Prism):
   the double-buffered sprite / Pepper's Ghost reference demo for this
@@ -250,9 +281,13 @@ perf budget, roadmap) — in Italian.
   **st7789py_mpy** (russhughes) —
   [GitHub](https://github.com/russhughes/st7789py_mpy) (vendored in
   `micropython/st7789py.py`).
-- **Physics toolkit**: Clementi–Raimondi effective nuclear charges
-  (table cited in `micropython/slater_cr_zeff.py`), Slater's rules,
-  Unsöld's theorem, Hund's rules, Marsaglia's XorShift32.
+- **Physics toolkit**: Clementi–Raimondi effective nuclear charges and
+  atomic radii (E. Clementi, D. L. Raimondi, *J. Chem. Phys.* **38**, 2686
+  (1963); Clementi, Raimondi, Reinhardt, *J. Chem. Phys.* **47**, 1300
+  (1967); table cited in `micropython/slater_cr_zeff.py`), Slater's rules,
+  Unsöld's theorem, Hund's rules, Marsaglia's XorShift32. Full reference
+  list (including the superseded Hartree–Fock–Slater/Dirac solver's own
+  sources) in `pc/screened_potential_model.md` §6.
 
 ---
 
@@ -504,18 +539,37 @@ repository prende la validazione sul serio:
   test molto più severo del confronto di istogrammi (cattura fattori
   mancanti nella densità che un confronto statistico non vedrebbe).
   `tools/orbitals_host/compare.py` impone le tolleranze.
-- **Controlli di chimica** (`pc/validate_atoms.py`): raggi di valenza vs
-  la letteratura Clementi–Raimondi (elementi del periodo 2 entro ~3%; la
-  deriva documentata del modello idrogenoide per i periodi 3–4 è
-  1.3–1.5×), isotropia di Unsöld dei gusci pieni, anisotropia di Hund dei
-  gusci parziali, l'ordinamento Fe 3d < 4s e l'esattezza di H/He.
+- **Atomi multielettronici verificati contro NIST.** Il modello radiale
+  per elemento (SPARC-atomSFE, all-electron LDA_SVWN) riproduce gli
+  autovalori LDA del NIST *Atomic Reference Data for Electronic Structure
+  Calculations* (Kotochigova et al., 1997) entro ≤7×10⁻⁶ Ha su tutti i 915
+  sottogusci di Z=1–92, e le sue configurazioni elettroniche allo stato
+  fondamentale corrispondono al NIST 92/92 (`pc/nist_compare_atomsfe.py`).
+  Gli orbitali di valenza LDA sono più diffusi del riferimento
+  Hartree–Fock di Clementi–Raimondi (errore di autointerazione), quindi le
+  dimensioni renderizzate vengono ulteriormente calibrate per elemento in
+  modo da coincidere col raggio di letteratura Clementi–Raimondi, mentre
+  la struttura interna dei gusci resta NIST-esatta
+  (`pc/validate_atoms.py --model hfs --strict --all`,
+  `tools/atom_size_calib_gen.py`). Isotropia di Unsöld dei gusci pieni,
+  anisotropia di Hund dei gusci parziali, l'ordinamento Fe 3d < 4s e
+  l'esattezza di H/He sono verificati con lo stesso metodo.
+- **Un bug reale scoperto proprio da questo confronto, non escluso per
+  ipotesi.** Un'iterazione precedente del solver Hartree–Fock–Slater
+  interno al repository (ora sostituito da SPARC-atomSFE come default,
+  mantenuto per confronto) collassava alcuni sottogusci 3d dei metalli di
+  transizione in uno stato diffuso spurio; il confronto con gli autovalori
+  NIST è ciò che lo ha fatto emergere. Causa e correzione:
+  `pc/screened_potential_model.md` §5.
 - **Controlli fisici sul display** (`examples/corner_calibration/`): i
   bug di specchiamento e di ordine colore BGR del pannello sono stati
   trovati e corretti empiricamente, non assunti.
 
 Le derivazioni complete e i numeri vivono in `ORBITALI.md` (matematica
-dell'idrogeno), `ATOMS.md` (modello multielettronico) e `CLAUDE.md`
-(hardware, pinout, budget di performance, roadmap) — in italiano.
+dell'idrogeno), `ATOMS.md` (modello multielettronico),
+`pc/screened_potential_model.md` / `pc/RUN_HFS.md` (solver del modello
+radiale, validazione NIST, riferimenti) e `CLAUDE.md` (hardware, pinout,
+budget di performance, roadmap) — in italiano.
 
 ---
 
@@ -530,6 +584,22 @@ dell'idrogeno), `ATOMS.md` (modello multielettronico) e `CLAUDE.md`
   [www.quantum-physics.polytechnique.fr](https://www.quantum-physics.polytechnique.fr/)
   · [about](https://www.quantum-physics.polytechnique.fr/en/html/about.html)
   — copia offline in `examples/js-calculations/`.
+- **SPARC-atomSFE** — [GitHub](https://github.com/SPARC-X/SPARC-atomSFE):
+  il solver spectral-finite-element all-electron LDA_SVWN che genera le
+  tabelle radiali per elemento usate di default da questo progetto
+  (`pc/hfs_atomsfe.py`), usato qui puramente come solver indipendente —
+  questo progetto non è affiliato né sponsorizzato dal team SPARC-X.
+- **NIST Atomic Reference Data for Electronic Structure Calculations**
+  (S. Kotochigova, Z. H. Levine, E. L. Shirley, M. D. Stiles, C. W. Clark,
+  1997) — [math.nist.gov/DFTdata/atomdata](https://math.nist.gov/DFTdata/atomdata/):
+  i dati LDA (autovalori/configurazioni) indipendenti contro cui il
+  modello degli atomi multielettronici è validato
+  (`pc/nist_compare_atomsfe.py`).
+- **NIST SRD 111**, "Ground Levels and Ionization Energies for the Neutral
+  Atoms" (A. Kramida et al.) —
+  [physics.nist.gov/PhysRefData/IonEnergy](https://physics.nist.gov/PhysRefData/IonEnergy/):
+  energie di ionizzazione sperimentali usate per il controllo di Koopmans
+  in `pc/validate_atoms.py`.
 - **Waveshare ESP32-S3-LCD-1.3** — [wiki](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3).
 - **VolosR/esp32Prism** — [GitHub](https://github.com/VolosR/esp32Prism):
   la demo di riferimento Pepper's Ghost / sprite a doppio buffer per
@@ -540,10 +610,14 @@ dell'idrogeno), `ATOMS.md` (modello multielettronico) e `CLAUDE.md`
   **st7789py_mpy** (russhughes) —
   [GitHub](https://github.com/russhughes/st7789py_mpy) (incluso in
   `micropython/st7789py.py`).
-- **Cassetta degli attrezzi fisica**: cariche nucleari efficaci di
-  Clementi–Raimondi (tabella citata in `micropython/slater_cr_zeff.py`),
-  regole di Slater, teorema di Unsöld, regole di Hund, XorShift32 di
-  Marsaglia.
+- **Cassetta degli attrezzi fisica**: cariche nucleari efficaci e raggi
+  atomici di Clementi–Raimondi (E. Clementi, D. L. Raimondi, *J. Chem.
+  Phys.* **38**, 2686 (1963); Clementi, Raimondi, Reinhardt, *J. Chem.
+  Phys.* **47**, 1300 (1967); tabella citata in
+  `micropython/slater_cr_zeff.py`), regole di Slater, teorema di Unsöld,
+  regole di Hund, XorShift32 di Marsaglia. Elenco completo dei riferimenti
+  (incluse le fonti del solver Hartree–Fock–Slater/Dirac sostituito) in
+  `pc/screened_potential_model.md` §6.
 
 ---
 
