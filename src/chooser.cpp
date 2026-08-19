@@ -5,7 +5,9 @@
 #include <cstring>
 
 #include "atom_view.h"
+#include "camera.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "font.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,6 +24,12 @@ static const char *kChooserTag = "chooser";
 constexpr uint16_t kChooserTextColor = Display::kColorWhite;
 constexpr uint16_t kChooserArrowColor = Display::packColor565(255, 210, 60);
 constexpr int kChooserPollDelayMs = 30; ///< Poll/redraw cadence for both the menu and calibration loops.
+
+/// Idle time on the menu (no confirmed tilt-hold) before it auto-launches a demo viewer, coin-
+/// flipping between orbitals and elements -- shorter than either viewer's own kIdleJumpUs
+/// (60s) since the splash is meant to be a passive attract screen, not something visitors are
+/// expected to interact with first.
+constexpr int64_t kChooserIdleJumpUs = 30'000'000;
 
 /// Text scale for the "and hold"/direction-name calibration lines, on top of kFontLarge.
 constexpr int kCalibLineY0 = 60;      ///< Y of the first calibration line.
@@ -159,6 +167,8 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
 {
     ESP_LOGI(kChooserTag, "menu ready");
 
+    int64_t lastActivityUs = esp_timer_get_time();
+
     while (true)
     {
         display.waitForFlushDone();
@@ -171,6 +181,7 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
 
         if (ev.phase == TiltPhase::kConfirmed)
         {
+            lastActivityUs = esp_timer_get_time();
             if (ev.direction == TiltDirection::kUp)
             {
                 ESP_LOGI(kChooserTag, "-> orbital viewer");
@@ -183,6 +194,22 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
                 runAtomView(display, tilt);
                 ESP_LOGI(kChooserTag, "back to menu");
             }
+            lastActivityUs = esp_timer_get_time();
+        }
+        else if (esp_timer_get_time() - lastActivityUs > kChooserIdleJumpUs)
+        {
+            if (randomUnit() < orb_real_t(0.5))
+            {
+                ESP_LOGI(kChooserTag, "idle 30s+ -- auto-launching orbital viewer");
+                runOrbitalView(display, tilt);
+            }
+            else
+            {
+                ESP_LOGI(kChooserTag, "idle 30s+ -- auto-launching element viewer");
+                runAtomView(display, tilt);
+            }
+            ESP_LOGI(kChooserTag, "back to menu");
+            lastActivityUs = esp_timer_get_time();
         }
 
         vTaskDelay(pdMS_TO_TICKS(kChooserPollDelayMs));
