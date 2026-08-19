@@ -140,10 +140,10 @@ DISSECT_CLIP_OPEN = 0.0     # clip threshold that hides rotated-z > 0 (the "cut"
 DISSECT_CLIP_CLOSED = 1.0e6  # clip threshold no real point can exceed (nothing hidden)
 DISSECT_ORIENT_FRAMES = 55   # base frames to ease the clip open/closed (see shell_count_frames())
 DISSECT_ZOOM_FRAMES = 55     # base frames to ease camera scale from one stop to the next
-# Port of the device's dissection pacing change (kDissectFlySpeedPmPerSec
-# halved, kDissectFlyMinMs doubled -- "every shell-to-shell hop now takes ~2x
-# as long", 2026-08-17): only the per-shell zoom legs are slowed; the
-# open/close legs keep their own constants (they're a PC-only extra anyway).
+# Mirrors the device's kDissectFlySpeedPmPerSec/kDissectFlyMinMs pacing
+# (halved/doubled respectively, i.e. 2x slower) -- only the per-shell zoom
+# legs are slowed; the open/close legs keep their own constants (a PC-only
+# extra with no device equivalent).
 DISSECT_ZOOM_SLOWDOWN = 2.0
 DISSECT_HOLD_SECONDS = 2     # real-time pause on each shell with its label shown
 DISSECT_CLOSE_FRAMES = 100   # base frames to ease the cut shut on the way back to the resting scale
@@ -158,10 +158,9 @@ DISSECT_FRAME_DELAY_S = FRAME_DELAY_MS / 1000.0
 
 # --- Dissection HUD ---------------------------------------------------------
 # Port of src/atom_view.cpp's drawDissectTitle(): a big subshell label
-# ("2p") with a plain-size caption ("Fe (2/5)", the element symbol) underneath, and the
-# electron count as a small "<occ>e-" note in the top-right corner -- was a
-# verbose single line in a subtitle position here (and an inline big-scale
-# " Ne-" superscript on the device before feedback moved it to the corner).
+# ("2p") with a plain-size caption ("Fe (2/5)", the element symbol)
+# underneath, and the electron count as a small "<occ>e-" note in the
+# top-right corner, kept visually distinct from the orbital name.
 DISSECT_BIG_FONT_SIZE = 72
 DISSECT_CAPTION_FONT_SIZE = 28
 DISSECT_OCC_FONT_SIZE = 24
@@ -172,9 +171,7 @@ DISSECT_OCC_MARGIN_PX = 8
 # Port of src/atom_view.cpp's scrollElementIntro(): before switching to a new
 # element, slide its Italian name in from the right over a big pale symbol
 # watermark with a "Z=n" caption, hold, then flash the name on/off once at
-# 0.5Hz (1s visible, 1s blank) instead of sliding back out ("element
-# animation should conclude by flashing the element name in the background at
-# 0.5Hz for 2s", 2026-08-17).
+# 0.5Hz (1s visible, 1s blank) instead of sliding back out.
 ELEMENT_INTRO_SLIDE_PX = 12     # device kElementIntroPxPerFrame=6 on 240 -> 2x on the 480 buffer
 ELEMENT_INTRO_HOLD_S = 0.5      # device kElementIntroHoldMs
 ELEMENT_INTRO_FLASH_HALF_PERIOD_S = 1.0  # 0.5Hz = 2s period (1s name-visible, 1s blank)
@@ -186,9 +183,7 @@ ELEMENT_INTRO_Z_FONT_SIZE = 28
 # --- Dissection intro card --------------------------------------------------
 # Port of src/atom_view.cpp's showElectronConfigIntro(): a static 3-line
 # "Configurazione / elettronica / <nome>" title card over a tiled dim "e-"
-# backdrop, held before the dissection sequence itself starts ("should be
-# configurazione elettronica <nome> -- nice to have a background with e-",
-# 2026-08-17).
+# backdrop, held before the dissection sequence itself starts.
 DISSECT_INTRO_LINE1 = "Configurazione"
 DISSECT_INTRO_LINE2 = "elettronica"
 DISSECT_INTRO_WORD_FONT_SIZE = 64   # ~2x the device's kFontLarge-at-scale-2
@@ -204,9 +199,8 @@ DISSECT_INTRO_BG_FONT_SIZE = 24
 # --- Idle auto-advance ------------------------------------------------------
 # Port of the device's atom_view.cpp idle logic (kIdleJumpUs=60s): with no
 # input for 60s, either dissect the CURRENT element (coin flip, at most once
-# per element -- "animation should decide whether to jump to next element or
-# dissect this one (max. once)") or jump to a random different element; both
-# use the exact same animations as manual navigation.
+# per element) or jump to a random different element; both use the exact
+# same animations as manual navigation.
 IDLE_JUMP_SECONDS = 60.0
 IDLE_DISSECT_PROBABILITY = 0.5
 
@@ -434,12 +428,11 @@ class AtomViewApp:
         self.zoom_factor = 1.0
         self.dissecting = False
         self._pending_dissect = False
-        # "any movement during the dissection should close the dissection and
-        # bring back to the element" (device feedback, 2026-08-17) -- set by
-        # the input handlers below while a dissection runs; the sequence
-        # checks it every frame and returns to normal viewing. Unlike
-        # `aborted` (Escape, exits the whole app), this only aborts the
-        # dissection.
+        # Any movement during a dissection closes it and returns to the
+        # element -- set by the input handlers below while a dissection
+        # runs; the sequence checks it every frame and returns to normal
+        # viewing. Unlike `aborted` (Escape, exits the whole app), this
+        # only aborts the dissection.
         self.abort_dissection = False
         # Idle auto-advance state (see the constants above): clock reset by
         # every input, plus the once-per-element dissection budget.
@@ -595,9 +588,9 @@ class AtomViewApp:
         points hard to see. `title` is a (big_label, caption, occ) tuple or
         None: big_label ("2p") in a large font, `caption` ("Fe (2/5)", the
         element symbol) plain-size underneath it, and a small "<occ>e-" note in the
-        top-right corner -- the device's drawDissectTitle() layout (the
-        electron count moved to the corner, "distinguish from the orbital
-        name", 2026-08-17). Also draws a "Z=n" note next to the nucleus.
+        top-right corner, kept distinct from the orbital name -- the
+        device's drawDissectTitle() layout. Also draws a "Z=n" note next
+        to the nucleus.
         """
         def overlays(draw):
             draw_bounding_circle(draw, r_ref, scale)
@@ -723,9 +716,8 @@ class AtomViewApp:
 
         Layout matches the device's current version: the name sits at 2/3 of
         the canvas height (clear of the centered symbol watermark) and the
-        "Z=<z>" caption in the upper 1/3 -- "element name in the 2/3 height,
-        the other text in the upper 1/3 so that the element name in
-        background is clearly readable" (feedback, 2026-08-17).
+        "Z=<z>" caption in the upper 1/3, so the element name stays clearly
+        readable against the watermark.
         """
         name = slater.element_name_it(new_z)
         symbol = slater.element_symbol(new_z)
@@ -891,8 +883,7 @@ class AtomViewApp:
 
         shell_count = self.preset.shell_count
         orient_frames = shell_count_frames(DISSECT_ORIENT_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
-        # Shell-to-shell hops paced ~2x slower (device dissection pacing
-        # change, 2026-08-17) -- see DISSECT_ZOOM_SLOWDOWN.
+        # Shell-to-shell hops paced ~2x slower -- see DISSECT_ZOOM_SLOWDOWN.
         zoom_frames = int(shell_count_frames(DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
                           * DISSECT_ZOOM_SLOWDOWN)
         close_frames = shell_count_frames(DISSECT_CLOSE_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)

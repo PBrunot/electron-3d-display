@@ -41,9 +41,9 @@ CHOICE_ATOM = 'atom'
 CHOICE_ORDER = [CHOICE_ORBITALS, CHOICE_ATOM]
 CHOICE_LABELS = {
     # Plain names -- no UP/DOWN prefixes: the PC navigates with arrow keys,
-    # but the option labels read as "Orbitals"/"Atoms" ("on PC we dont use
-    # UP/DOWN only Orbitals or Atoms", 2026-08-17). The device keeps its own
-    # "UP: Orbitals"/"DOWN: Elements" wording (real tilt gestures).
+    # so the option labels just read as "Orbitals"/"Atoms". The device
+    # keeps its own "UP: Orbitals"/"DOWN: Elements" wording, since it
+    # navigates with real tilt gestures.
     CHOICE_ORBITALS: 'Orbitals',
     CHOICE_ATOM: 'Atoms',
 }
@@ -82,8 +82,8 @@ COLOR_SELECTED_BG = '#ffdc28'
 COLOR_SELECTED_OUTLINE = '#ffdc28'
 COLOR_HINT = '#888888'
 
-# No title text over the splash image ("remove atom cube text from the splash
-# screen", 2026-08-17) -- the image stands clean, only the two options on top.
+# No title text over the splash image -- it stands clean, with only the two
+# options drawn on top.
 HINT_TEXT = 'Up/Down or click to choose, Enter to confirm'
 
 # Boot-splash hold -- port of the device's kSplashHoldMs=2000 in main.cpp.
@@ -98,7 +98,7 @@ _SPLASH_PATH = os.path.join(os.path.dirname(__file__), '..', 'img', 'atomic_cube
 def _load_splash_photo():
     """Load img/atomic_cube.jpg, resized to the canvas size, as a PhotoImage
     -- the PC counterpart of the device's kSplashBitmapData. Shared by the
-    splash and chooser scenes (same static background, per device feedback).
+    splash and chooser scenes, which use the same static background.
     """
     image = Image.open(_SPLASH_PATH).convert('RGB')
     image = image.resize(DISPLAY_SIZE, Image.LANCZOS)

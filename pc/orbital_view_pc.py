@@ -65,10 +65,9 @@ DEBUG_DISABLE_BUZZ = True
 _NUDGE_DIRECTION_STEP = {'R': 1, 'U': 1, 'L': -1, 'D': -1}
 
 # --- Zoom pacing: 1.5x slower, scoped to this viewer ------------------------
-# Port of src/orbital_view.cpp's local 1.5x copies of camera.h's pacing
-# ("zooms should be slowed down by a factor 1.5x in the orbitals animations",
-# 2026-08-17): the orbital viewer's fly-overs and zoom breathing are 1.5x
-# slower than the shared constants; the atom viewer keeps the stock pacing.
+# Port of src/orbital_view.cpp's local 1.5x copies of camera.h's pacing:
+# the orbital viewer's fly-overs and zoom breathing are 1.5x slower than
+# the shared constants; the atom viewer keeps the stock pacing.
 ORBITAL_INTRO_FRAMES = int(INTRO_FRAMES * 1.5)                           # 105
 ORBITAL_SWITCH_TRANSITION_FRAMES = int(SWITCH_TRANSITION_FRAMES * 1.5)   # 30
 ORBITAL_ZOOM_EXCURSION_EASE_FRAMES = int(ZOOM_EXCURSION_EASE_FRAMES_BASE * 1.5)  # 150
@@ -96,7 +95,7 @@ EQ_LINE_GAP = 12
 REVEAL_FONT_SIZE = 64
 REVEAL_COLOR = (255, 255, 255)
 REVEAL_STAGE_HOLD_S = 0.55   # per-stage real-time hold, matches kOrbitalIntroStageHoldMs
-REVEAL_FINAL_EXTRA_HOLD_S = 0.5  # extra pause after "n=.. l=.. m=.." (device feedback)
+REVEAL_FINAL_EXTRA_HOLD_S = 0.5  # extra pause once the full "n l m" reveal is on screen, so it's readable
 _EQ_BLOCK_H = 2 * int(EQ_FONT_SIZE * 1.4) + EQ_LINE_GAP
 EQ_Y = (HEIGHT - _EQ_BLOCK_H) // 2   # equation vertically centered
 REVEAL_Y = EQ_Y + _EQ_BLOCK_H + 40   # numbers stacked below it

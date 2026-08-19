@@ -95,9 +95,8 @@ DISSECT_CLIP_OPEN = 0.0
 DISSECT_CLIP_CLOSED = 1.0e6
 DISSECT_ORIENT_FRAMES = 55
 DISSECT_ZOOM_FRAMES = 55
-# Port of the PC/device dissection pacing change (shell-to-shell hops ~2x as
-# long, "every shell-to-shell hop now takes ~2x as long", 2026-08-17) -- only
-# the per-shell zoom legs are slowed.
+# Matches the PC/device dissection pacing: shell-to-shell hops take ~2x as
+# long -- only the per-shell zoom legs are slowed.
 DISSECT_ZOOM_SLOWDOWN = 2.0
 DISSECT_HOLD_FRAMES = 100  # ~2s at FRAME_DELAY_MS=5 -- a frame count, not wall-clock seconds
                             # (see module docstring: there's no blocking sleep to pace against)

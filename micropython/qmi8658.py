@@ -3,22 +3,21 @@ gyroscope) on the Waveshare ESP32-S3-LCD-1.3 (CLAUDE.md section 2: SDA=47,
 SCL=48). Only the accelerometer is enabled/read -- nudge.py's gesture
 detector only needs linear acceleration, not gyro rate.
 
-Register map and init sequence verified live on this exact board
-(2026-08-15, via mpremote): i2c.scan() found the sensor at 0x6B, WHO_AM_I
-(register 0x00) read back 0x05 as expected. Addresses/bit layout otherwise
-match the open-source CircuitPython_QMI8658C driver
+Register map and init sequence verified live on this exact board via
+mpremote: i2c.scan() finds the sensor at 0x6B, WHO_AM_I (register 0x00)
+reads back 0x05 as expected. Addresses/bit layout otherwise match the
+open-source CircuitPython_QMI8658C driver
 (github.com/tkomde/CircuitPython_QMI8658C) -- ported rather than re-derived
 from the datasheet from scratch, then cross-checked against the live
 WHO_AM_I read and a live accelerometer sanity read (~1g total magnitude at
 rest) before trusting it, same "verify on real hardware" methodology as
 CLAUDE.md section 2's display mirror/color-order correction.
 
-Gotcha (also caught live, on the first sanity read): MicroPython's
-int.from_bytes() has no `signed` parameter -- unlike CPython, it silently
-ignores a third positional/keyword argument and always returns an unsigned
-value. Passing raw unsigned words through the +/-4g scale factor read as
-~11g at rest before this was noticed; _signed16() below does the two's
-complement conversion by hand instead.
+Gotcha: MicroPython's int.from_bytes() has no `signed` parameter -- unlike
+CPython, it silently ignores a third positional/keyword argument and always
+returns an unsigned value. Passing raw unsigned words through the +/-4g
+scale factor reads as ~11g at rest if this is missed; _signed16() below
+does the two's complement conversion by hand instead.
 """
 
 from machine import I2C, Pin
