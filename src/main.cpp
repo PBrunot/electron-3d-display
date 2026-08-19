@@ -1,4 +1,4 @@
-// Exactly one of the four #define toggles below may be active at a time; with none
+// Exactly one of the five #define toggles below may be active at a time; with none
 // defined, app_main() boots the runtime chooser menu (the real default, see chooser.h) --
 // tilt UP launches the orbital viewer, tilt DOWN the element viewer, matching
 // micropython/chooser.py's role. COLOR_TEST is currently active below for direct
@@ -9,6 +9,7 @@
 // #define ATOM_VIEW_TEST
 // #define ATOM_VIEW
 // #define COLOR_TEST
+// #define BENCHMARK_TEST
 
 #include <cmath>
 
@@ -30,6 +31,10 @@
 
 #ifdef COLOR_TEST
 #include "color_calibration_test.h"
+#endif
+
+#ifdef BENCHMARK_TEST
+#include "benchmark_test.h"
 #endif
 
 #include "atom_view_test.h"
@@ -129,6 +134,13 @@ extern "C" void app_main(void)
 #elif defined(COLOR_TEST)
     Display display{};
     runColorCalibrationTest(display); // never returns
+#elif defined(BENCHMARK_TEST)
+    Display display{};
+    runBenchmarkTest(display);
+    ESP_LOGI(kMainTag, "benchmark finished -- capture via `pio device monitor`, watch for BENCH,DONE; "
+                        "reflash without BENCHMARK_TEST to return to normal boot");
+    while (1)
+        vTaskDelay(pdMS_TO_TICKS(1000));
 #else
     Display display{};
 
