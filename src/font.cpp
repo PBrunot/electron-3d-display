@@ -148,7 +148,17 @@ int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color,
     return drawTextImpl(frameBuf, x, y, text, color, font);
 }
 
+int textWidth(const char *text, const FontSmall &font)
+{
+    return textWidthImpl(text, font);
+}
+
 int textWidth(const char *text, const Font &font)
+{
+    return textWidthImpl(text, font);
+}
+
+int textWidth(const char *text, const FontHuge &font)
 {
     return textWidthImpl(text, font);
 }
@@ -164,7 +174,23 @@ int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t 
     return drawTextScaledImpl(frameBuf, x, y, text, color, font, scale);
 }
 
+int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontHuge &font,
+                    int scale)
+{
+    return drawTextScaledImpl(frameBuf, x, y, text, color, font, scale);
+}
+
+int textWidthScaled(const char *text, const FontSmall &font, int scale)
+{
+    return scale <= 1 ? textWidthImpl(text, font) : textWidthImpl(text, font) * scale;
+}
+
 int textWidthScaled(const char *text, const Font &font, int scale)
+{
+    return scale <= 1 ? textWidthImpl(text, font) : textWidthImpl(text, font) * scale;
+}
+
+int textWidthScaled(const char *text, const FontHuge &font, int scale)
 {
     return scale <= 1 ? textWidthImpl(text, font) : textWidthImpl(text, font) * scale;
 }

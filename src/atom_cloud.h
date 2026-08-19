@@ -8,10 +8,7 @@
 // carrying its own (n, ell) tag -- see colorizeAtomSubshells() below (M4). Simplification
 // vs the MicroPython version: no psi sign recomputation for anisotropic (Hund's-rule)
 // groups -- that only feeds pc/atom_view_pc.py's PC-only shell-dissection view's phase
-// coloring (one exploded shell at a time). This project DOES now have an on-device
-// dissection view (atom_view.cpp, Down-tilt gesture, built on subshellDissectionPlan()
-// below), but a deliberately simpler one -- shell color only, no phase/sign -- so nothing
-// here consumes per-point sign either.
+// coloring (one exploded shell at a time). 
 #pragma once
 
 #include <cstdint>
@@ -19,6 +16,7 @@
 #include "angular_library.h"
 #include "pointcloud.h"
 #include "slater.h"
+#include "display.h"
 
 /**
  * One sampled point of a multi-electron atom's point cloud.
@@ -41,13 +39,13 @@ constexpr int kAtomNumPoints = 8000;  // atom point-cloud size: sizes AtomPreset
 
 struct DrawingGroup
 {
-    int n, ell, m; // m == kIsotropicM means "full subshell, sample isotropically"
-    int weight;    // electron count this group represents
+    int n, ell, m;     // m == kIsotropicM means "full subshell, sample isotropically"
+    int weight;        // electron count this group represents
     int subshellIndex; // index into the source ElectronConfig::subshells this group was expanded
-                        // from -- lets buildAtomPointCloud() merge a subshell's (possibly several,
-                        // for a Hund's-rule partial fill) drawing groups back into one
-                        // AtomSubshellRange, since they're always sampled contiguously (see
-                        // buildAtomPointCloud()).
+                       // from -- lets buildAtomPointCloud() merge a subshell's (possibly several,
+                       // for a Hund's-rule partial fill) drawing groups back into one
+                       // AtomSubshellRange, since they're always sampled contiguously (see
+                       // buildAtomPointCloud()).
 };
 constexpr int kIsotropicM = -999;
 
@@ -226,7 +224,7 @@ constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py'
 // under that scheme. Every element now renormalizes to the SAME on-screen target radius
 // instead, exactly like orbital_presets.h's scaleFromRadii() already does for hydrogen
 // presets -- consistent, always-legible size at the cost of the periodic size trend.
-constexpr orb_real_t kAtomTargetPx = orb_real_t(75); // p90 outer-subshell radius, in pixels, at rest
+constexpr orb_real_t kAtomTargetPx = orb_real_t(Display::kDisplayHeight / 3); // p90 outer-subshell radius, in pixels, at rest
 
 constexpr orb_real_t kAtomZoomAmplitudeFraction = orb_real_t(0.4); // matches cloud_common.ZOOM_AMPLITUDE_FRACTION
 

@@ -86,19 +86,23 @@ int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color,
 int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontHuge &font);
 
 /** Pixel width of `text` if drawn with drawText() in `font` -- for right-aligned/centered layout. */
+int textWidth(const char *text, const FontSmall &font);
 int textWidth(const char *text, const Font &font);
+int textWidth(const char *text, const FontHuge &font);
 
 /**
  * Like drawText(), but each font pixel becomes a `scale` x `scale` block -- this is how a
- * caller gets a bigger look out of kFontSmall/kFontLarge (e.g. atom_view.cpp's dissection
- * shell label, ticker.h's scrolling banners, overlay.cpp's scale-bar label) without a
- * dedicated baked size. Not offered for kFontHuge -- nothing needs it bigger than its own
- * 54px design size, and integer upscaling is exactly what kFontHuge exists to avoid (see
- * its doc comment above). scale <= 1 behaves exactly like drawText().
+ * caller gets a bigger look out of kFontSmall/kFontLarge/kFontHuge (e.g. atom_view.cpp's
+ * dissection shell label, ticker.h's scrolling banners, overlay.cpp's scale-bar label)
+ * without a dedicated baked size. scale <= 1 behaves exactly like drawText().
  */
 int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontSmall &font,
                     int scale);
 int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font, int scale);
+int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontHuge &font,
+                    int scale);
 
 /** Like textWidth(), scaled -- see drawTextScaled(). */
+int textWidthScaled(const char *text, const FontSmall &font, int scale);
 int textWidthScaled(const char *text, const Font &font, int scale);
+int textWidthScaled(const char *text, const FontHuge &font, int scale);

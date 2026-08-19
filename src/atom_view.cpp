@@ -35,28 +35,28 @@ constexpr int64_t kIdleJumpUs = 60'000'000;
 constexpr int kAtomProtonMarkerSize = 7;
 
 // --- Element-switch intro ticker (scrollElementIntro()) ---
-constexpr int kElementIntroMaxNameScale = 4;    ///< Largest text scale tried for the sliding element name.
-constexpr int kElementIntroMinNameScale = 2;    ///< Fallback scale if the name doesn't fit at any larger size.
-constexpr int kElementIntroNameMarginPx = 10;   ///< Horizontal margin the name must fit within.
-constexpr int kElementIntroSymbolScale = 6;     ///< Text scale for the pale background symbol watermark.
+constexpr int kElementIntroMaxNameScale = 4;                                      ///< Largest text scale tried for the sliding element name.
+constexpr int kElementIntroMinNameScale = 2;                                      ///< Fallback scale if the name doesn't fit at any larger size.
+constexpr int kElementIntroNameMarginPx = 10;                                     ///< Horizontal margin the name must fit within.
+constexpr int kElementIntroSymbolScale = 6;                                       ///< Text scale for the pale background symbol watermark.
 constexpr uint16_t kElementIntroSymbolColor = Display::packColor565(90, 90, 100); ///< Watermark color: dim, so it doesn't compete with the name.
-constexpr int kElementIntroPxPerFrame = 6;      ///< Horizontal slide-in speed of the name, px/frame.
-constexpr uint32_t kElementIntroHoldMs = 500;   ///< Pause once the name reaches center, before flashing.
-constexpr uint32_t kElementIntroFlashHalfPeriodMs = 1000; ///< Flash on/off half-period at center (2 flashes total).
+constexpr int kElementIntroPxPerFrame = 6;                                        ///< Horizontal slide-in speed of the name, px/frame.
+constexpr uint32_t kElementIntroHoldMs = 500;                                     ///< Pause once the name reaches center, before flashing.
+constexpr uint32_t kElementIntroFlashHalfPeriodMs = 1000;                         ///< Flash on/off half-period at center (2 flashes total).
 
 // --- On-device shell dissection (runDissectionSequence() and helpers) ---
 constexpr uint16_t kDissectDimColor = Display::packColor565(70, 70, 70); ///< Flat shade for shells peeled inward of the active one.
-constexpr int64_t kDissectHoldUs = 2 * 1000 * 1000; ///< Real-time (not frame-count) hold on each revealed shell before advancing.
-constexpr int kDissectOccMarginPx = 4;          ///< Margin for the small electron-count corner note.
-constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(30); ///< Camera-ease speed between shells, picometers per real second.
-constexpr uint32_t kDissectFlyMinMs = 700;      ///< Floor on ease duration so a near-zero hop still eases briefly instead of cutting instantly.
+constexpr int64_t kDissectHoldUs = 2 * 1000 * 1000;                      ///< Real-time (not frame-count) hold on each revealed shell before advancing.
+constexpr int kDissectOccMarginPx = 1;                                   ///< Margin for the small electron-count corner note.
+constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(30);          ///< Camera-ease speed between shells, picometers per real second.
+constexpr uint32_t kDissectFlyMinMs = 700;                               ///< Floor on ease duration so a near-zero hop still eases briefly instead of cutting instantly.
 
 // --- Dissection intro title card (showElectronConfigIntro()) ---
-constexpr int kDissectIntroWordScale = 2;       ///< Text scale for "Configurazione" / "elettronica" / the element name.
-constexpr int kDissectIntroLineGapPx = 50;      ///< Vertical start-to-start spacing between the 3 title lines.
-constexpr uint32_t kDissectIntroHoldMs = 900;   ///< How long the static title card holds before dissection starts.
+constexpr int kDissectIntroWordScale = 2;                                    ///< Text scale for "Configurazione" / "elettronica" / the element name.
+constexpr int kDissectIntroLineGapPx = 50;                                   ///< Vertical start-to-start spacing between the 3 title lines.
+constexpr uint32_t kDissectIntroHoldMs = 900;                                ///< How long the static title card holds before dissection starts.
 constexpr uint16_t kDissectIntroBgColor = Display::packColor565(55, 55, 55); ///< Dim color for the tiled "e-" backdrop.
-constexpr int kDissectIntroBgSpacingX = 44;     ///< Backdrop tile spacing, px.
+constexpr int kDissectIntroBgSpacingX = 44;                                  ///< Backdrop tile spacing, px.
 constexpr int kDissectIntroBgSpacingY = 34;
 
 /// Frame count between FPS log lines in runAtomView()'s main loop.
@@ -129,15 +129,15 @@ namespace
     {
         int nameScale = pickNameScale(nameIt);
         char zLabel[16];
-        std::snprintf(zLabel, sizeof(zLabel), "Z=%d", z);
+        std::snprintf(zLabel, sizeof(zLabel), "Z = %d", z);
 
-        int symbolWidth = textWidthScaled(symbol, kFontLarge, kElementIntroSymbolScale);
+        int symbolWidth = textWidthScaled(symbol, kFontHuge, kElementIntroSymbolScale);
         int symbolX = (Display::kDisplayWidth - symbolWidth) / 2;
-        int symbolY = (Display::kDisplayHeight - kFontLarge.height * kElementIntroSymbolScale) / 2;
+        int symbolY = (Display::kDisplayHeight - kFontHuge.height * kElementIntroSymbolScale) / 2;
 
         int nameY = Display::kDisplayHeight * 2 / 3;
-        int zY = Display::kDisplayHeight / 3;
-        int zX = (Display::kDisplayWidth - textWidth(zLabel, kFontLarge)) / 2;
+        int zY = Display::kDisplayHeight / 4;
+        int zX = (Display::kDisplayWidth - textWidth(zLabel, kFontHuge)) / 2;
 
         int nameWidth = textWidthScaled(nameIt, kFontLarge, nameScale);
         int centerX = (Display::kDisplayWidth - nameWidth) / 2;
@@ -149,12 +149,12 @@ namespace
             display.waitForFlushDone();
             uint16_t *frameBuf = display.getFrameBuf();
             std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
-            drawTextScaled(frameBuf, symbolX, symbolY, symbol, kElementIntroSymbolColor, kFontLarge,
+            drawTextScaled(frameBuf, symbolX, symbolY, symbol, kElementIntroSymbolColor, kFontHuge,
                            kElementIntroSymbolScale);
             if (showName)
             {
                 drawTextScaled(frameBuf, x, nameY, nameIt, nameColor, kFontLarge, nameScale);
-                drawText(frameBuf, zX, zY, zLabel, nameColor, kFontLarge);
+                drawText(frameBuf, zX, zY, zLabel, nameColor, kFontHuge);
             }
             display.presentFrame();
         };
@@ -165,10 +165,14 @@ namespace
         renderAt(centerX);
         vTaskDelay(pdMS_TO_TICKS(kElementIntroHoldMs));
 
-        renderAt(centerX, false);
-        vTaskDelay(pdMS_TO_TICKS(kElementIntroFlashHalfPeriodMs));
-        renderAt(centerX, true);
-        vTaskDelay(pdMS_TO_TICKS(kElementIntroFlashHalfPeriodMs));
+        // Accelerating blink
+        for (int i = 1; i < 6; i++)
+        {
+            renderAt(centerX, false);
+            vTaskDelay(pdMS_TO_TICKS(kElementIntroFlashHalfPeriodMs / i));
+            renderAt(centerX, true);
+            vTaskDelay(pdMS_TO_TICKS(kElementIntroFlashHalfPeriodMs / i));
+        }
     }
 } // namespace
 
@@ -246,8 +250,8 @@ namespace
 
         char occText[8];
         std::snprintf(occText, sizeof(occText), "%de-", occ);
-        int occX = Display::kDisplayWidth - textWidth(occText, kFontLarge) - kDissectOccMarginPx;
-        drawText(frameBuf, occX, kDissectOccMarginPx, occText, color, kFontLarge);
+        int occX = Display::kDisplayWidth - textWidth(occText, kFontHuge) - kDissectOccMarginPx;
+        drawText(frameBuf, occX, kDissectOccMarginPx, occText, Display::kColorOrbitalBlue, kFontHuge);
     }
 
     /// Render one frame at a fixed `scale`, for the real-time hold (which doesn't need
@@ -511,6 +515,11 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
     auto drawTitle = [](uint16_t *frameBuf, int x, int y, uint16_t color)
     {
         drawAtomTitle(frameBuf, x, y, preset.z, color);
+        // Add the Z number in the top-right corner, so the user can see it while browsing the periodic table.
+        char zLabel[4];
+        std::snprintf(zLabel, sizeof(zLabel), "%d", preset.z);
+        int zX = Display::kDisplayWidth - textWidth(zLabel, kFontHuge) - 10;
+        drawText(frameBuf, zX, 10, zLabel, Display::kColorOrbitalRed, kFontHuge);
     };
 
     CameraState camera;
