@@ -85,7 +85,7 @@ namespace
             clearFrame(frameBuf);
             renderSceneGrouped(frameBuf, preset.points, preset.groups, preset.groupCount, kProtonColor, camera,
                                preset.baseScale);
-            drawAtomTitle(frameBuf, kTitleTextX, kTitleTextY, z, kTextColor, kFontLarge);
+            drawAtomTitle(frameBuf, kTitleTextX, kTitleTextY, z, kTextColor);
             drawScaleBar(frameBuf, preset.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
             char name[40];

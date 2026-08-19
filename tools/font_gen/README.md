@@ -1,14 +1,15 @@
 # font_gen
 
-Offline generator for `src/font.cpp` (see that file's header comment for the on-device
-API/format). Rasterizes a real typeface into `constexpr` glyph tables at build time on a
-PC -- nothing is decoded or rasterized on the ESP32 itself, same "precompute offline,
-embed as `.rodata`" pattern used elsewhere in this project (e.g. `orbitals.h`).
+Offline generator for `src/font_data.h` (see `src/font.cpp`'s header comment for the
+on-device rendering API/format that reads it). Rasterizes a real typeface into `constexpr`
+glyph tables at build time on a PC -- nothing is decoded or rasterized on the ESP32 itself,
+same "precompute offline, embed as `.rodata`" pattern used elsewhere in this project (e.g.
+`orbitals.h`).
 
 ## Regenerating
 
 ```sh
-python3 generate_font.py > ../../src/font.cpp
+python3 generate_font.py > ../../src/font_data.h
 ```
 
 Requires Pillow (`pip install pillow`).
@@ -22,14 +23,35 @@ still having genuinely distinct lowercase letterforms (several other tiny pixel 
 e.g. Silkscreen, fall back to uppercase shapes for lowercase at small sizes -- checked
 during evaluation, ruled out for that reason).
 
-Two sizes are baked into `src/font.cpp`:
-- `kFontSmall` (10px) -- secondary/readout text: FPS counter, scale bar label.
-- `kFontLarge` (18px) -- titles (element/orbital name, electron configuration).
+Three sizes are baked into `src/font_data.h` (glyph data only -- `src/font.cpp` is the
+hand-maintained rendering logic that reads it, see that file's header comment):
+- `kFontSmall` (10px) -- secondary/readout text: the tiled "e-" backdrop behind
+  atom_view.cpp's dissection intro card.
+- `kFontLarge` (18px) -- titles (element/orbital name, electron configuration) and other
+  mid-size labels (the scale bar legend).
+- `kFontHuge` (54px) -- hero text: the big element-symbol title in atom_view.cpp, and the
+  big shell-notation label during its dissection sequence. Both rendered at kFontHuge's own
+  true pixel size instead of integer-upscaling `kFontLarge` (which looked blocky on-device
+  -- nearest-neighbor pixel doubling/tripling, not a real glyph at that size).
 
-Both cover printable ASCII (space through `~`, 0x20-0x7E). Each glyph keeps its own
+All three cover printable ASCII (space through `~`, 0x20-0x7E). Each glyph keeps its own
 proportional advance width (the font's own metric, not a fixed cell) -- `generate_font.py`
 widens a glyph's stored width past its nominal advance only if the rendered ink would
 otherwise clip, so nothing is cut off.
+
+Each glyph is rasterized in PIL mode `"1"` (FreeType's hinted monochrome rasterizer), not
+mode `"L"` (antialiased grayscale) thresholded at 128 -- the two disagree on most glyphs'
+trailing edge, which is what read as a soft/aliased edge on-device. Every glyph's row range
+is also trimmed to the whole charset's actual vertical ink window instead of the font's
+full ascent+descent box (this charset has no accented uppercase, so nothing ever reaches
+true ascent) -- untrimmed, that padding made text drawn at a given `(x, y)` look like it
+started several pixels lower than `(x, y)` actually is. See `generate_font.py`'s module
+docstring for the full rationale on both.
+
+Row data is stored as plain hex literals in `src/font_data.h`, one per pixel row per
+glyph -- there is no ASCII-art intermediate to eyeball; `generate_font.py`'s rasterization
+is the source of truth, and a rendered preview (or an on-device screenshot) is what
+actually catches a bad glyph.
 
 ## Changing the font or sizes
 

@@ -64,12 +64,10 @@ struct AtomPresetState
 };
 
 /**
- * @brief Draw the element's symbol big with "Z=<z>" underneath at plain size.
- *
- * Same big-hero/small-caption shape as atom_view.cpp's drawDissectTitle() and
- * scrollElementIntro(), for one consistent look across the app.
+ * @brief Draw the element's symbol at (x, y) in kFontHuge -- its own true pixel size, not
+ *        an upscaled smaller font.
  */
-void drawAtomTitle(uint16_t *frameBuf, int x, int y, int z, uint16_t textColor, const Font &font);
+void drawAtomTitle(uint16_t *frameBuf, int x, int y, int z, uint16_t textColor);
 
 /**
  * @brief Run the atom viewer until a Left tilt-hold confirms.
