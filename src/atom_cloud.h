@@ -8,7 +8,7 @@
 // carrying its own (n, ell) tag -- see colorizeAtomSubshells() below (M4). Simplification
 // vs the MicroPython version: no psi sign recomputation for anisotropic (Hund's-rule)
 // groups -- that only feeds pc/atom_view_pc.py's PC-only shell-dissection view's phase
-// coloring (one exploded shell at a time). 
+// coloring (one exploded shell at a time).
 #pragma once
 
 #include <cstdint>
@@ -34,8 +34,8 @@ struct AtomPoint
     orb_real_t x, y, z;
 };
 
-constexpr int kMaxDrawingGroups = 25; // see atom_cloud.h's comment: at most ~1 partial subshell (<=7 groups) + up to ~19 full ones, in Madelung order; generous margin for the hardcoded exceptions too.
-constexpr int kAtomNumPoints = 8000;  // atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp)
+inline constexpr int kMaxDrawingGroups = 25; // see atom_cloud.h's comment: at most ~1 partial subshell (<=7 groups) + up to ~19 full ones, in Madelung order; generous margin for the hardcoded exceptions too.
+inline constexpr int kAtomNumPoints = 10000; // atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp)
 
 struct DrawingGroup
 {
@@ -47,7 +47,7 @@ struct DrawingGroup
                        // AtomSubshellRange, since they're always sampled contiguously (see
                        // buildAtomPointCloud()).
 };
-constexpr int kIsotropicM = -999;
+inline constexpr int kIsotropicM = -999;
 
 /**
  * Expand `config` into per-drawing groups. A FULL subshell (occ == capacity) becomes
@@ -128,7 +128,7 @@ ElectronConfig buildAtomPointCloud(int z, AtomPoint *out, int count, uint32_t se
 // largest), so the palette doubles as an energy-scale legend across every element's cloud
 // instead of just a K/L/M/... layer-separator with no physical reading. Port of
 // atom_cloud.py's SHELL_RGB after that file's palette update -- keep the two in sync.
-constexpr uint8_t kAtomShellRgb[9][3] = {
+inline constexpr uint8_t kAtomShellRgb[9][3] = {
     {255, 255, 255}, // unused (n=0)
     {140, 60, 255},  // n=1 K - deep violet-indigo (highest binding energy)
     {70, 110, 255},  // n=2 L - saturated blue
@@ -152,8 +152,8 @@ const uint8_t *shellBaseRgb(int n);
 // much larger on-screen area than the dimmed core -- 0.92 read as "the atom is just white"
 // rather than "the valence shell stands out from a colored core" once actually seen on
 // this panel.
-constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.3); // lerp toward white
-constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward black
+inline constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.3); // lerp toward white
+inline constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward black
 
 /**
  * Which subshell (n, ell) has the largest measured p90 radius in THIS specific point
@@ -212,7 +212,7 @@ int subshellDissectionPlan(const AtomPoint *points, const AtomSubshellRange *ran
 void colorizeAtomSubshells(const AtomSubshellRange *ranges, int rangeCount, const OuterSubshell &outer,
                            uint16_t *outColors);
 
-constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py's SEED
+inline constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py's SEED
 
 // --- Scale (M4, revised) ---
 //
@@ -224,9 +224,9 @@ constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cloud.py'
 // under that scheme. Every element now renormalizes to the SAME on-screen target radius
 // instead, exactly like orbital_presets.h's scaleFromRadii() already does for hydrogen
 // presets -- consistent, always-legible size at the cost of the periodic size trend.
-constexpr orb_real_t kAtomTargetPx = orb_real_t(Display::kDisplayHeight / 3); // p90 outer-subshell radius, in pixels, at rest
+inline constexpr orb_real_t kAtomTargetPx = orb_real_t(Display::kDisplayHeight / 2); // p90 outer-subshell radius, in pixels, at rest
 
-constexpr orb_real_t kAtomZoomAmplitudeFraction = orb_real_t(0.4); // matches cloud_common.ZOOM_AMPLITUDE_FRACTION
+inline constexpr orb_real_t kAtomZoomAmplitudeFraction = orb_real_t(0.4); // matches cloud_common.ZOOM_AMPLITUDE_FRACTION
 
 struct AtomScale
 {

@@ -39,14 +39,14 @@ using orb_real_t = float; // default: matches the eventual ESP32 build
 // Maximum principal quantum number / angular momentum supported by the fixed-size
 // coefficient arrays below. Mirrors nMax/ellMax in quantum-physics.js, but kept
 // much smaller here since this project only ever needs modest (n, ell) values.
-constexpr int kOrbitalNMax = 16;
-constexpr int kOrbitalEllMax = kOrbitalNMax - 1;
+inline constexpr int kOrbitalNMax = 16;
+inline constexpr int kOrbitalEllMax = kOrbitalNMax - 1;
 
 // Default lookup table resolution, matching nTable/nTableRadial in the JS reference.
-constexpr int kOrbitalTableSize = 1001;
+inline constexpr int kOrbitalTableSize = 1001;
 
 // Pi, at the working precision, shared by orbitals.h and pointcloud.h.
-constexpr orb_real_t kOrbitalPi = orb_real_t(3.14159265358979323846);
+inline constexpr orb_real_t kOrbitalPi = orb_real_t(3.14159265358979323846);
 
 /**
  * Compute the coefficients of the associated Legendre polynomial P_l^m(cos

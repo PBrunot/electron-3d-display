@@ -15,13 +15,13 @@ struct AngularDescriptor {
     int ell, m;
 };
 
-constexpr AngularDescriptor kAngularLibraryDescriptors[] = {
+inline constexpr AngularDescriptor kAngularLibraryDescriptors[] = {
     {0, 0},
     {1, -1}, {1, 0}, {1, 1},
     {2, -2}, {2, -1}, {2, 0}, {2, 1}, {2, 2},
     {3, -3}, {3, -2}, {3, -1}, {3, 0}, {3, 1}, {3, 2}, {3, 3},
 };
-constexpr int kAngularLibraryCount = sizeof(kAngularLibraryDescriptors) / sizeof(kAngularLibraryDescriptors[0]);
+inline constexpr int kAngularLibraryCount = sizeof(kAngularLibraryDescriptors) / sizeof(kAngularLibraryDescriptors[0]);
 
 constexpr std::array<OrbitalAngularTables, kAngularLibraryCount> buildAngularLibrary() {
     std::array<OrbitalAngularTables, kAngularLibraryCount> tables{};
@@ -32,7 +32,7 @@ constexpr std::array<OrbitalAngularTables, kAngularLibraryCount> buildAngularLib
 }
 
 // ~8KB/entry (2 x 1001-float tables) x 16 entries =~ 128KB of .rodata.
-constexpr std::array<OrbitalAngularTables, kAngularLibraryCount> kAngularLibrary = buildAngularLibrary();
+inline constexpr std::array<OrbitalAngularTables, kAngularLibraryCount> kAngularLibrary = buildAngularLibrary();
 
 /**
  * Look up the angular tables for (ell, m). Runtime O(kAngularLibraryCount) linear scan --

@@ -39,7 +39,7 @@
 /// Default element shown on first boot (carbon). Every element renormalizes to the same
 /// on-screen radius (see atom_cloud.h's kAtomTargetPx), so there's no size-based reason to
 /// prefer one default over another.
-constexpr int kAtomViewDefaultZ = 6;
+inline constexpr int kAtomViewDefaultZ = 6;
 
 /**
  * @brief Everything one loaded element needs to render.

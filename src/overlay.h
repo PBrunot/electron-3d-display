@@ -15,7 +15,7 @@
 // cloud_common.PM_PER_BOHR / atom_cloud.PM_PER_BOHR -- both MicroPython modules already
 // re-export the same constant under their own name; this is the single C++ source of
 // truth for both viewers' scale bars.
-constexpr orb_real_t kPmPerBohr = orb_real_t(52.9177210903);
+inline constexpr orb_real_t kPmPerBohr = orb_real_t(52.9177210903);
 
 /**
  * Bottom-left physical-size reference bar. `pixelsPerUnit` is screen pixels per physical
@@ -28,6 +28,6 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
                   uint16_t textColor);
 
 // Overlay text layout, matching device_render_common.py's TITLE_TEXT_POS/LOADING_TEXT_POS.
-constexpr int kTitleTextX = 2, kTitleTextY = 2;
-constexpr int kLoadingTextX = 2, kLoadingTextY = 22;
-constexpr const char *kLoadingText = "Loading...";
+inline constexpr int kTitleTextX = 2, kTitleTextY = 2;
+inline constexpr int kLoadingTextX = 2, kLoadingTextY = 22;
+inline constexpr const char *kLoadingText = "Loading...";

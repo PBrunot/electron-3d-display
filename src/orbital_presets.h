@@ -15,9 +15,9 @@
 // and the scratch arrays orbital_presets.cpp's computeOrbitalLevels()/scaleFromRadii() use
 // (order[], radii[]), plus OrbitalResampleState::psi2Sorted below -- matches
 // cloud_common.N_POINTS.
-static constexpr int kOrbitalNumPoints = 10000;
+inline constexpr int kOrbitalNumPoints = 10000;
 
-static constexpr int kOrbitalColorMaxLevel = 255; // callers must clamp a resampled point's level to this before comparing
+inline constexpr int kOrbitalColorMaxLevel = 255; // callers must clamp a resampled point's level to this before comparing
 
 /** Brightness level (0..kOrbitalColorMaxLevel) + wavefunction sign + this preset's
  * phase-color pair (positive/negative, see orbital_library.h's OrbitalDescriptor) ->
@@ -40,8 +40,8 @@ uint16_t orbitalLevelToColor565(int level, int sign, const uint16_t posRgb565, c
 void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels, orb_real_t *outPsi2Sorted);
 
 // Point-turnover: fraction of the cloud resampled every kOrbitalCullRefreshFrames frames.
-constexpr orb_real_t kOrbitalCullFraction = orb_real_t(0.01);
-constexpr int kOrbitalCullRefreshFrames = 3;
+inline constexpr orb_real_t kOrbitalCullFraction = orb_real_t(0.01);
+inline constexpr int kOrbitalCullRefreshFrames = 3;
 // Per-frame "buzz" flicker fraction now lives in camera.h's kHiddenPointsFraction, shared
 // with atom_view.cpp -- see that constant's comment.
 

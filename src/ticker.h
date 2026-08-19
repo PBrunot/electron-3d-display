@@ -11,7 +11,7 @@
 #include "display.h"
 #include "font.h"
 
-constexpr int kTickerDefaultPxPerFrame = 5;
+inline constexpr int kTickerDefaultPxPerFrame = 5;
 
 /**
  * Scroll `text` once, right-to-left, from fully off the right edge to fully off the left

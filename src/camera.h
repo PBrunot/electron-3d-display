@@ -31,21 +31,21 @@
 // ============================================================================================
 
 // --- Tumble camera pacing ---
-constexpr orb_real_t kCameraAngleStep = orb_real_t(0.030); ///< Yaw change per frame.
-constexpr orb_real_t kCameraTiltStep = orb_real_t(0.023);  ///< Tilt change per frame.
-constexpr orb_real_t kCameraRollStep = orb_real_t(0.017);  ///< Roll change per frame.
+inline constexpr orb_real_t kCameraAngleStep = orb_real_t(0.030); ///< Yaw change per frame.
+inline constexpr orb_real_t kCameraTiltStep = orb_real_t(0.023);  ///< Tilt change per frame.
+inline constexpr orb_real_t kCameraRollStep = orb_real_t(0.017);  ///< Roll change per frame.
 // The three steps are deliberately non-resonant with each other, so the tumble doesn't fall
 // into a short repeating loop.
 
 /// Tilt/roll start away from the degenerate all-zero pose (where yaw alone can't move
 /// axis-aligned lobes at all), so even the first frame after boot isn't axis-locked.
-constexpr orb_real_t kCameraTiltStart = orb_real_t(0.9);
-constexpr orb_real_t kCameraRollStart = orb_real_t(2.1);
+inline constexpr orb_real_t kCameraTiltStart = orb_real_t(0.9);
+inline constexpr orb_real_t kCameraRollStart = orb_real_t(2.1);
 
-constexpr orb_real_t kTwoPi = orb_real_t(2) * kOrbitalPi;
+inline constexpr orb_real_t kTwoPi = orb_real_t(2) * kOrbitalPi;
 
 /// Side length in pixels of the proton marker drawn by drawProtonMarker().
-constexpr int kProtonMarkerSize = 3;
+inline constexpr int kProtonMarkerSize = 3;
 
 // --- Point transparency + frame persistence ---
 // Every point alpha-blends toward its own color instead of overwriting the pixel outright, so
@@ -58,55 +58,55 @@ constexpr int kProtonMarkerSize = 3;
 /// intended color rather than muddying into an intermediate hue -- per-point brightness
 /// already comes from the level encoded into the point's own color (see orbital_presets.cpp's
 /// orbitalLevelToColor565() / atom_cloud.cpp's shell brighten/dim).
-constexpr uint16_t kElectronAlphaQ8 = 256;
+inline constexpr uint16_t kElectronAlphaQ8 = 256;
 
 /// Fraction of the previous frame buffer's brightness kept each frame (Display::
 /// fadeColor565()) instead of hard-clearing it, so points leave a brief trailing glow and
 /// skipped "buzz" points fade out instead of vanishing outright. Tuned high enough that a hit
 /// pixel's glow stays alive between re-hits as points sweep across the screen during
 /// rotation, filling in gaps that would otherwise read as flicker.
-constexpr uint16_t kPersistenceKeepQ8 = 150; // 150/256 kept per frame (~0.59)
+inline constexpr uint16_t kPersistenceKeepQ8 = 150; // 150/256 kept per frame (~0.59)
 
 // --- Hidden-points "buzz" flicker (feeds renderPointsColored()'s buzzThreshold param) ---
 /// Fraction of points skipped on any given frame (a different pseudo-random subset each
 /// frame), so the cloud reads as a buzzing/flickering probability cloud rather than a static
 /// fixed set of dots. Shared by orbital_view.cpp and atom_view.cpp so the effect reads the
 /// same across both cloud types.
-constexpr orb_real_t kHiddenPointsFraction = orb_real_t(0.25);
+inline constexpr orb_real_t kHiddenPointsFraction = orb_real_t(0.25);
 /// Threshold derived from kHiddenPointsFraction for renderPointsColored()'s 16-bit hash. 0
 /// (rather than this constant) disables buzz outright, since the hash is unsigned and never
 /// compares less than 0.
-constexpr uint32_t kHiddenPointsThreshold = uint32_t(kHiddenPointsFraction * orb_real_t(65536));
+inline constexpr uint32_t kHiddenPointsThreshold = uint32_t(kHiddenPointsFraction * orb_real_t(65536));
 
 // --- Fly-over easing pace ---
 // Camera starts at baseScale * factor and eases to baseScale over `frames` frames. Boot intro
 // is slower/more dramatic than a preset/element switch, which is more dramatic than a
 // mid-scene zoom excursion.
-constexpr orb_real_t kIntroStartScaleFactor = orb_real_t(12.0);  ///< Boot intro start-scale multiplier.
-constexpr int kIntroFrames = 70;                                 ///< Boot intro ease duration, frames.
-constexpr orb_real_t kSwitchStartScaleFactor = orb_real_t(10.0); ///< Preset/element switch start-scale multiplier.
-constexpr int kSwitchTransitionFrames = 18;                      ///< Preset/element switch ease duration, frames.
+inline constexpr orb_real_t kIntroStartScaleFactor = orb_real_t(12.0);  ///< Boot intro start-scale multiplier.
+inline constexpr int kIntroFrames = 70;                                 ///< Boot intro ease duration, frames.
+inline constexpr orb_real_t kSwitchStartScaleFactor = orb_real_t(10.0); ///< Preset/element switch start-scale multiplier.
+inline constexpr int kSwitchTransitionFrames = 18;                      ///< Preset/element switch ease duration, frames.
 
 // --- Random zoom excursions (steady-state loop) ---
 // At randomized intervals (re-rolled after each one), ease from the current breathing scale
 // to a randomized target and back -- layered on top of the constant sine-wave breathing so
 // the animation doesn't read as purely mechanical.
-constexpr int kZoomExcursionMinIntervalFrames = 150;             ///< Shortest gap between excursions, frames.
-constexpr int kZoomExcursionMaxIntervalFrames = 400;             ///< Longest gap between excursions, frames.
-constexpr orb_real_t kZoomExcursionScaleMinFactor = orb_real_t(0.4); ///< Excursion "zoom out" target multiplier.
+inline constexpr int kZoomExcursionMinIntervalFrames = 150;             ///< Shortest gap between excursions, frames.
+inline constexpr int kZoomExcursionMaxIntervalFrames = 400;             ///< Longest gap between excursions, frames.
+inline constexpr orb_real_t kZoomExcursionScaleMinFactor = orb_real_t(0.4); ///< Excursion "zoom out" target multiplier.
 /// Excursion "zoom in" target multiplier. Scale multiplies screen-space offset directly
 /// (projectPoint()), so a larger factor is the "dive IN" direction: the outer subshell's own
 /// radius grows well past the screen edge and only near-center points stay visible, reading
 /// as flying through/inside the cloud rather than a simple zoom-in on the whole shape.
 /// Matches kIntroStartScaleFactor -- the same "extremely close" magnitude already validated
 /// on hardware via the boot intro.
-constexpr orb_real_t kZoomExcursionScaleMaxFactor = orb_real_t(12.0);
+inline constexpr orb_real_t kZoomExcursionScaleMaxFactor = orb_real_t(12.0);
 /// Excursion ease duration, frames. A deeper dive (see kZoomExcursionScaleMaxFactor) covers
 /// more visual distance per frame, so needs more frames to read as a deliberate dive-through
 /// rather than a jarring flash.
-constexpr int kZoomExcursionEaseFrames = 45;
+inline constexpr int kZoomExcursionEaseFrames = 45;
 /// Breathing zoom's angular speed; independent phase from kCameraAngleStep.
-constexpr orb_real_t kZoomAngleStep = orb_real_t(0.016);
+inline constexpr orb_real_t kZoomAngleStep = orb_real_t(0.016);
 
 // ============================================================================================
 

@@ -5,8 +5,8 @@
 
 #include <cstdint>
 
-constexpr int kSplashBitmapWidth = 240;
-constexpr int kSplashBitmapHeight = 240;
+inline constexpr int kSplashBitmapWidth = 240;
+inline constexpr int kSplashBitmapHeight = 240;
 // Already packed via Display::packColor565()'s exact bit formula (plain
 // textbook RGB565) -- draw with a plain copy, never re-pack these values.
 extern const uint16_t kSplashBitmapData[];
