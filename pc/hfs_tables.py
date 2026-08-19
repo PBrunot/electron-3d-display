@@ -120,9 +120,48 @@ def load(path=DEFAULT_TABLES):
     return HfsTables(path)
 
 
+def compact(in_path, out_path, n_points=513):
+    """Downsample a full-resolution npz to n_points per subshell (log-uniform
+    grid), shrinking it ~4x (2001 -> 513 points). The PC samplers and the
+    validation harness read both equally well: they only consume the radial
+    density shape, which is smooth on a log grid (2.2% relative spacing at
+    513 points is ample; the mode is accurate to ~0.1%). The true device
+    format (64-point log grid or STO fits, tens of KB for the whole table)
+    is a further, separate step -- see pc/screened_potential_model.md
+    section 7."""
+    data = np.load(in_path)
+    r_full = data['r']
+    r0, rmax = r_full[0], r_full[-1]
+    t = np.linspace(0.0, math.log(rmax / r0), n_points)
+    r_out = r0 * np.exp(t)
+    arrays = {'r': r_out.astype(np.float64)}
+    z_list = [int(z) for z in data['z_list']]
+    for z in z_list:
+        arrays['z%d_config' % z] = data['z%d_config' % z]
+        for n, ell, occ in [tuple(int(v) for v in row)
+                            for row in data['z%d_config' % z]]:
+            u = data['z%d_%d_%d_u' % (z, n, ell)]
+            u_out = np.interp(r_out, r_full, u).astype(np.float32)
+            arrays['z%d_%d_%d_u' % (z, n, ell)] = u_out
+            arrays['z%d_%d_%d_E' % (z, n, ell)] = data['z%d_%d_%d_E' % (z, n, ell)]
+            arrays['z%d_%d_%d_occ' % (z, n, ell)] = data['z%d_%d_%d_occ' % (z, n, ell)]
+    arrays['z_list'] = data['z_list']
+    data.close()
+    np.savez(out_path, **arrays)
+    return len(z_list)
+
+
 if __name__ == '__main__':
     import sys
-    t = load(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TABLES)
+    args = sys.argv[1:]
+    if args and args[0] == '--compact':
+        # hfs_tables.py --compact <in.npz> <out.npz> [n_points]
+        n = int(args[3]) if len(args) > 3 else 513
+        z = compact(args[1], args[2], n)
+        print("compacted %s -> %s (%d elements, %d points/subshell)"
+              % (args[1], args[2], z, n))
+        sys.exit(0)
+    t = load(args[0] if args else DEFAULT_TABLES)
     print("loaded %s: %d elements, r in [%.2e, %.0f] Bohr, %d points" %
           (t.path, len(t.z_list), t.r[0], t.r[-1], len(t.r)))
     for z in (1, 3, 26, 92):

@@ -212,6 +212,59 @@ def compare_lda_valence(root, alpha, elements):
                  (ours - nist) * HARTREE_EV))
 
 
+def compare_sc_rlda(root, elements, alpha=2.0 / 3.0):
+    """Double-check the RELATIVISTIC treatment against the NIST ScRLDA
+    approximation: the scalar-relativistic eigenvalues (one per nl, spin-
+    orbit averaged -- Koelling-Harmon style) must match the degeneracy-
+    weighted average of our Dirac j = l+1/2 and j = l-1/2 eigenvalues
+    (eps_avg = [2(l+1) eps_P + 2l eps_M] / (4l+2)). A systematic mismatch
+    would indicate an error in the Dirac machinery or the averaging."""
+    sc_dir = os.path.join(root, 'ScRLDA', 'neutrals')
+    rlda_dir = os.path.join(root, 'RLDA', 'neutrals')
+    grid = make_grid()
+    print("=== ScRLDA eigenvalues vs our j-averaged Dirac (alpha=%.3f) ===" % alpha)
+    for z in elements:
+        fname = "%02d%s" % (z, slater.element_symbol(z))
+        path = os.path.join(sc_dir, fname)
+        if not os.path.isfile(path):
+            print("Z=%d: ScRLDA file missing" % z)
+            continue
+        _e, sc = parse_element_file(path)
+        _e2, rlda = parse_element_file(os.path.join(rlda_dir, fname))
+        res = solve_element_relativistic(z, alpha=alpha, grid=grid)
+        r, dt = grid
+        t = np.log(r / r[0])
+        from hfs_solver import potential_from_q
+        V = potential_from_q(z, r, res['q'], alpha=alpha, latter=True)
+        print("-- %s (Z=%d)" % (slater.element_symbol(z), z))
+        for n, ell, occ, E, u in res['states']:
+            if ell == 0:
+                label = "%d%sp" % (n, 'spdf'[ell])
+                if label not in sc:
+                    continue
+                ours = E  # single j for s
+                dE = ours - sc[label]
+                print("  %d%s: ScRLDA %9.4f  ours(Dirac) %9.4f  (dE %+7.4f Ha)"
+                      % (n, 'spdf'[ell], sc[label], ours, dE))
+                continue
+            label_p = "%d%sP" % (n, 'spdf'[ell])
+            label_m = "%d%sM" % (n, 'spdf'[ell])
+            if label_p not in rlda or label_m not in rlda:
+                continue
+            eps_p = solve_dirac_state(V, r, t, dt, -(ell + 1), n, z)[0]
+            eps_m = solve_dirac_state(V, r, t, dt, ell, n, z)[0]
+            w1 = (2 * ell + 2) / (4 * ell + 2)
+            w2 = (2 * ell) / (4 * ell + 2)
+            ours = w1 * eps_p + w2 * eps_m
+            # NIST reference: ScRLDA directly, plus the RLDA j-average
+            rlda_avg = w1 * rlda[label_p] + w2 * rlda[label_m]
+            label = "%d%s" % (n, 'spdf'[ell])
+            if label not in sc:
+                continue
+            print("  %d%s: ScRLDA %9.4f  ours %9.4f (dE %+7.4f) | RLDA j-avg %9.4f"
+                  % (n, 'spdf'[ell], sc[label], ours, ours - sc[label], rlda_avg))
+
+
 def main(argv):
     root = argv[0] if argv else '.'
     rest = argv[1:]
@@ -224,6 +277,7 @@ def main(argv):
     compare_spin_orbit(root, elements, alpha)
     compare_lda_valence(root, alpha, elements)
     compare_configurations(root)
+    compare_sc_rlda(root, elements, alpha)
     return 0
 
 
