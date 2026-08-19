@@ -1,7 +1,9 @@
 /**
  * @file orbital_library.h
- * @brief Fixed set of selectable hydrogen orbitals, each with its OrbitalSampler built
- *        entirely at compile time (see pointcloud.h's buildOrbitalSamplerConstexpr()).
+ * @brief Fixed set of selectable hydrogen orbitals (kOrbitalLibrary), whose OrbitalSampler
+ *        tables are read ON DEMAND from flash (src/orbital_library.cpp) instead of compiled
+ *        into firmware -- see that file's header comment for the loading strategy, and
+ *        tools/orbital_table_gen.py for how data/orbital_samplers.bin is produced.
  *
  * The real p_x/p_y/p_z and d-orbital shapes fall directly out of psiReal()'s existing
  * convention (cos(m*phi) for m>=0, sin(|m|*phi) for m<0) for the usual m=+-1 (p) / m=+-2 (d)
@@ -10,9 +12,9 @@
  */
 #pragma once
 
-#include <array>
 #include <cstdint>
 
+#include "display.h" // Display::kColorOrbitalRed/kColorOrbitalBlue, used by kOrbitalLibrary below
 #include "pointcloud.h"
 
 struct OrbitalDescriptor
@@ -73,34 +75,25 @@ inline constexpr OrbitalDescriptor kOrbitalLibrary[] = {
 inline constexpr int kOrbitalLibraryCount = sizeof(kOrbitalLibrary) / sizeof(kOrbitalLibrary[0]);
 inline constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz
 
-constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> buildOrbitalLibrarySamplers()
-{
-    std::array<OrbitalSampler, kOrbitalLibraryCount> samplers{};
-    for (int i = 0; i < kOrbitalLibraryCount; i++)
-    {
-        samplers[i] = buildOrbitalSamplerConstexpr(kOrbitalLibrary[i].n, kOrbitalLibrary[i].ell, kOrbitalLibrary[i].m);
-    }
-    return samplers;
-}
-
-/// ~12KB per orbital x kOrbitalLibraryCount orbitals, trivial next to this board's 16MB
-/// flash. If a build ever times out or hits GCC's constexpr step/loop limit while compiling
-/// this table, raise -fconstexpr-ops-limit rather than shrinking the table.
-inline constexpr std::array<OrbitalSampler, kOrbitalLibraryCount> kOrbitalSamplers = buildOrbitalLibrarySamplers();
-
 /**
- * @brief Look up a library orbital's sampler by (n, ell, m).
- * @return Pointer to the matching OrbitalSampler, or nullptr if (n,ell,m) isn't in
- *         kOrbitalLibrary.
- * @note Runtime O(kOrbitalLibraryCount) linear scan -- fine for a library this small; not
- *       meant for a hot path.
+ * @brief Look up a library orbital's sampler by (n, ell, m), reading it on demand from
+ *        data/orbital_samplers.bin (see orbital_library.cpp).
+ *
+ * @return Pointer to a sampler for (n, ell, m) -- valid ONLY until the next
+ *         findOrbitalSampler() call (single shared static instance, same convention as
+ *         hfs_radial.h's hfsFindU()), fine since only one preset is ever active at a time
+ *         (orbital_view.h's OrbitalPresetState) and every caller consumes the pointer before
+ *         the next preset switch. nullptr only if (n,ell,m) isn't in kOrbitalLibrary at all
+ *         (a caller bug -- every real call site passes n/ell/m straight from a
+ *         kOrbitalLibrary entry, so this shouldn't happen in practice). If the entry IS in
+ *         the library but data/orbital_samplers.bin hasn't been deployed yet (`pio run -t
+ *         uploadfs`) or fails to read, still returns a valid pointer to a degenerate
+ *         (all-zero -> single point at the origin) sampler rather than nullptr or a crash --
+ *         see orbital_library.cpp's own comment for why there's no better fallback available
+ *         here (unlike atom_cloud.h's hydrogenic fallback for the optional HFS table,
+ *         hydrogen orbitals ARE this project's base model, nothing to fall back to).
+ * @note Runtime O(kOrbitalLibraryCount) linear scan for the index, then one flash read --
+ *       fine for a library this small, called once per preset switch, not once per frame or
+ *       per sampled point.
  */
-inline const OrbitalSampler *findOrbitalSampler(int n, int ell, int m)
-{
-    for (int i = 0; i < kOrbitalLibraryCount; i++)
-    {
-        if (kOrbitalLibrary[i].n == n && kOrbitalLibrary[i].ell == ell && kOrbitalLibrary[i].m == m)
-            return &kOrbitalSamplers[i];
-    }
-    return nullptr;
-}
+const OrbitalSampler *findOrbitalSampler(int n, int ell, int m);

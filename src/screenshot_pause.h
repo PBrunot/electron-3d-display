@@ -15,6 +15,13 @@
  *    'a'/SS_CAP_ALL batch capture (screenshot_batch.cpp), would corrupt each other's
  *    in-flight work even though screenshot_batch.cpp renders into its own private frame
  *    buffer.
+ *  - The same two load() paths also reach into the on-demand table loaders'
+ *    (hfs_radial.cpp's hfsFindU(), orbital_library.cpp's findOrbitalSampler()) single
+ *    shared static sampler/scratch buffer and held-open FILE* -- same "one instance shared
+ *    by every caller" hazard as the scratch arrays above, just file-backed instead of
+ *    array-backed. Any new call site for either function needs the same checkpoint()
+ *    coverage the existing ones get (see below) -- it isn't safe on its own merely because
+ *    it's a read.
  *
  * init() must run once at boot, before the console task starts. Every long-running render
  * loop (chooser.cpp's runChooser(), orbital_view.cpp's/atom_view.cpp's steady-state loops)
