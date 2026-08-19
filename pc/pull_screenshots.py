@@ -7,6 +7,12 @@ ignores any interleaved ESP_LOG output (anything not starting with "SS_").
 On-device screenshots are already PNG-compressed (png_writer.cpp, LZ77 + DEFLATE's fixed
 Huffman table) -- this script just moves the bytes, it doesn't re-encode anything.
 
+SS_LIST enumerates the WHOLE "storage" SPIFFS partition (screenshot::forEachFile() walks its
+mount root directly), which also holds data/hfs_tables.bin, data/orbital_samplers.bin, and
+data/atomic_cube.jpg (see partitions_16M.csv) -- not just screenshots. --list/--all filter to
+*.png only, so this stays a screenshot puller instead of also listing/pulling those unrelated
+multi-hundred-KB data blobs over the same slow base64-over-serial link.
+
 Usage:
     python3 pc/pull_screenshots.py --list
     python3 pc/pull_screenshots.py --all                       # pull every device screenshot
@@ -50,6 +56,8 @@ def _read_ss_line(ser, deadline):
 
 
 def list_files(ser):
+    """Every file SS_LIST reports -- the whole "storage" partition, not just screenshots (see
+    module docstring). Callers that want screenshots only should filter with is_screenshot()."""
     ser.write(b'SS_LIST\n')
     deadline = time.monotonic() + LINE_TIMEOUT_S
     files = []
@@ -64,6 +72,10 @@ def list_files(ser):
         if len(parts) == 3 and parts[0] == 'SS_FILE':
             files.append((parts[1], int(parts[2])))
     return files
+
+
+def is_screenshot(name):
+    return name.lower().endswith('.png')
 
 
 def pull_file(ser, name, out_dir):
@@ -132,7 +144,7 @@ def main():
     ser = serial.Serial(args.port, args.baud, timeout=0.5)
     time.sleep(0.2)  # let the port settle before the first command
     try:
-        files = list_files(ser)
+        files = [(n, s) for n, s in list_files(ser) if is_screenshot(n)]
         print('on-device: %d screenshot(s)' % len(files))
         for name, size in files:
             print('  %s (%d bytes)' % (name, size))
