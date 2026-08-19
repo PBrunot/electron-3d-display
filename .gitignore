@@ -17,6 +17,7 @@ examples/js-calculations/Quantum physics online.html
 /tools/orbitals_host/out
 /micropython/__pycache__
 /pc/__pycache__
+/screenshots/
 /web/py/__pycache__
 pio_full_build.log
 pio_run1.log

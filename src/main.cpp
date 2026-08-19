@@ -21,6 +21,7 @@
 #include "esp_heap_caps.h"
 
 #include "imu.h"
+#include "screenshot_console.h"
 #include "splash_bitmap.h"
 #include "tilt_defaults.h"
 #include "tilt_gesture.h"
@@ -143,6 +144,7 @@ extern "C" void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(1000));
 #else
     Display display{};
+    startScreenshotConsole(display); // 's'/'l'/SS_GET/SS_DEL over the console -- see screenshot_console.h
 
     display.waitForFlushDone();
     drawSplashScreen(display.getFrameBuf());

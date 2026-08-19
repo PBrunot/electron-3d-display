@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "orbital_view.h"
+#include "screenshot_pause.h"
 #include "splash_bitmap.h"
 #include "tilt_gesture.h"
 
@@ -171,6 +172,7 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
 
     while (true)
     {
+        screenshot_pause::checkpoint(); // see screenshot_pause.h -- lets a screenshot capture happen safely
         display.waitForFlushDone();
         drawChooserScreen(display.getFrameBuf());
 
