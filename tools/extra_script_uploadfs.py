@@ -1,12 +1,14 @@
 # extra_script_uploadfs.py
 #
 # Chains `pio run -t uploadfs` onto the normal `pio run -t upload` so a plain
-# firmware flash always also deploys data/hfs_tables.bin to the "storage"
-# SPIFFS partition (partitions_16M.csv) -- previously a separate manual step
-# (`pio run -t uploadfs`), easy to forget after regenerating
-# data/hfs_tables.bin (tools/hfs_table_gen.py) and silently leaving the
-# device running against stale radial tables (src/hfs_radial.cpp reads them
-# on demand from that partition, see that file's header comment).
+# firmware flash always also deploys the data/ directory's contents (e.g.
+# hfs_tables.bin, orbital_samplers.bin) to the "storage" SPIFFS partition
+# (partitions_16M.csv) -- without this, a separate manual step (`pio run -t
+# uploadfs`) is easy to forget after regenerating one of those files
+# (tools/hfs_table_gen.py, tools/orbital_table_gen.py), silently leaving the
+# device running against stale on-demand tables (src/hfs_radial.cpp,
+# src/orbital_library.cpp read them from that partition, see each file's
+# header comment).
 #
 # The "storage" partition also holds on-device screenshots (screenshot.cpp);
 # uploadfs REFORMATS the whole partition from the `data/` directory's
