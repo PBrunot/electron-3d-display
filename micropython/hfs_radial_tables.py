@@ -29,8 +29,16 @@ from the file ON DEMAND by source(), when that (Z, n, ell) is actually
 selected -- the whole ~470KB table is never resident in RAM at once. This
 matches how the table is actually used: atom_cloud.build_atom_point_cloud()
 looks up each occupied subshell once per element switch (not once per frame
-or per sampled point), so re-opening the file for that handful of reads is
-cheap and keeps the steady-state RAM footprint small.
+or per sampled point).
+
+HfsTables keeps ONE file handle open for its own lifetime (opened in
+__init__(), never closed) instead of a fresh open()/close() per source()
+call -- measured on the C++ port's real hardware (src/hfs_radial.cpp, same
+read strategy against the same file format on SPIFFS): re-opening the file
+once per subshell (7 opens for iron) inflated point-cloud build time from
+~30-60ms to ~800-980ms, because filesystem open/close (an object-index
+lookup) is the expensive part, not the seek/read that follows it. A held-
+open file only needs seek()+read() per call.
 """
 
 import array
@@ -74,25 +82,26 @@ class HfsTables:
 
     def __init__(self, path=DEFAULT_PATH):
         self._path = path
-        with open(path, 'rb') as f:
-            grid_size, element_count, subshell_count = struct.unpack(_HEADER_FMT, f.read(_HEADER_SIZE))
-            self.grid_size = grid_size
-            self.element_count = element_count
-            self.subshell_count = subshell_count
+        f = open(path, 'rb')
+        grid_size, element_count, subshell_count = struct.unpack(_HEADER_FMT, f.read(_HEADER_SIZE))
+        self.grid_size = grid_size
+        self.element_count = element_count
+        self.subshell_count = subshell_count
 
-            self.r = array.array('f', f.read(4 * grid_size))
+        self.r = array.array('f', f.read(4 * grid_size))
 
-            element = []
-            for _ in range(element_count):
-                element.append(struct.unpack(_ELEMENT_FMT, f.read(_ELEMENT_SIZE)))
-            self._element = element
+        element = []
+        for _ in range(element_count):
+            element.append(struct.unpack(_ELEMENT_FMT, f.read(_ELEMENT_SIZE)))
+        self._element = element
 
-            subshell = []
-            for _ in range(subshell_count):
-                subshell.append(struct.unpack(_SUBSHELL_FMT, f.read(_SUBSHELL_SIZE)))
-            self._subshell = subshell
+        subshell = []
+        for _ in range(subshell_count):
+            subshell.append(struct.unpack(_SUBSHELL_FMT, f.read(_SUBSHELL_SIZE)))
+        self._subshell = subshell
 
-            self._u_data_offset = f.tell()
+        self._u_data_offset = f.tell()
+        self._file = f  # kept open, see class docstring
 
     def _find(self, z, n, ell):
         offset, count = self._element[z - 1]
@@ -108,9 +117,8 @@ class HfsTables:
         i = self._find(z, n, ell)
         if i < 0:
             raise KeyError((z, n, ell))
-        with open(self._path, 'rb') as f:
-            f.seek(self._u_data_offset + i * 4 * self.grid_size)
-            u = array.array('f', f.read(4 * self.grid_size))
+        self._file.seek(self._u_data_offset + i * 4 * self.grid_size)
+        u = array.array('f', self._file.read(4 * self.grid_size))
         return RadialSource(self.r, u)
 
     def config(self, z):
