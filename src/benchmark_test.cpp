@@ -6,6 +6,7 @@
 #include "camera.h"
 #include "display.h"
 #include "esp_attr.h" // EXT_RAM_BSS_ATTR
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "font.h"
@@ -28,8 +29,8 @@ static const char *kBenchmarkTag = "benchmark";
 static constexpr int kBenchAtomicNumber = 26; // Fe
 
 /// Point counts swept, ascending. kAtomNumPoints (atom_cloud.h) is the real production count
-/// used by atom_view.cpp, so it's the ceiling here too -- also sizes the static point/color
-/// buffers below, no reallocation between steps.
+/// used by atom_view.cpp, so it's the ceiling here too -- also sizes the static point buffer
+/// below, no reallocation between steps.
 static constexpr int kBenchPointCounts[] = {500, 1000, 2000, 4000, 8000};
 static constexpr int kBenchNumSteps = int(sizeof(kBenchPointCounts) / sizeof(kBenchPointCounts[0]));
 
@@ -59,19 +60,25 @@ namespace
     };
 
     /// Build `count` points of the fixed benchmark atom, then render+present kBenchFramesPerStep
-    /// frames through the SAME renderScene() path production code uses (fade, proton marker,
-    /// per-point shell coloring, buzz flicker) plus the title/scale-bar overlay every real frame
-    /// draws -- a uniform-white/no-overlay shortcut would measure a cheaper pipeline than what
-    /// actually ships.
-    StepStats runStep(Display &display, AtomPoint *points, uint16_t *colors, int count, CameraState &camera)
+    /// frames through the SAME renderSceneGrouped() path production code uses (fade, proton
+    /// marker, per-subshell shell coloring, buzz flicker) plus the title/scale-bar overlay every
+    /// real frame draws -- a uniform-white/no-overlay shortcut would measure a cheaper pipeline
+    /// than what actually ships.
+    StepStats runStep(Display &display, AtomPoint *points, PointGroup *groups, int count, CameraState &camera)
     {
         StepStats stats;
         stats.points = count;
 
         int64_t buildStartUs = esp_timer_get_time();
-        ElectronConfig config = buildAtomPointCloud(kBenchAtomicNumber, points, count, kBenchSeed);
-        stats.outer = outerSubshellRRef(points, count, config);
-        colorizeAtomPoints(points, count, stats.outer, colors);
+        AtomSubshellRange ranges[kMaxConfigSubshells];
+        int rangeCount = 0;
+        buildAtomPointCloud(kBenchAtomicNumber, points, count, kBenchSeed, ranges, &rangeCount);
+        stats.outer = outerSubshellRRef(points, ranges, rangeCount);
+        uint16_t subshellColors[kMaxConfigSubshells];
+        colorizeAtomSubshells(ranges, rangeCount, stats.outer, subshellColors);
+        int groupCount = rangeCount;
+        for (int s = 0; s < rangeCount; s++)
+            groups[s] = PointGroup{ranges[s].startIndex, ranges[s].count, subshellColors[s]};
         stats.buildMs = (esp_timer_get_time() - buildStartUs) / 1000;
 
         AtomScale atomScale = scaleForAtom(stats.outer.rRef);
@@ -91,8 +98,8 @@ namespace
             display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
             int64_t tAfterWait = esp_timer_get_time();
 
-            renderScene(display.getFrameBuf(), points, colors, count, kProtonColor, camera, stats.baseScale,
-                        uint32_t(f), kHiddenPointsThreshold);
+            renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, kProtonColor, camera,
+                               stats.baseScale, uint32_t(f), kHiddenPointsThreshold);
             drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, titleText, kTextColor, kFontLarge);
             drawScaleBar(display.getFrameBuf(), stats.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
@@ -120,21 +127,35 @@ namespace
         stats.fps = elapsedS > 0 ? double(kBenchFramesPerStep) / elapsedS : 0.0;
         return stats;
     }
+
+    /// Log internal-RAM and PSRAM free/largest-block bytes as one BENCH,MEM CSV line, `label`
+    /// tagging which point in the run this snapshot is from -- lets a run's own start/end (and
+    /// runs across code revisions, e.g. before/after a memory-layout change) be diffed for
+    /// headroom regressions without needing main.cpp's own printMemoryInfo() (differently
+    /// formatted, and not called on the BENCHMARK_TEST boot path).
+    void logMemory(const char *label)
+    {
+        ESP_LOGI(kBenchmarkTag, "BENCH,MEM,%s,internal_free,%u,internal_largest,%u,psram_free,%u,psram_largest,%u",
+                 label, heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                 heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    }
 } // namespace
 
 void runBenchmarkTest(Display &display)
 {
     // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: same reasoning as atom_view.cpp's
-    // AtomPresetState (a same-order-of-magnitude points+colors buffer), which aborted at boot
-    // when placed in internal RAM because it left too little contiguous space for Display::
+    // AtomPresetState (a same-order-of-magnitude points buffer), which aborted at boot when
+    // placed in internal RAM because it left too little contiguous space for Display::
     // Display()'s own DMA-capable frame-buffer allocation.
     static EXT_RAM_BSS_ATTR AtomPoint points[kAtomNumPoints];
-    static EXT_RAM_BSS_ATTR uint16_t colors[kAtomNumPoints];
+    static PointGroup groups[kMaxConfigSubshells]; // tiny (<=20 entries) -- no PSRAM need
     CameraState camera;
 
     const char *symbol = elementSymbol(kBenchAtomicNumber);
     ESP_LOGI(kBenchmarkTag, "BENCH,START,element,%s,Z,%d,frames_per_step,%d", symbol, kBenchAtomicNumber,
              kBenchFramesPerStep);
+    logMemory("start"); // with the static points/groups buffers already reserved above
 
     // Correctness fingerprint, part 1: the electron configuration and per-subshell Z_eff are
     // pure functions of Z (no point sampling, no RNG) -- identical every run on correct code,
@@ -157,7 +178,7 @@ void runBenchmarkTest(Display &display)
     for (int i = 0; i < kBenchNumSteps; i++)
     {
         int count = kBenchPointCounts[i];
-        results[i] = runStep(display, points, colors, count, camera);
+        results[i] = runStep(display, points, groups, count, camera);
         const StepStats &s = results[i];
 
         ESP_LOGI(kBenchmarkTag,
@@ -182,5 +203,6 @@ void runBenchmarkTest(Display &display)
         ESP_LOGI(kBenchmarkTag, "%8d %10lld %9.3fms %9.3fms %9.3fms %8.2f", s.points, s.buildMs, s.avgRenderMs,
                  s.minRenderMs, s.maxRenderMs, s.fps);
     }
+    logMemory("end"); // diff against the "start" snapshot to catch fragmentation/leaks across the sweep
     ESP_LOGI(kBenchmarkTag, "BENCH,DONE");
 }
