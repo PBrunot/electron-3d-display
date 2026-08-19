@@ -172,7 +172,48 @@ def _build_inverse_cdf(weight, domain_max):
 
 
 @micropython.native
-def init_orbital_sampler(n, ell, m, z_eff=1.0):
+def _build_inverse_cdf_from_grid(weight, x_grid):
+    """Same inverse-CDF builder as _build_inverse_cdf(), but for samples of a
+    density on an ARBITRARY (not evenly spaced) grid x_grid[0..count-1] --
+    the case for the tabulated screened-potential radial functions (u^2 on a
+    log-uniform Bohr grid, see pc/hfs_tables.py). The forward CDF uses the
+    trapezoid rule on the actual spacing, and the inverse lookup maps the
+    quantile back to an x value (not an index) by linear interpolation of
+    the CDF -- still one monotonic sweep each way, so still O(count) total.
+    """
+    count = len(weight)
+    if count < 2:
+        return array.array('d', bytes(8 * count))
+
+    cdf = array.array('d', bytes(8 * count))
+    cumulative = 0.0
+    cdf[0] = 0.0
+    for i in range(1, count):
+        cumulative += 0.5 * (weight[i] + weight[i - 1]) * (x_grid[i] - x_grid[i - 1])
+        cdf[i] = cumulative
+    total = cdf[count - 1]
+    if total <= 0.0:
+        total = 1.0
+    for i in range(count):
+        cdf[i] /= total
+
+    inv_table = array.array('d', bytes(8 * count))
+    j = 0
+    for k in range(count):
+        u = k / (count - 1)
+        while j < count - 1 and cdf[j] < u:
+            j += 1
+        j0 = j - 1 if j > 0 else 0
+        j1 = j
+        c0 = cdf[j0]
+        c1 = cdf[j1]
+        t = (u - c0) / (c1 - c0) if c1 > c0 else 0.0
+        inv_table[k] = x_grid[j0] + t * (x_grid[j1] - x_grid[j0])
+    return inv_table
+
+
+@micropython.native
+def init_orbital_sampler(n, ell, m, z_eff=1.0, radial_fn=None, max_r=None):
     """Precompute an OrbitalSampler for (n, ell, m): builds the three
     inverse-CDF tables above from orbitals.hydrogen_radial_function()'s
     r*R(r), orbitals.compute_plm()'s P_l^m(theta), and the azimuthal factor
@@ -190,25 +231,33 @@ def init_orbital_sampler(n, ell, m, z_eff=1.0):
             depend on Z at all (a hydrogenic wavefunction's angular part
             doesn't change with nuclear charge, only its radial extent
             does), so theta/phi are untouched.
+        radial_fn: optional callable R(r) for the screened-potential (HFS)
+            model -- when given, it REPLACES the hydrogenic radial function
+            entirely (z_eff is then ignored) and max_r must be given too.
+            The angular tables are identical either way.
 
     Returns:
         An OrbitalSampler ready for sample_orbital_point().
     """
     radial_coeff = orbitals.laguerre_coeffs(n, ell)
     legendre_coeff = orbitals.legendre_coeffs(ell, m)
-    radial_fn = _hydrogen_radial_function  # local alias: fastest possible lookup inside the loops below
+    radial_fn_hydro = _hydrogen_radial_function  # local alias: fastest possible lookup inside the loops below
     plm_fn = _compute_plm
     sin = _sin
     cos = _cos
 
-    max_r = 6 * n * n / z_eff
+    if radial_fn is None:
+        max_r = 6 * n * n / z_eff
     table_size = orbitals.TABLE_SIZE
 
     delta_r = max_r / (table_size - 1)
     r_weight = array.array('d', bytes(8 * table_size))
     for i in range(table_size):
         r = i * delta_r
-        radial = radial_fn(z_eff * r, n, ell, radial_coeff)
+        if radial_fn is None:
+            radial = radial_fn_hydro(z_eff * r, n, ell, radial_coeff)
+        else:
+            radial = radial_fn(r)
         r_weight[i] = (r * radial) * (r * radial)
     inv_r_table = _build_inverse_cdf(r_weight, max_r)
 
@@ -299,6 +348,80 @@ def init_radial_sampler(n, ell, z_eff=1.0):
         r_weight[i] = (r * radial) * (r * radial)
     inv_r_table = _build_inverse_cdf(r_weight, max_r)
     return inv_r_table, max_r
+
+
+@micropython.native
+def init_radial_sampler_from_table(x_grid, density):
+    """Build the radial inverse-CDF table used by sample_isotropic_point()
+    from an ARBITRARY tabulated radial probability density instead of the
+    hydrogenic formula -- the screened-potential (HFS) model's u^2 = r^2 R^2
+    on its log-uniform Bohr grid (see pc/hfs_solver.py / pc/hfs_tables.py).
+
+    `x_grid` is the grid in Bohr radii (any spacing; typically log-uniform
+    from ~1e-6 to ~100 a0), `density[i]` = (x_grid[i] * R(x_grid[i]))^2 --
+    same meaning as init_radial_sampler()'s r_weight, just not hydrogenic.
+    The generalized inverse-CDF builder handles the non-uniform grid.
+
+    Returns (inv_r_table, max_r) as init_radial_sampler().
+    """
+    inv_r_table = _build_inverse_cdf_from_grid(density, x_grid)
+    return inv_r_table, x_grid[len(x_grid) - 1]
+
+
+@micropython.native
+def radial_mode_radius_from_table(x_grid, density):
+    """Mode of the tabulated radial density (Bohr) -- same quantity as
+    radial_mode_radius() but for an arbitrary (x_grid, u^2) table instead of
+    the hydrogenic formula. Parabolic refinement around the argmax."""
+    best_i = 0
+    best_w = -1.0
+    for i in range(len(density)):
+        if density[i] > best_w:
+            best_w = density[i]
+            best_i = i
+    if 0 < best_i < len(density) - 1:
+        x0 = x_grid[best_i - 1]
+        x1 = x_grid[best_i]
+        x2 = x_grid[best_i + 1]
+        y0 = density[best_i - 1]
+        y1 = density[best_i]
+        y2 = density[best_i + 1]
+        denom = (x0 - x1) * (x0 - x2) * (x1 - x2)
+        if denom != 0.0:
+            a = (x2 * (y1 - y0) + x1 * (y0 - y2) + x0 * (y2 - y1)) / denom
+            b = (x2 * x2 * (y0 - y1) + x1 * x1 * (y2 - y0) + x0 * x0 * (y1 - y2)) / denom
+            if abs(a) > 1e-30:
+                peak = -b / (2.0 * a)
+                if x0 < peak < x2:
+                    return peak
+    return x_grid[best_i]
+
+
+@micropython.native
+def interp_u(r, x_grid, u_values):
+    """Linear interpolation of u(r) = r*R(r) on the solver's log-uniform
+    grid (pure Python, works for list/array.array/numpy alike). Clamps to
+    the grid ends; u(0) = 0. Used by atom_cloud.py's Hund path to recover
+    the signed radial function R(r) = u(r)/r for the phase coloring."""
+    n = len(x_grid)
+    if r <= 0.0:
+        return 0.0
+    if r <= x_grid[0]:
+        return u_values[0]
+    if r >= x_grid[n - 1]:
+        return u_values[n - 1]
+    # x_grid is log-uniform: index = ln(r/r0)/ln(ratio); do a plain linear
+    # scan-free estimate via log interpolation of the INDEX (monotone).
+    lo = 0
+    hi = n - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if x_grid[mid] < r:
+            lo = mid
+        else:
+            hi = mid
+    t = (r - x_grid[lo]) / (x_grid[hi] - x_grid[lo]) if x_grid[hi] > x_grid[lo] else 0.0
+    return u_values[lo] + t * (u_values[hi] - u_values[lo])
 
 
 @micropython.native

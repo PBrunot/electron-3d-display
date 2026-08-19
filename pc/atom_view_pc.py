@@ -320,11 +320,12 @@ class AtomPreset:
     the dissection view.
     """
 
-    def __init__(self, z):
+    def __init__(self, z, radial_tables=None):
         print("atom: loading Z=%d (%s)..." % (z, slater.element_symbol(z)))
         t0 = time.time()
 
-        xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(z, count=N_POINTS)
+        xs, ys, zs, colors, shells, ells, signs, config = atom_cloud.build_atom_point_cloud(
+            z, count=N_POINTS, radial_tables=radial_tables)
 
         self.xs, self.ys, self.zs, self.colors, self.shells, self.ells, self.signs, self.config = (
             xs, ys, zs, colors, shells, ells, signs, config)
@@ -373,7 +374,8 @@ class AtomViewApp:
     orbital_view_pc.OrbitalViewApp's matching docstring.
     """
 
-    def __init__(self, z=DEFAULT_Z, root=None, canvas=None, image_id=None, on_exit=None):
+    def __init__(self, z=DEFAULT_Z, root=None, canvas=None, image_id=None, on_exit=None,
+                 radial_tables=None):
         self.owns_root = root is None
         self.root = root or tk.Tk()
         if self.owns_root:
@@ -403,7 +405,8 @@ class AtomViewApp:
         self.image_id = image_id if image_id is not None else self.canvas.create_image(0, 0, anchor='nw')
 
         self.z = z
-        self.preset = AtomPreset(self.z)
+        self.radial_tables = radial_tables
+        self.preset = AtomPreset(self.z, radial_tables)
         self._pending_z = None
         self.zoom_factor = 1.0
         self.dissecting = False
@@ -823,7 +826,7 @@ class AtomViewApp:
         if self.aborted:
             return
         self.z = new_z
-        self.preset = AtomPreset(new_z)
+        self.preset = AtomPreset(new_z, self.radial_tables)
         self.idle_dissected_this_element = False  # fresh element -- fresh idle dissection budget
         fly_over(self, self._effective_base_scale() * SWITCH_START_SCALE_FACTOR, self._effective_base_scale(),
                  SWITCH_TRANSITION_FRAMES)
@@ -1036,9 +1039,28 @@ class AtomViewApp:
         self.root.after(FRAME_DELAY_MS, self._tick)
 
 
-def run(z=DEFAULT_Z):
-    AtomViewApp(z).run()
+def run(z=DEFAULT_Z, radial_tables=None):
+    AtomViewApp(z, radial_tables=radial_tables).run()
 
 
 if __name__ == '__main__':
-    run(int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_Z)
+    import os
+    import sys
+    # Allow: python3 atom_view_pc.py [Z] [--model hfs [--tables PATH]]
+    _model = 'hydrogenic'
+    _tables = None
+    _z = DEFAULT_Z
+    _argv = sys.argv[1:]
+    while _argv:
+        a = _argv.pop(0)
+        if a == '--model':
+            _model = _argv.pop(0)
+        elif a == '--tables':
+            _tables = _argv.pop(0)
+        else:
+            _z = int(a)
+    _rt = None
+    if _model == 'hfs':
+        import hfs_tables
+        _rt = hfs_tables.load(_tables or hfs_tables.DEFAULT_TABLES)
+    run(_z, radial_tables=_rt)

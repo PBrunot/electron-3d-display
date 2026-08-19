@@ -263,37 +263,90 @@ Fatto in questa sessione (R1/R4/R5):
 
 Da fare (il vero salto di accuratezza):
 
-- **Potenziale centrale a schermo + Numerov (R2, consigliato)**: sostituire
-  l'idrogenoide a Z_eff costante con autofunzioni di V(r) = −Z_eff(r)/r
-  (Z_eff(r) → Z per r→0, → valore asintotico per r→∞), risolte numericamente
-  offline e tabulate come [rR]² — il sampler esistente non cambia. È l'unica
-  strada che corregge davvero la sovrastima di Li/Be e dei periodi 3-4
-  (1.3-1.5×), dei pesanti (3-5×) e che dà la coda asintotica giusta (carica
-  +1), perché la forma radiale reale è più contratta dell'idrogenoide per
-  ortogonalità al core.
-- **Effetto relativistico (R3)** per Z≳55: contrazione di scala
-  √(1−(Zα)²) (8% a Cs, 18% ad Au, 26% a U) sugli orbitali s/p — come
-  correzione del potenziale se si fa R2, o come fattore empirico sul raggio
-  se si resta idrogenoidi.
+- ~~**Potenziale centrale a schermo + Numerov (R2, consigliato)**~~ → FATTO
+  (vedi sotto, "R2/R3 implementati"): sostituire l'idrogenoide a Z_eff
+  costante con autofunzioni di V(r) = −Z_eff(r)/r (Z_eff(r) → Z per r→0,
+  → valore asintotico per r→∞), risolte numericamente offline e tabulate
+  come [rR]² — il sampler esistente non cambia. È l'unica strada che
+  corregge davvero la sovrastima di Li/Be e dei periodi 3-4 (1.3-1.5×), dei
+  pesanti (3-5×) e che dà la coda asintotica giusta (carica +1), perché la
+  forma radiale reale è più contratta dell'idrogenoide per ortogonalità al
+  core.
+- ~~**Effetto relativistico (R3)** per Z≳55~~ → FATTO come risolutore
+  dell'equazione radiale di Dirac (vedi sotto): non più il fattore empirico
+  √(1−(Zα)²), ma la contrazione vera (1s di U −25%, 6s di Au −6% in
+  potenziale di Coulomb nudo, più per lo schermato reale).
+
+### R2/R3 implementati (sessione corrente)
+
+Implementazione PC completa, in attesa della validazione finale contro i
+dati NIST (Kotochigova et al., `dftdata.tar.gz` — l'utente lo sta
+scaricando; la tabella contiene energie + autovalori orbitali per Z=1..92
+in LDA/LSD/RLDA/ScRLDA, NON le funzioni d'onda radiale):
+
+- `pc/hfs_solver.py` — solver HFS (Hartree-Fock-Slater) autocoerente:
+  potenziale centrale V = −Z/r + V_ee + V_x(α) con cutoff di Latter
+  (V ≤ −1/r), equazione radiale risolta come problema agli autovalori
+  tridiagonale generalizzato su griglia log-uniforme (ARPACK shift-invert;
+  dsterf/dstevx falliscono per il dynamic range ~1e16). Output:
+  `pc/hfs_tables.npz` (u(r)=rR, autovalori, configurazioni, Z=1..118).
+  Gate: `--coulomb-check` (idrogeno esatto a 1e-5).
+- `pc/dirac_solver.py` — versione relativistica (equazione radiale di
+  Dirac, shooting + conteggio nodi, autofunzione con matching a due lati).
+  Gate: energie idrogenoidi di Dirac esatte a 1e-9. Agganciata a
+  `hfs_solver.py --relativistic` (passata finale sui potenziali SCF
+  non-relativistici, one-shot; j=l±1/2 mediate sul peso di degenerazione).
+- `pc/hfs_tables.py` — lettore delle tabelle; sorgenti radiali per i
+  sampler (interfaccia duck-typed consumata da atom_cloud.py).
+- `micropython/pointcloud.py` — `init_radial_sampler_from_table()`,
+  `radial_mode_radius_from_table()`, `interp_u()`, e `radial_fn` opzionale
+  in `init_orbital_sampler()` (percorso idrogeno invariato).
+- `micropython/atom_cloud.py` — `build_atom_point_cloud(..., radial_tables=)`.
+- `pc/validate_atoms.py --model hfs` — stesso harness con le nuove funzioni
+  radiali + check di Koopmans (autovalore di valenza vs IP sperimentale,
+  NIST SRD 111).
+- `pc/nist_compare.py` — confronto autovalori vs dati NIST (pronto; dati in
+  arrivo).
+- `pc/atom_main.py --model hfs` / `atom_view_pc.py` — viewer PC con la
+  nuova nuvola.
+
+Numeri misurati (α=1.0, Slater; rapporto raggio modello/letteratura sulla
+sottoshell di valenza): H 0.95, Li 0.89, C 0.83, Na 0.88, Fe 0.80, Kr 0.86,
+Xe 0.88, Cs 0.96, Au 0.91, U 1.32 — contro 1.30 / 1.45 / 1.54 / 1.52 /
+3.34 / 3.40 / 4.96 del modello precedente. Residuo sistematico ~0.8-0.9×
+(bias Xα noto); α=2/3 porta molti elementi a 0.91-0.99 ma inverte l'ordine
+3d/4s dei metalli di transizione (Fe: 3d diffusa a 420 pm — patologia LDA
+del self-interaction per shell d compatte), quindi il default resta α=1.0.
+U (1.32) si corregge in gran parte con la relatività (contrazione 7s ~26%).
 
 ## 6. Prossimi passi
 
 Accuratezza fisica (in ordine di impatto):
 
-1. **Potenziale centrale a schermo + Numerov (R2)** — l'unico passo che
-   rimuove davvero la sovrastima residua (1.3-1.5× periodi 3-4, 3-5×
-   pesanti); il sampler non cambia, si tabula solo [rR]² diverso.
-2. **Correzione relativistica (R3)** per Z≳55 (√(1−(Zα)²), 8-26%).
-3. Estendere la tabella Z_eff Clementi-Raimondi oltre Z=54 se si trova la
-   fonte (il paper 1967 copre fino a Z=86; la pagina archiviata usata si
-   ferma a Xe).
+1. **Validazione NIST (Kotochigova et al.) FATTA** — \pc/nist_compare.py   (archivio dftdata.tar.gz in \xamples/nis data/dftdata\):
+   configurazioni NIST vs \slater.electron_configuration()\ **92/92**;
+   autovalori di valenza LDA vs HFS a α=2/3 entro ~1 eV (Ar −0.04,
+   Kr +0.33, Xe +0.66, Cs −1.09, Au −0.89, U −0.26 eV);
+   splitting spin-orbita RLDA (nlP/nlM) vs risolutore di Dirac: rapporto
+   1.08–1.19 (il 10–20% residuo è l'atteso scarto exchange-only vs
+   LDA+correlazione). Chiude la scelta α=2/3.
+2. **Batch completo delle tabelle** (\pc/hfs_solver.py --zmin 1 --zmax 118
+   --alpha 0.6666667 --relativistic --out pc/hfs_tables.npz\ — relativistico
+   solo per Z≥55 via --rel-min) + \pc/validate_atoms.py
+   --model hfs --strict --all\.
+3. **Porting ESP32** (obiettivo finale): formato compatto per sottoshell
+   (fit STO o griglia log ~64 punti) → PROGMEM C arrays; \src/pointcloud.h   guadagna il sampler da tabella (già costruisce le inverse-CDF a runtime);
+   \src/atom_cloud.h\ seleziona la sorgente radiale per (Z,n,l); benchmark
+   FPS invariato (costo per punto: un'interpolazione + un lookup).
+4. Estendere la tabella Z_eff Clementi-Raimondi oltre Z=54 se si trova la
+   fonte (il paper 1967 copre fino a Z=86) — oggi non più critico perché
+   il modello HFS non dipende più da Z_eff per Z>54.
 
 Visivo/interattivo (invariato):
 
 - Colorazione per fase/segno nei gruppi Hund (vedi §3).
 - Point-turnover/shimmer per la modalità atomo (vedi §3).
-- Eventuale porting firmware ESP32 (vedi CLAUDE.md §7 roadmap M4) — non
-  iniziato, questa modalità è PC-only per ora (`pc/atom_view_pc.py`).
 
-Ricordarsi di rieseguire `python3 pc/validate_atoms.py --strict` dopo
-qualunque modifica alla matematica radiale o a `slater.py`.
+Ricordarsi di rieseguire \python3 pc/validate_atoms.py --strict\ dopo
+qualunque modifica alla matematica radiale o a \slater.py\ (e
+\python3 pc/validate_atoms.py --model hfs --strict\ per il nuovo modello).
