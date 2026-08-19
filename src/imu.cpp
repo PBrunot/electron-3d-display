@@ -1,8 +1,25 @@
 #include "imu.h"
 
+#include <cmath>
+
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "tilt_defaults.h"
 
 static const char *kImuTag = "imu";
+
+// Averaged over kPlanarCheckSamples rather than a single reading, so a momentary bump right
+// at power-on doesn't cause a false "not planar".
+constexpr int kPlanarCheckSamples = 20;
+constexpr uint32_t kPlanarCheckSampleDelayMs = 8;
+// Cosine-similarity floor against the hardcoded default baseline -- see checkPlanarAtBoot()'s
+// doc comment (imu.h) for why this must be much stricter than tilt_gesture.h's
+// cfg.minDirectionSimilarity.
+constexpr orb_real_t kPlanarMinSimilarity = orb_real_t(0.995);
+// Guards against a magnitude far from 1g (board in free-fall/being handled) reading as
+// "planar" just because its direction happens to line up.
+constexpr orb_real_t kPlanarMaxMagnitudeDeltaG = orb_real_t(0.15);
 
 #define PIN_SDA gpio_num_t(47)
 #define PIN_SCL gpio_num_t(48)
@@ -90,4 +107,45 @@ bool Qmi8658::readAccelG(orb_real_t *outX, orb_real_t *outY, orb_real_t *outZ)
     *outY = orb_real_t(signed16(d[2], d[3])) / kRange4gScale;
     *outZ = orb_real_t(signed16(d[4], d[5])) / kRange4gScale;
     return true;
+}
+
+bool Qmi8658::checkPlanarAtBoot()
+{
+    orb_real_t sumX = orb_real_t(0), sumY = orb_real_t(0), sumZ = orb_real_t(0);
+    int ok = 0;
+    for (int i = 0; i < kPlanarCheckSamples; i++)
+    {
+        orb_real_t x, y, z;
+        if (readAccelG(&x, &y, &z))
+        {
+            sumX += x;
+            sumY += y;
+            sumZ += z;
+            ok++;
+        }
+        vTaskDelay(pdMS_TO_TICKS(kPlanarCheckSampleDelayMs));
+    }
+    if (ok == 0)
+    {
+        ESP_LOGW(kImuTag, "planar check: no IMU samples read, assuming not planar");
+        return false;
+    }
+
+    orb_real_t x = sumX / orb_real_t(ok), y = sumY / orb_real_t(ok), z = sumZ / orb_real_t(ok);
+    orb_real_t mag = std::sqrt(x * x + y * y + z * z);
+    orb_real_t defaultMag = std::sqrt(kDefaultBaselineX * kDefaultBaselineX + kDefaultBaselineY * kDefaultBaselineY +
+                                      kDefaultBaselineZ * kDefaultBaselineZ);
+    if (mag < orb_real_t(1e-6))
+    {
+        ESP_LOGW(kImuTag, "planar check: near-zero reading, assuming not planar");
+        return false;
+    }
+
+    orb_real_t similarity =
+        (x * kDefaultBaselineX + y * kDefaultBaselineY + z * kDefaultBaselineZ) / (mag * defaultMag);
+    orb_real_t magDelta = mag > defaultMag ? mag - defaultMag : defaultMag - mag;
+    bool planar = similarity >= kPlanarMinSimilarity && magDelta <= kPlanarMaxMagnitudeDeltaG;
+    ESP_LOGI(kImuTag, "planar check: reading=(%.3f,%.3f,%.3f)g similarity=%.4f magDelta=%.3fg -> %s", double(x),
+             double(y), double(z), double(similarity), double(magDelta), planar ? "PLANAR" : "not planar");
+    return planar;
 }

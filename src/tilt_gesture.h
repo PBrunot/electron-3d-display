@@ -120,7 +120,7 @@ public:
     void calibrate();
 
     /// Set the "planar" baseline directly, bypassing calibrate()'s live sampling -- used at
-    /// boot when checkPlanarAtBoot() (main.cpp) finds the device already resting in its
+    /// boot when Qmi8658::checkPlanarAtBoot() (imu.h) finds the device already resting in its
     /// known-good pose, to install the hardcoded default baseline (tilt_defaults.h) instead
     /// of running the interactive sequence.
     void setBaseline(orb_real_t x, orb_real_t y, orb_real_t z);

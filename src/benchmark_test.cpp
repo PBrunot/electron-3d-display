@@ -131,14 +131,34 @@ namespace
     /// Log internal-RAM and PSRAM free/largest-block bytes as one BENCH,MEM CSV line, `label`
     /// tagging which point in the run this snapshot is from -- lets a run's own start/end (and
     /// runs across code revisions, e.g. before/after a memory-layout change) be diffed for
-    /// headroom regressions without needing main.cpp's own printMemoryInfo() (differently
-    /// formatted, and not called on the BENCHMARK_TEST boot path).
+    /// headroom regressions.
     void logMemory(const char *label)
     {
         ESP_LOGI(kBenchmarkTag, "BENCH,MEM,%s,internal_free,%u,internal_largest,%u,psram_free,%u,psram_largest,%u",
                  label, heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                  heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    }
+
+    /// Human-readable heap dump (totals + min-free-ever, not just the CSV snapshot logMemory()
+    /// takes) -- logged once at the start of the sweep, since min-free-ever is only meaningful
+    /// as a "worst point up to now" figure once the sweep's allocations have had a chance to
+    /// run.
+    void printMemoryInfo()
+    {
+        multi_heap_info_t info;
+        heap_caps_get_info(&info, MALLOC_CAP_DEFAULT);
+        ESP_LOGI(kBenchmarkTag, "heap: %u/%u bytes free/total, %u largest block, %u min free ever",
+                 info.total_free_bytes, info.total_allocated_bytes + info.total_free_bytes, info.largest_free_block,
+                 info.minimum_free_bytes);
+        ESP_LOGI(kBenchmarkTag, "internal RAM: %u/%u bytes free/total, %u largest block, %u min free ever",
+                 heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_total_size(MALLOC_CAP_INTERNAL),
+                 heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                 heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+        ESP_LOGI(kBenchmarkTag, "external RAM: %u/%u bytes free/total, %u largest block, %u min free ever",
+                 heap_caps_get_free_size(MALLOC_CAP_SPIRAM), heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
+                 heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+                 heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
     }
 } // namespace
 
@@ -156,6 +176,7 @@ void runBenchmarkTest(Display &display)
     ESP_LOGI(kBenchmarkTag, "BENCH,START,element,%s,Z,%d,frames_per_step,%d", symbol, kBenchAtomicNumber,
              kBenchFramesPerStep);
     logMemory("start"); // with the static points/groups buffers already reserved above
+    printMemoryInfo();
 
     // Correctness fingerprint, part 1: the electron configuration and per-subshell Z_eff are
     // pure functions of Z (no point sampling, no RNG) -- identical every run on correct code,
