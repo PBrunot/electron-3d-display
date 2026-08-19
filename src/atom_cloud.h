@@ -35,7 +35,7 @@ struct AtomPoint
 };
 
 inline constexpr int kMaxDrawingGroups = 25; // see atom_cloud.h's comment: at most ~1 partial subshell (<=7 groups) + up to ~19 full ones, in Madelung order; generous margin for the hardcoded exceptions too.
-inline constexpr int kAtomNumPoints = 10000; // atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp)
+inline constexpr int kAtomNumPoints = 7000;  // atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp)
 
 struct DrawingGroup
 {
@@ -224,7 +224,7 @@ inline constexpr uint32_t kAtomCloudSeed = 12345; // matches micropython/atom_cl
 // under that scheme. Every element now renormalizes to the SAME on-screen target radius
 // instead, exactly like orbital_presets.h's scaleFromRadii() already does for hydrogen
 // presets -- consistent, always-legible size at the cost of the periodic size trend.
-inline constexpr orb_real_t kAtomTargetPx = orb_real_t(Display::kDisplayHeight / 2); // p90 outer-subshell radius, in pixels, at rest
+inline constexpr orb_real_t kAtomTargetPx = orb_real_t(Display::kDisplayHeight / 2.5);
 
 inline constexpr orb_real_t kAtomZoomAmplitudeFraction = orb_real_t(0.4); // matches cloud_common.ZOOM_AMPLITUDE_FRACTION
 

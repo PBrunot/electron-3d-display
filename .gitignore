@@ -33,3 +33,4 @@ pio_run1.log
 /pc/_atomsfe_vendor
 /pc/_tmp
 /tools/__pycache__
+/tools/splash_gen/__pycache__
