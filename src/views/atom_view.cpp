@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "render/overlay.h"
 #include "ux/periodic_grid.h"
+#include "debug/frame_stats.h"
 #include "debug/screenshot_pause.h"
 #include "physics/slater.h"
 #include "config/visual_constants.h" // kAccentColor, kViewIdleJumpUs, kAtomProtonMarkerSize, kBoundingCircleColor, kElementIntro*, kDissect*, kFpsUpdateInterval
@@ -38,9 +39,9 @@ void AtomPresetState::load(int zIn)
     rRef = scale.rRef;
     z = zIn;
 
-    int64_t buildMs = (esp_timer_get_time() - startUs) / 1000;
+    loadMs = (esp_timer_get_time() - startUs) / 1000;
     ESP_LOGI(kAtomViewTag, "%s loaded in %lldms, outer=%d%c, outerRBohr=%.2f, scale=%.1f, outerRPx=%.1f",
-             elementSymbol(zIn), buildMs, outer.n, subshellLabelChar(outer.ell), double(outer.rRef),
+             elementSymbol(zIn), loadMs, outer.n, subshellLabelChar(outer.ell), double(outer.rRef),
              double(baseScale), double(outer.rRef * baseScale));
 }
 
@@ -64,7 +65,7 @@ void renderAtomFrame(uint16_t *frameBuf, const AtomPresetState &preset, const Ca
     // Z number in the top-right corner, so the user can see it while browsing the periodic table.
     char zLabel[4];
     std::snprintf(zLabel, sizeof(zLabel), "%d", preset.z);
-    int zX = Display::kDisplayWidth - textWidth(zLabel, kFontHuge) - 10;
+    int zX = Display::kDisplayWidth - textWidth(zLabel, kFontHuge);
     drawText(frameBuf, zX, kTitleTextY, zLabel, Display::kColorGreenYellow, kFontHuge);
     drawScaleBar(frameBuf, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 }
@@ -499,8 +500,9 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
     atomFlyOver(display, preset, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, kIntroFrames,
                 kHiddenPointsThreshold);
 
-    int frameCount = 0;
-    int64_t fpsWindowStartUs = esp_timer_get_time();
+    FrameStats stats; // FPS + render/prepare moving averages + last-load-ms + free IRAM, see debug/frame_stats.h
+    stats.reset();
+    stats.lastLoadMs = preset.loadMs;
     uint32_t buzzFrame = 0; // per-frame salt for renderSceneGrouped()'s hidden-points buzz, see camera.h
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
     int64_t lastActivityUs = esp_timer_get_time();
@@ -517,6 +519,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
         scrollElementIntro(display, elementNameIt(newZ), newZ, elementSymbol(newZ), kAccentColor);
         preset.load(newZ);
+        stats.lastLoadMs = preset.loadMs;
         refreshDissectPlan(preset);
         idleDissectedThisElement = false; // fresh element -- fresh idle dissection budget
         atomFlyOver(display, preset, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames,
@@ -526,8 +529,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         // scrollElementIntro()'s real-time holds plus the flyOver() above spend real wall-clock
         // time without incrementing frameCount; reset the FPS window here so it only ever
         // measures steady-state frames instead of charging that idle time to a later window.
-        frameCount = 0;
-        fpsWindowStartUs = esp_timer_get_time();
+        stats.reset();
     };
 
     while (true)
@@ -569,8 +571,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
                 }
                 zoomAngle = orb_real_t(0);
                 zoomExcursionCountdown = nextZoomExcursionCountdown();
-                frameCount = 0; // see switchToElement()'s FPS-window comment above
-                fpsWindowStartUs = esp_timer_get_time();
+                stats.reset(); // see switchToElement()'s FPS-window comment above
                 continue;
             }
         }
@@ -590,8 +591,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
                 idleDissectedThisElement = true;
                 zoomAngle = orb_real_t(0);
                 zoomExcursionCountdown = nextZoomExcursionCountdown();
-                frameCount = 0; // see switchToElement()'s FPS-window comment above
-                fpsWindowStartUs = esp_timer_get_time();
+                stats.reset(); // see switchToElement()'s FPS-window comment above
             }
             else
             {
@@ -618,29 +618,23 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
                         kHiddenPointsThreshold);
             zoomAngle = orb_real_t(0);
             zoomExcursionCountdown = nextZoomExcursionCountdown();
-            frameCount = 0; // see switchToElement()'s FPS-window comment above
-            fpsWindowStartUs = esp_timer_get_time();
+            stats.reset(); // see switchToElement()'s FPS-window comment above
             continue;
         }
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
+        int64_t tBeforeWait = esp_timer_get_time();
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
+        int64_t tAfterWait = esp_timer_get_time();
         renderAtomFrame(display.getFrameBuf(), preset, camera, scale, buzzFrame, kHiddenPointsThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
         if (tiltEv.phase != TiltPhase::kIdle)
             drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);
         display.presentFrame();
+        int64_t tAfterPresent = esp_timer_get_time();
 
-        frameCount++;
-        if (frameCount >= kFpsUpdateInterval)
-        {
-            int64_t nowUs = esp_timer_get_time();
-            double elapsedS = double(nowUs - fpsWindowStartUs) / 1e6;
-            double fps = elapsedS > 0 ? double(frameCount) / elapsedS : 0.0;
-            ESP_LOGI(kAtomViewTag, "FPS: %.1f", fps);
-            fpsWindowStartUs = nowUs;
-            frameCount = 0;
-        }
+        stats.recordFrame(double(tAfterWait - tBeforeWait) / 1000.0, double(tAfterPresent - tAfterWait) / 1000.0);
+        stats.maybeLog(kAtomViewTag);
 
         stepCamera(&camera);
         zoomAngle += kZoomAngleStep;

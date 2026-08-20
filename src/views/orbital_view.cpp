@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "physics/orbital_library.h"
 #include "render/overlay.h"
+#include "debug/frame_stats.h"
 #include "debug/screenshot_pause.h"
 #include "config/visual_constants.h" // kViewIdleJumpUs, kOrbitalIntro*, kOrbitalProtonMarkerSize, etc.
 
@@ -138,8 +139,8 @@ void OrbitalPresetState::load(int index)
     baseScale = scale.baseScale;
     zoomAmplitude = scale.zoomAmplitude;
 
-    int64_t buildMs = (esp_timer_get_time() - startUs) / 1000;
-    ESP_LOGI(kOrbitalViewTag, "%s loaded in %lldms, scale=%.1f", d.label, buildMs, double(baseScale));
+    loadMs = (esp_timer_get_time() - startUs) / 1000;
+    ESP_LOGI(kOrbitalViewTag, "%s loaded in %lldms, scale=%.1f", d.label, loadMs, double(baseScale));
 }
 
 void OrbitalPresetState::resamplePoints(int count)
@@ -180,8 +181,9 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     orbitalFlyOver(display, preset, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale,
                    kOrbitalIntroFrames, kBuzzThreshold);
 
-    int frameCount = 0;
-    int64_t fpsWindowStartUs = esp_timer_get_time();
+    FrameStats stats; // FPS + render/prepare moving averages + last-load-ms + free IRAM, see debug/frame_stats.h
+    stats.reset();
+    stats.lastLoadMs = preset.loadMs;
 
     int cullCount = int(orb_real_t(kOrbitalNumPoints) * kOrbitalCullFraction);
     if (cullCount < 1)
@@ -200,6 +202,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         scrollOrbitalIntro(display, newD.n, newD.ell, newD.m);
         presetIndex = newIndex;
         preset.load(presetIndex);
+        stats.lastLoadMs = preset.loadMs;
         orbitalFlyOver(display, preset, &camera, currentScale, preset.baseScale, kOrbitalSwitchTransitionFrames,
                        kBuzzThreshold);
         zoomAngle = orb_real_t(0);
@@ -208,8 +211,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         // wall-clock time without incrementing frameCount; reset the FPS window here so it
         // only ever measures steady-state frames instead of charging that idle time to a
         // later window (see atom_view.cpp's switchToElement() for the same fix).
-        frameCount = 0;
-        fpsWindowStartUs = esp_timer_get_time();
+        stats.reset();
     };
 
     while (true)
@@ -263,8 +265,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
             zoomAngle = orb_real_t(0);
             zoomExcursionCountdown = nextZoomExcursionCountdown();
             // See switchToPreset()'s comment above -- same unmeasured-time issue.
-            frameCount = 0;
-            fpsWindowStartUs = esp_timer_get_time();
+            stats.reset();
             continue;
         }
 
@@ -276,23 +277,18 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         }
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
+        int64_t tBeforeWait = esp_timer_get_time();
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
+        int64_t tAfterWait = esp_timer_get_time();
         renderOrbitalFrame(display.getFrameBuf(), preset, camera, scale, buzzFrame, kBuzzThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
         if (tiltEv.phase != TiltPhase::kIdle)
             drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);
         display.presentFrame();
+        int64_t tAfterPresent = esp_timer_get_time();
 
-        frameCount++;
-        if (frameCount >= kFpsUpdateInterval)
-        {
-            int64_t nowUs = esp_timer_get_time();
-            double elapsedS = double(nowUs - fpsWindowStartUs) / 1e6;
-            double fps = elapsedS > 0 ? double(frameCount) / elapsedS : 0.0;
-            ESP_LOGI(kOrbitalViewTag, "FPS: %.1f", fps);
-            fpsWindowStartUs = nowUs;
-            frameCount = 0;
-        }
+        stats.recordFrame(double(tAfterWait - tBeforeWait) / 1000.0, double(tAfterPresent - tAfterWait) / 1000.0);
+        stats.maybeLog(kOrbitalViewTag);
 
         stepCamera(&camera);
         zoomAngle += kOrbitalZoomAngleStep;
