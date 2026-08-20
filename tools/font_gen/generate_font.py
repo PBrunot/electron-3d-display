@@ -38,6 +38,7 @@ several pixels lower/more spaced than (x, y) actually is.
 Usage: python3 generate_font.py > ../../src/render/font_data.h
 (run from this directory; paths below are relative to this script's location)
 """
+
 import pathlib
 from PIL import Image, ImageDraw, ImageFont
 
@@ -48,7 +49,7 @@ FONT_PATH = SCRIPT_DIR / "fonts" / "Jersey10-Regular.ttf"
 # spacing px appended to every glyph's advance, row-storage C type)
 SIZES = [
     ("Small", 10, 1, 1, "uint8_t"),
-    ("Large", 18, 2, 1, "uint16_t"),
+    ("Large", 24, 2, 1, "uint16_t"),
     ("Huge", 54, 4, 2, "uint64_t"),
 ]
 
@@ -69,13 +70,39 @@ ROW_CTYPE_TO_FONT_ALIAS = {
 def char_name(code):
     ch = chr(code)
     names = {
-        0x20: "space", 0x21: "bang", 0x22: "dquote", 0x23: "hash", 0x24: "dollar",
-        0x25: "percent", 0x26: "amp", 0x27: "quote", 0x28: "lparen", 0x29: "rparen",
-        0x2A: "star", 0x2B: "plus", 0x2C: "comma", 0x2D: "minus", 0x2E: "dot",
-        0x2F: "slash", 0x3A: "colon", 0x3B: "semi", 0x3C: "lt", 0x3D: "eq", 0x3E: "gt",
-        0x3F: "question", 0x40: "at", 0x5B: "lbrack", 0x5C: "backslash", 0x5D: "rbrack",
-        0x5E: "caret", 0x5F: "underscore", 0x60: "backtick", 0x7B: "lbrace", 0x7C: "pipe",
-        0x7D: "rbrace", 0x7E: "tilde",
+        0x20: "space",
+        0x21: "bang",
+        0x22: "dquote",
+        0x23: "hash",
+        0x24: "dollar",
+        0x25: "percent",
+        0x26: "amp",
+        0x27: "quote",
+        0x28: "lparen",
+        0x29: "rparen",
+        0x2A: "star",
+        0x2B: "plus",
+        0x2C: "comma",
+        0x2D: "minus",
+        0x2E: "dot",
+        0x2F: "slash",
+        0x3A: "colon",
+        0x3B: "semi",
+        0x3C: "lt",
+        0x3D: "eq",
+        0x3E: "gt",
+        0x3F: "question",
+        0x40: "at",
+        0x5B: "lbrack",
+        0x5C: "backslash",
+        0x5D: "rbrack",
+        0x5E: "caret",
+        0x5F: "underscore",
+        0x60: "backtick",
+        0x7B: "lbrace",
+        0x7C: "pipe",
+        0x7D: "rbrace",
+        0x7E: "tilde",
     }
     if code in names:
         return names[code]
@@ -87,7 +114,8 @@ def char_name(code):
 def compute_ink_window(font, full_height):
     """Return (top, bottom) -- the smallest row range that contains every printable-ASCII
     glyph's ink at this font's pixel size. Every glyph's row table is trimmed to this
-    shared window (see module docstring) instead of the font's own ascent+descent box."""
+    shared window (see module docstring) instead of the font's own ascent+descent box.
+    """
     top, bottom = full_height, 0
     for code in CHAR_CODES:
         canvas = Image.new("1", (200, full_height + 20), 0)
@@ -150,13 +178,17 @@ def emit_size(name, size, leading, spacing, row_ctype):
     hex_digits = max(1, (max(widths) + 3) // 4)
 
     lines = []
-    lines.append(f"// ---- kFont{name}: Jersey10-Regular @ {size}px, height={height} ----")
+    lines.append(
+        f"// ---- kFont{name}: Jersey10-Regular @ {size}px, height={height} ----"
+    )
     lines.append(f"constexpr uint8_t k{name}Widths[{len(CHAR_CODES)}] = {{")
     for code, w in zip(CHAR_CODES, widths):
         lines.append(f"    /* '{char_name(code)}' 0x{code:02X} */ {w},")
     lines.append("};")
     lines.append("")
-    lines.append(f"constexpr {row_ctype} k{name}Rows[{len(CHAR_CODES)} * {height}] = {{")
+    lines.append(
+        f"constexpr {row_ctype} k{name}Rows[{len(CHAR_CODES)} * {height}] = {{"
+    )
     for code, rows in zip(CHAR_CODES, rows_by_char):
         row_lits = ", ".join(f"0x{v:0{hex_digits}X}{suffix}" for v in rows)
         lines.append(f"    /* '{char_name(code)}' 0x{code:02X} */ {row_lits},")
@@ -166,14 +198,14 @@ def emit_size(name, size, leading, spacing, row_ctype):
     line_advance = height + leading
     font_alias = ROW_CTYPE_TO_FONT_ALIAS[row_ctype]
     font_decl = (
-        f'extern const {font_alias} kFont{name} = {{ k{name}Widths, k{name}Rows, '
-        f'{len(CHAR_CODES)}, \' \', {height}, {line_advance}, {spacing} }};'
+        f"extern const {font_alias} kFont{name} = {{ k{name}Widths, k{name}Rows, "
+        f"{len(CHAR_CODES)}, ' ', {height}, {line_advance}, {spacing} }};"
     )
     return "\n".join(lines), font_decl
 
 
 def main():
-    header = '''\
+    header = """\
 // GENERATED FILE -- do not hand-edit. Regenerate with:
 //   python3 tools/font_gen/generate_font.py > src/render/font_data.h
 // See tools/font_gen/README.md for how to change fonts/sizes.
@@ -203,7 +235,7 @@ def main():
 namespace
 {
 
-'''
+"""
     body_parts = []
     decls = []
     for name, size, leading, spacing, row_ctype in SIZES:
@@ -211,10 +243,10 @@ namespace
         body_parts.append(body)
         decls.append(decl)
 
-    footer = '''
+    footer = """
 } // namespace
 
-''' + "\n".join(decls) + "\n"
+""" + "\n".join(decls) + "\n"
     print(header + "\n".join(body_parts) + footer)
 
 

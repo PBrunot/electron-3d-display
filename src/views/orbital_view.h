@@ -40,7 +40,8 @@ struct OrbitalPresetState
     OrbitalPoint points[kOrbitalNumPoints];
     uint16_t colors[kOrbitalNumPoints];
     OrbitalResampleState resample;
-    char title[32];
+    char title[8];
+    char orbital_numbers[32];
     orb_real_t baseScale, zoomAmplitude;
     /// This preset's phase-color pair (see orbital_library.h's OrbitalDescriptor), kept here
     /// so resamplePoints() re-encodes turned-over points in the same colors.

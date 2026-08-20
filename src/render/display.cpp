@@ -114,6 +114,11 @@ Display::Display()
     this->frameBuf = frame_buf;
 }
 
+void Display::clearScreen()
+{
+    std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
+}
+
 auto Display::getFrameBuf() -> uint16_t *
 {
     return frameBuf;

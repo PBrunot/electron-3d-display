@@ -104,7 +104,7 @@ namespace
         {
             display.waitForFlushDone();
             uint16_t *frameBuf = display.getFrameBuf();
-            std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
+            display.clearScreen();
             drawTextScaled(frameBuf, symbolX, symbolY, symbol, kElementIntroSymbolColor, kFontHuge,
                            kElementIntroSymbolScale);
             if (showName)
@@ -197,12 +197,8 @@ namespace
     void drawDissectTitle(uint16_t *frameBuf, int x, int y, uint16_t color, const char *bigLabel, const char *caption,
                           int occ)
     {
-        // kFontHuge at its own true size, not kFontLarge integer-upscaled -- its design
-        // size (54px) happens to land almost exactly on kFontLarge's old x3 scale, so this
-        // swap keeps the label the same visual size while replacing blocky tripled pixels
-        // with real glyph shapes (same fix kFontHuge exists for on the element-symbol title).
         drawText(frameBuf, x, y, bigLabel, color, kFontHuge);
-        drawText(frameBuf, x, y + kFontHuge.height + 4, caption, color, kFontLarge);
+        drawText(frameBuf, x, y + kFontHuge.height, caption, color, kFontLarge);
 
         char occText[8];
         std::snprintf(occText, sizeof(occText), "%de-", occ);
@@ -306,24 +302,18 @@ namespace
         constexpr const char *kLine1 = "Configurazione";
         constexpr const char *kLine2 = "elettronica";
 
-        // Falls back to scale 1 only if the element name is too wide at the shared word scale
-        // (e.g. long Italian names like "Praseodimio") -- otherwise all 3 lines match in size.
-        int nameScale = kDissectIntroWordScale;
-        if (textWidthScaled(nameIt, kFontLarge, nameScale) > Display::kDisplayWidth - 20)
-            nameScale = 1;
-
         int y1 = 50, y2 = y1 + kDissectIntroLineGapPx, y3 = y2 + kDissectIntroLineGapPx;
-        int x1 = (Display::kDisplayWidth - textWidthScaled(kLine1, kFontLarge, kDissectIntroWordScale)) / 2;
-        int x2 = (Display::kDisplayWidth - textWidthScaled(kLine2, kFontLarge, kDissectIntroWordScale)) / 2;
-        int x3 = (Display::kDisplayWidth - textWidthScaled(nameIt, kFontLarge, nameScale)) / 2;
+        int x1 = (Display::kDisplayWidth - textWidth(kLine1, kFontLarge)) / 2;
+        int x2 = (Display::kDisplayWidth - textWidth(kLine2, kFontLarge)) / 2;
+        int x3 = (Display::kDisplayWidth - textWidth(nameIt, kFontLarge)) / 2;
 
         display.waitForFlushDone();
         uint16_t *frameBuf = display.getFrameBuf();
-        std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
+        display.clearScreen();
         drawElectronBackdrop(frameBuf);
-        drawTextScaled(frameBuf, x1, y1, kLine1, kAccentColor, kFontLarge, kDissectIntroWordScale);
-        drawTextScaled(frameBuf, x2, y2, kLine2, kAccentColor, kFontLarge, kDissectIntroWordScale);
-        drawTextScaled(frameBuf, x3, y3, nameIt, kAccentColor, kFontLarge, nameScale);
+        drawText(frameBuf, x1, y1, kLine1, kAccentColor, kFontLarge);
+        drawText(frameBuf, x2, y2, kLine2, kAccentColor, kFontLarge);
+        drawText(frameBuf, x3, y3, nameIt, kAccentColor, kFontLarge);
         display.presentFrame();
 
         vTaskDelay(pdMS_TO_TICKS(kDissectIntroHoldMs));

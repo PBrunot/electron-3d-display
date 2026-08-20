@@ -57,7 +57,7 @@ namespace
 
             clearFrame(frameBuf);
             renderScene(frameBuf, preset.points, preset.colors, kOrbitalNumPoints, kProtonColor, camera,
-                       preset.baseScale);
+                        preset.baseScale);
             drawText(frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontLarge);
             drawScaleBar(frameBuf, preset.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
