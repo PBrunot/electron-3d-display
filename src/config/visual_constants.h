@@ -53,9 +53,9 @@ inline constexpr orb_real_t kCameraRollStep = orb_real_t(0.017);  ///< Roll chan
 inline constexpr orb_real_t kCameraTiltStart = orb_real_t(0.9);
 inline constexpr orb_real_t kCameraRollStart = orb_real_t(2.1);
 
-/// Side length in pixels of the proton marker drawn by drawProtonMarker() (camera.h's shared
-/// default; orbital_view.cpp/atom_view.cpp use their own larger kOrbitalProtonMarkerSize/
-/// kAtomProtonMarkerSize below instead).
+/// Diameter in pixels of the circular proton marker drawn by drawProtonMarker() (camera.h's
+/// shared default; orbital_view.cpp/atom_view.cpp pass their own larger
+/// kOrbitalProtonMarkerSize/kAtomProtonMarkerSize below instead).
 inline constexpr int kProtonMarkerSize = 3;
 
 // --- Point transparency + frame persistence ---
@@ -264,16 +264,17 @@ inline constexpr int kOrbitalSwitchTransitionFrames = 27;  ///< kSwitchTransitio
 inline constexpr int kOrbitalZoomExcursionEaseFrames = 68; ///< round(kZoomExcursionEaseFrames (45) * 1.5).
 inline constexpr orb_real_t kOrbitalZoomAngleStep = kZoomAngleStep / orb_real_t(1.5);
 
-/// Side length in pixels of the solid nucleus marker, drawn each frame. Bigger than the shared
-/// kProtonMarkerSize (3px) so the nucleus reads clearly even where orbital density peaks at
-/// the origin; local to orbital_view.cpp since atom_view.cpp keeps the shared size.
+/// Diameter in pixels of the circular nucleus marker, passed to drawProtonMarker() after each
+/// frame's cloud so it redraws bigger/opaque on top. Bigger than the shared kProtonMarkerSize
+/// (3px) so the nucleus reads clearly even where orbital density peaks at the origin.
 inline constexpr int kOrbitalProtonMarkerSize = 6;
 
 // ============================================================================================
 // Atom-view proton/intro/dissection pacing (views/atom_view.cpp)
 // ============================================================================================
 
-/// Side length in pixels of the solid nucleus marker drawn each frame.
+/// Diameter in pixels of the circular nucleus marker, passed to drawProtonMarker() after each
+/// frame's cloud so it redraws bigger/opaque on top.
 inline constexpr int kAtomProtonMarkerSize = 6;
 
 /// Neutral outline color for the bounding-sphere silhouette (render/overlay.h's

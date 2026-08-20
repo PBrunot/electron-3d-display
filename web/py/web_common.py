@@ -141,18 +141,23 @@ def next_zoom_excursion_countdown():
 
 def draw_nucleus(buf):
     """Pure-Python draw_nucleus() -- the no-numpy fallback path only (the
-    numpy path uses render_core.draw_nucleus()). Same fully-opaque square at
+    numpy path uses render_core.draw_nucleus()). Same fully-opaque circle at
     center, drawn on top of the cloud.
     """
-    proton_x0 = CENTER - PROTON_SIZE // 2
-    proton_y0 = CENTER - PROTON_SIZE // 2
+    radius = PROTON_SIZE // 2
+    radius_sq = radius * radius
     pr, pg, pb = PROTON_COLOR
-    for py in range(proton_y0, proton_y0 + PROTON_SIZE):
-        if 0 <= py < HEIGHT:
-            for px in range(proton_x0, proton_x0 + PROTON_SIZE):
-                if 0 <= px < WIDTH:
-                    idx = (py * WIDTH + px) * 3
-                    buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
+    for py in range(CENTER - radius, CENTER + radius + 1):
+        if not 0 <= py < HEIGHT:
+            continue
+        dy = py - CENTER
+        for px in range(CENTER - radius, CENTER + radius + 1):
+            if not 0 <= px < WIDTH:
+                continue
+            dx = px - CENTER
+            if dx * dx + dy * dy <= radius_sq:
+                idx = (py * WIDTH + px) * 3
+                buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
 
 
 def rotate_yaw_tilt_roll(

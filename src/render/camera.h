@@ -64,11 +64,15 @@ bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig &
                   int *outSy);
 
 /**
- * @brief Draw the small proton marker centered on screen.
+ * @brief Draw the proton marker as a filled circle centered on screen, `diameterPx` across.
  * @note Drawn fully opaque (Display::packColor565() overwrite, no blending) -- the nucleus is
- *       one literal particle, not a probability cloud.
+ *       one literal particle, not a probability cloud. Shared by camera.h's own
+ *       renderScene()/renderSceneGrouped() (default diameter, kProtonMarkerSize) and by
+ *       orbital_view.cpp/atom_view.cpp's own larger post-cloud redraw (their own
+ *       kOrbitalProtonMarkerSize/kAtomProtonMarkerSize) -- one shape/routine for every proton
+ *       marker in the project instead of each view hand-rolling its own filled square.
  */
-void drawProtonMarker(uint16_t *frameBuf, uint16_t color);
+void drawProtonMarker(uint16_t *frameBuf, uint16_t color, int diameterPx = kProtonMarkerSize);
 
 /// Fade every pixel of `frameBuf` toward black by kPersistenceKeepQ8. Not a template (doesn't
 /// depend on PointT), so its body lives in camera.cpp.

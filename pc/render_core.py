@@ -162,16 +162,18 @@ def blend_points(buf_np, xs, ys, zs, colors, cy, sy, cx, sx, cz, sz, scale,
 
 
 def draw_nucleus(buf_np, width, height, center, proton_size, proton_color):
-    """The fully-opaque proton_size square at screen center -- drawn ON TOP
+    """The fully-opaque proton_size circle at screen center -- drawn ON TOP
     of the cloud (callers invoke it after blend_points()), so a point landing
     on the same pixel can't dim/hide it.
     """
-    half = proton_size // 2
-    x0 = center - half
+    radius = proton_size // 2
+    x0 = center - radius
     x1 = x0 + proton_size
-    y0 = center - half
+    y0 = center - radius
     y1 = y0 + proton_size
-    buf_np[y0:y1, x0:x1] = proton_color
+    yy, xx = np.ogrid[y0:y1, x0:x1]
+    mask = (xx - center) ** 2 + (yy - center) ** 2 <= radius * radius
+    buf_np[y0:y1, x0:x1][mask] = proton_color
 
 
 def render_frame_np(buf, preset, arr, angle, tilt_angle, roll_angle, scale,
