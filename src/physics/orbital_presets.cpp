@@ -12,16 +12,9 @@
 // Tunable constants
 // ============================================================================================
 
-/// Floor on a point's brightness level (of 255), so even the dimmest points in the cloud
-/// still read clearly instead of fading to near-invisible.
-constexpr int kOrbitalColorMinLevel = 80;
-
-/// Rank-fraction shaping exponent for point brightness (see levelFromRankFraction()): 0.5
-/// (sqrt) biases the whole population toward brighter levels instead of the raw
-/// linear/uniform rank spread, similar to how a Paint.NET Levels "black point" stretch reads
-/// visually, but as one smooth curve applied to every point -- no flat/clamped region, so no
-/// popcorn as points turn over near a cutoff.
-constexpr float kOrbitalLevelGamma = 0.4f;
+// kOrbitalColorMinLevel/kOrbitalLevelGamma/orbitalLevelFromRankFraction() now live in
+// orbital_presets.h (public), so orbital_slice.cpp's static slice build can share the exact
+// same rank->level curve -- see that header's comment.
 
 /// Projection scale target: the p90-radius point should land this far out from center, in
 /// pixels. Measured per preset (scaleFromRadii()) rather than applied as a flat constant,
@@ -53,16 +46,6 @@ uint16_t orbitalLevelToColor565(int level, int sign, const uint16_t posRgb565, c
     return Display::packColor565(r << 3, g << 2, b << 3);
 }
 
-/// Shapes a 0..1 rank fraction (can exceed 1, see resampleOneOrbitalPoint()'s docstring)
-/// into a brightness level via kOrbitalLevelGamma. Shared by computeOrbitalLevels() and
-/// resampleOneOrbitalPoint() so a freshly turned-over point's brightness always lands on the
-/// exact same curve the initial build used for its rank.
-static int levelFromRankFraction(float frac)
-{
-    return kOrbitalColorMinLevel +
-           int(std::pow(frac, kOrbitalLevelGamma) * float(kOrbitalColorMaxLevel - kOrbitalColorMinLevel));
-}
-
 void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels, orb_real_t *outPsi2Sorted)
 {
     // Static, not stack-local: this project avoids large stack arrays after
@@ -79,7 +62,7 @@ void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels,
     {
         int i = order[rank];
         outPsi2Sorted[rank] = psi2[i];
-        outLevels[i] = uint8_t(levelFromRankFraction(float(rank) / float(denom)));
+        outLevels[i] = uint8_t(orbitalLevelFromRankFraction(float(rank) / float(denom)));
     }
 }
 
@@ -117,7 +100,7 @@ ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState *state, Orbit
 
     int rank = bisectRank(state->psi2Sorted, state->count, psi2);
     int sortedSpan = state->count > 1 ? state->count - 1 : 1;
-    int level = levelFromRankFraction(float(rank) / float(sortedSpan));
+    int level = orbitalLevelFromRankFraction(float(rank) / float(sortedSpan));
     int sign = psi >= orb_real_t(0) ? 1 : -1;
 
     return ResampledOrbitalPoint{idx, level, sign};

@@ -158,6 +158,42 @@ inline constexpr int kOrbitalCullRefreshFrames = 3;
 // atom_view.cpp -- see that constant's comment.
 
 // ============================================================================================
+// Orbital slice view (views/orbital_slice.h, runSliceSequence() in views/orbital_view.cpp)
+// ============================================================================================
+
+/// Heatmap grid resolution: kSliceGridSize x kSliceGridSize cells, each kSliceCellPx x
+/// kSliceCellPx screen pixels -- together exactly filling the panel (240 = 120 * 2).
+inline constexpr int kSliceGridSize = 120;
+inline constexpr int kSliceCellPx = Display::kDisplayWidth / kSliceGridSize;
+
+/// Grid half-extent as a multiple of the preset's own p90 reference radius (rRef) -- >1 so
+/// the outer lobes have a little margin instead of touching the panel edge.
+inline constexpr orb_real_t kSliceFramingFactor = orb_real_t(1.2);
+
+/// Real-time hold on the finished heatmap before auto-fading back to the 3D view (D3, see
+/// SLICE.md) -- any tilt movement aborts sooner. Same real-time-not-frame-count convention as
+/// atom_view.cpp's kDissectHoldUs.
+inline constexpr int64_t kSliceHoldUs = 12 * 1000 * 1000;
+
+/// How long the static "Sezione" intro card (D4) holds before the heatmap build starts.
+inline constexpr uint32_t kSliceIntroHoldMs = 900;
+
+/// Fade-in/fade-out duration, frames -- the plane itself is static (D2); this is the only
+/// motion in the whole sequence.
+inline constexpr int kSliceIntroFrames = 30;
+inline constexpr int kSliceFadeOutFrames = 20;
+
+/// Brightness mapping for the slice heatmap (orbital_slice.cpp's buildSliceTable()):
+/// level = 255 * min(1, |psi|^2 / v99)^kSliceLevelGamma, with v99 = the grid's own
+/// kSliceDensityPercentile-th percentile of |psi|^2. Deliberately NOT the 3D cloud's rank
+/// curve (orbitalLevelFromRankFraction): a uniform grid has no empty screen space, so
+/// rank-equalizing it lights half the screen to ~83% brightness by construction (median level
+/// 212 for every orbital, 0% dark cells -- see SLICE.md's contrast note); density
+/// normalization preserves the real falloff instead (bright lobe cores, near-black tails).
+inline constexpr orb_real_t kSliceLevelGamma = orb_real_t(0.5);
+inline constexpr orb_real_t kSliceDensityPercentile = orb_real_t(0.999);
+
+// ============================================================================================
 // Atom point-cloud density/shading/scale (physics/atom_cloud.h)
 // ============================================================================================
 
