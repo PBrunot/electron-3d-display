@@ -48,12 +48,17 @@ bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig &
     return true;
 }
 
-void drawProtonMarker(uint16_t *frameBuf, uint16_t color)
+void drawProtonMarker(uint16_t *frameBuf, uint16_t color, int diameterPx)
 {
-    int x0 = Display::kDisplayWidth / 2 - kProtonMarkerSize / 2;
-    int y0 = Display::kDisplayHeight / 2 - kProtonMarkerSize / 2;
-    for (int y = y0; y < y0 + kProtonMarkerSize; y++)
-        std::fill_n(frameBuf + y * Display::kDisplayWidth + x0, kProtonMarkerSize, color);
+    int cx = Display::kDisplayWidth / 2;
+    int cy = Display::kDisplayHeight / 2;
+    int radius = diameterPx / 2;
+    int radiusSq = radius * radius;
+    for (int y = -radius; y <= radius; y++)
+    {
+        int halfSpan = int(std::lround(std::sqrt(double(radiusSq - y * y))));
+        std::fill_n(frameBuf + (cy + y) * Display::kDisplayWidth + (cx - halfSpan), 2 * halfSpan + 1, color);
+    }
 }
 
 void fadeFrameBuffer(uint16_t *frameBuf)

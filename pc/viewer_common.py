@@ -238,19 +238,24 @@ def find_unicode_font(size):
 
 
 def draw_nucleus(buf):
-    """Draw the fully-opaque nucleus marker (small square) at screen center.
+    """Draw the fully-opaque nucleus marker (small circle) at screen center.
     The nucleus is one literal particle, not a probability cloud, so it never
     alpha-blends.
     """
-    proton_x0 = CENTER - PROTON_SIZE // 2
-    proton_y0 = CENTER - PROTON_SIZE // 2
+    radius = PROTON_SIZE // 2
+    radius_sq = radius * radius
     pr, pg, pb = PROTON_COLOR
-    for py in range(proton_y0, proton_y0 + PROTON_SIZE):
-        if 0 <= py < HEIGHT:
-            for px in range(proton_x0, proton_x0 + PROTON_SIZE):
-                if 0 <= px < WIDTH:
-                    idx = (py * WIDTH + px) * 3
-                    buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
+    for py in range(CENTER - radius, CENTER + radius + 1):
+        if not 0 <= py < HEIGHT:
+            continue
+        dy = py - CENTER
+        for px in range(CENTER - radius, CENTER + radius + 1):
+            if not 0 <= px < WIDTH:
+                continue
+            dx = px - CENTER
+            if dx * dx + dy * dy <= radius_sq:
+                idx = (py * WIDTH + px) * 3
+                buf[idx], buf[idx + 1], buf[idx + 2] = pr, pg, pb
 
 
 def rotate_yaw_tilt_roll(x, y, z, cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll):
@@ -331,7 +336,7 @@ def _blend_points_np(buf_np, xs, ys, zs, colors, cy, sy, cx, sx, cz, sz, scale,
 
 
 def _draw_nucleus_np(buf_np):
-    """Vectorized draw_nucleus(): the fully-opaque PROTON_SIZE square at
+    """Vectorized draw_nucleus(): the fully-opaque PROTON_SIZE circle at
     screen center, written on top of the cloud (see render_frame())."""
     return render_core.draw_nucleus(buf_np, WIDTH, HEIGHT, CENTER, PROTON_SIZE, PROTON_COLOR)
 

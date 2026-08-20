@@ -232,7 +232,9 @@ def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, s
     fb.fill(0)
     proton_x = CENTER - PROTON_SIZE // 2
     proton_y = CENTER - PROTON_SIZE // 2
-    fb.fill_rect(w1 - proton_x, h1 - proton_y, PROTON_SIZE, PROTON_SIZE, proton_color)
+    proton_radius = PROTON_SIZE // 2
+    fb.ellipse(w1 - proton_x + proton_radius, h1 - proton_y + proton_radius, proton_radius, proton_radius,
+               proton_color, True)
 
     cos_y_fx = int(math.cos(angle) * FX_SCALE)
     sin_y_fx = int(math.sin(angle) * FX_SCALE)

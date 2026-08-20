@@ -1,5 +1,6 @@
 #include "debug/screenshot.h"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -68,11 +69,19 @@ namespace
             return false;
         }
         size_t wrote = fwrite(buf, 1, written, f);
+        int writeErrno = errno;
         fclose(f);
         heap_caps_free(buf);
         if (wrote != written)
         {
-            ESP_LOGE(kTag, "short write to %s (%u/%u bytes)", path, (unsigned)wrote, (unsigned)written);
+            ESP_LOGE(kTag, "short write to %s (%u/%u bytes): %s", path, (unsigned)wrote, (unsigned)written,
+                     strerror(writeErrno));
+            // fopen(path, "wb") already created/truncated the file before this fwrite ran --
+            // without this, a transient write failure (e.g. SPIFFS running low/fragmented
+            // mid-batch) leaves a permanent 0-byte file that SS_LIST reports as present but
+            // SS_GET can't read back (readFile()'s heap_caps_malloc(0, ...) returns null,
+            // surfacing as a confusing "not found" instead of the real write failure).
+            remove(path);
             return false;
         }
         if (outSize != nullptr)
@@ -173,7 +182,10 @@ uint8_t *readFile(const char *name, size_t *outSize)
         return nullptr;
     }
 
-    uint8_t *buf = (uint8_t *)heap_caps_malloc(size_t(size), MALLOC_CAP_SPIRAM);
+    // heap_caps_malloc(0, ...) is free to return null (it does on this allocator), which
+    // would make a legitimately-existing-but-empty file indistinguishable from "not found"
+    // to the caller -- allocate at least 1 byte so a 0-byte file still reads back as such.
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(size_t(size) > 0 ? size_t(size) : 1, MALLOC_CAP_SPIRAM);
     if (buf == nullptr)
     {
         fclose(f);

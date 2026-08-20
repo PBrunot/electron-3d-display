@@ -19,15 +19,6 @@
 
 static const char *kAtomViewTag = "atom_view";
 
-void drawAtomProtonMarker(uint16_t *frameBuf, uint16_t color)
-{
-    int x0 = Display::kDisplayWidth / 2 - kAtomProtonMarkerSize / 2;
-    int y0 = Display::kDisplayHeight / 2 - kAtomProtonMarkerSize / 2;
-    for (int y = y0; y < y0 + kAtomProtonMarkerSize; y++)
-        for (int x = x0; x < x0 + kAtomProtonMarkerSize; x++)
-            frameBuf[y * Display::kDisplayWidth + x] = color;
-}
-
 void AtomPresetState::load(int zIn)
 {
     ESP_LOGI(kAtomViewTag, "loading Z=%d (%s)...", zIn, elementSymbol(zIn));
@@ -63,18 +54,18 @@ void renderAtomFrame(uint16_t *frameBuf, const AtomPresetState &preset, const Ca
 {
     // Nucleus drawn BEFORE the cloud by renderSceneGrouped() (matching pc/viewer_common.py's
     // blend order on purpose, see camera.h), so a point landing on the same pixel can
-    // alpha-blend over it and dim/hide it near the origin -- drawAtomProtonMarker() redraws
-    // it opaque on top, after the cloud, so it's always visible.
+    // alpha-blend over it and dim/hide it near the origin -- the drawProtonMarker() call below
+    // redraws it opaque on top, after the cloud, so it's always visible.
     renderSceneGrouped(frameBuf, preset.points, preset.groups, preset.groupCount, kProtonColor, camera, scale,
                        frameSalt, buzzThreshold);
-    drawAtomProtonMarker(frameBuf, kProtonColor);
+    drawProtonMarker(frameBuf, kProtonColor, kAtomProtonMarkerSize);
     drawBoundingCircle(frameBuf, preset.rRef, scale, kBoundingCircleColor);
     drawAtomTitle(frameBuf, kTitleTextX, kTitleTextY, preset.z, kTextColor);
     // Z number in the top-right corner, so the user can see it while browsing the periodic table.
     char zLabel[4];
     std::snprintf(zLabel, sizeof(zLabel), "%d", preset.z);
     int zX = Display::kDisplayWidth - textWidth(zLabel, kFontHuge) - 10;
-    drawText(frameBuf, zX, kTitleTextY, zLabel, Display::kColorOrbitalRed, kFontHuge);
+    drawText(frameBuf, zX, kTitleTextY, zLabel, Display::kColorGreenYellow, kFontHuge);
     drawScaleBar(frameBuf, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 }
 
@@ -243,7 +234,7 @@ namespace
         display.waitForFlushDone();
         renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, camera, scale, frameSalt,
                            buzzThreshold);
-        drawAtomProtonMarker(display.getFrameBuf(), protonColor);
+        drawProtonMarker(display.getFrameBuf(), protonColor, kAtomProtonMarkerSize);
         drawBoundingCircle(display.getFrameBuf(), rRef, scale, kBoundingCircleColor);
         drawDissectTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor, bigLabel, caption, occ);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
@@ -296,7 +287,7 @@ namespace
             display.waitForFlushDone();
             renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, camera, scale,
                                frameSalt, buzzThreshold);
-            drawAtomProtonMarker(display.getFrameBuf(), protonColor); // keep it visible over the cloud
+            drawProtonMarker(display.getFrameBuf(), protonColor, kAtomProtonMarkerSize); // keep it visible over the cloud
             drawBoundingCircle(display.getFrameBuf(), rRef, scale, kBoundingCircleColor);
             drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
             drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
@@ -481,7 +472,7 @@ int renderAtomDissectFrame(uint16_t *frameBuf, const AtomPresetState &preset, co
     std::snprintf(caption, sizeof(caption), "%s (%d/%d)", elementSymbol(preset.z), level, planCount);
 
     renderSceneGrouped(frameBuf, preset.points, groups, groupCount, kProtonColor, camera, s.baseScale);
-    drawAtomProtonMarker(frameBuf, kProtonColor);
+    drawProtonMarker(frameBuf, kProtonColor, kAtomProtonMarkerSize);
     drawBoundingCircle(frameBuf, active.rRef, s.baseScale, kBoundingCircleColor);
     drawDissectTitle(frameBuf, kTitleTextX, kTitleTextY, kTextColor, bigLabel, caption, active.occ);
     drawScaleBar(frameBuf, s.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);

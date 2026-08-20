@@ -55,14 +55,6 @@ namespace
         vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs + 500));
     }
 
-    void drawOrbitalProtonMarker(uint16_t *frameBuf, uint16_t color)
-    {
-        int x0 = Display::kDisplayWidth / 2 - kOrbitalProtonMarkerSize / 2;
-        int y0 = Display::kDisplayHeight / 2 - kOrbitalProtonMarkerSize / 2;
-        for (int y = y0; y < y0 + kOrbitalProtonMarkerSize; y++)
-            for (int x = x0; x < x0 + kOrbitalProtonMarkerSize; x++)
-                frameBuf[y * Display::kDisplayWidth + x] = color;
-    }
 } // namespace
 
 void renderOrbitalFrame(uint16_t *frameBuf, const OrbitalPresetState &preset, const CameraState &camera,
@@ -70,11 +62,11 @@ void renderOrbitalFrame(uint16_t *frameBuf, const OrbitalPresetState &preset, co
 {
     // Nucleus drawn BEFORE the cloud (matching pc/viewer_common.py's blend order on purpose,
     // see camera.h's renderScene()), so a point landing on the same pixel can alpha-blend
-    // over it and dim/hide it near the origin -- drawOrbitalProtonMarker() redraws it
+    // over it and dim/hide it near the origin -- the drawProtonMarker() call below redraws it
     // opaque and larger on top, after the cloud, so it's always visible.
     renderScene(frameBuf, preset.points, preset.colors, kOrbitalNumPoints, kProtonColor, camera, scale, frameSalt,
                 buzzThreshold);
-    drawOrbitalProtonMarker(frameBuf, kProtonColor);
+    drawProtonMarker(frameBuf, kProtonColor, kOrbitalProtonMarkerSize);
     drawText(frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
     // The "n=... l=... m=..." numbers below the title, in a smaller font, so the user can see
     // the quantum numbers without having to remember which preset index is which.
