@@ -55,18 +55,41 @@ import render_core  # shared numpy render core (same module pc/atom_view_pc.py u
 
 import web_common as wc
 from web_common import (
-    WIDTH, HEIGHT, CENTER,
-    ANGLE_STEP, TILT_ANGLE_STEP, ROLL_ANGLE_STEP, ZOOM_ANGLE_STEP,
-    _TILT_ANGLE_START, _ROLL_ANGLE_START,
-    INTRO_FRAMES, INTRO_START_SCALE_FACTOR,
-    SWITCH_TRANSITION_FRAMES, SWITCH_START_SCALE_FACTOR,
-    PROTON_SIZE, PROTON_COLOR, ELECTRON_ALPHA, ELECTRON_SIZE,
-    TITLE_POS, SUBTITLE_POS, TITLE_FONT_PX,
-    render_frame, draw_nucleus, rotate_yaw_tilt_roll, advance_rotation,
-    fly_over_gen, zoom_excursion_gen, next_zoom_excursion_countdown,
-    outer_bound_scale, inner_bound_scale, shell_count_frames,
-    draw_bounding_circle_canvas, draw_orbit_marker_canvas, draw_scale_bar_canvas,
-    draw_text_canvas, measure_text_canvas,
+    WIDTH,
+    HEIGHT,
+    CENTER,
+    ANGLE_STEP,
+    TILT_ANGLE_STEP,
+    ROLL_ANGLE_STEP,
+    ZOOM_ANGLE_STEP,
+    _TILT_ANGLE_START,
+    _ROLL_ANGLE_START,
+    INTRO_FRAMES,
+    INTRO_START_SCALE_FACTOR,
+    SWITCH_TRANSITION_FRAMES,
+    SWITCH_START_SCALE_FACTOR,
+    PROTON_SIZE,
+    PROTON_COLOR,
+    ELECTRON_ALPHA,
+    ELECTRON_SIZE,
+    TITLE_POS,
+    SUBTITLE_POS,
+    TITLE_FONT_PX,
+    render_frame,
+    draw_nucleus,
+    rotate_yaw_tilt_roll,
+    advance_rotation,
+    fly_over_gen,
+    zoom_excursion_gen,
+    next_zoom_excursion_countdown,
+    outer_bound_scale,
+    inner_bound_scale,
+    shell_count_frames,
+    draw_bounding_circle_canvas,
+    draw_orbit_marker_canvas,
+    draw_scale_bar_canvas,
+    draw_text_canvas,
+    measure_text_canvas,
 )
 
 # --- Cloud / defaults ---------------------------------------------------------
@@ -74,7 +97,9 @@ from web_common import (
 # not canvas resolution, is the real per-frame cost in a browser tab; 4000 is
 # a middle ground between that and the device's 3000.
 N_POINTS = 4000
-DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
+DEFAULT_Z = (
+    6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
+)
 
 # Calibrated once for THIS canvas's own CENTER -- see
 # atom_cloud.pixels_per_bohr_for_canvas()'s docstring. WIDTH/HEIGHT/CENTER
@@ -98,8 +123,10 @@ DISSECT_ZOOM_FRAMES = 55
 # Matches the PC/device dissection pacing: shell-to-shell hops take ~2x as
 # long -- only the per-shell zoom legs are slowed.
 DISSECT_ZOOM_SLOWDOWN = 2.0
-DISSECT_HOLD_FRAMES = 100  # ~2s at FRAME_DELAY_MS=5 -- a frame count, not wall-clock seconds
-                            # (see module docstring: there's no blocking sleep to pace against)
+DISSECT_HOLD_FRAMES = (
+    100  # ~2s at FRAME_DELAY_MS=5 -- a frame count, not wall-clock seconds
+)
+# (see module docstring: there's no blocking sleep to pace against)
 DISSECT_CLOSE_FRAMES = 100
 DISSECT_FRAMES_PER_SHELL = 8
 
@@ -114,8 +141,17 @@ DISSECT_OCC_MARGIN_PX = 8
 Z_NOTE_COLOR = (255, 140, 140)
 
 
-def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, clip_z, active_subshell,
-                             dim_color=DISSECT_SHADE_GRAY):
+def render_dissection_frame(
+    buf,
+    preset,
+    angle,
+    tilt_angle,
+    roll_angle,
+    scale,
+    clip_z,
+    active_subshell,
+    dim_color=DISSECT_SHADE_GRAY,
+):
     """Same two-pass dim/highlight + clip rendering as pc/atom_view_pc.py's
     render_dissection_frame() -- see that module for the full docstring. With
     numpy (always present in Pyodide) this takes the SHARED vectorized core
@@ -126,10 +162,25 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
         arr = render_core.preset_np(preset)
         if arr is not None:
             render_core.render_dissection_frame_np(
-                buf, preset, arr, angle, tilt_angle, roll_angle, scale,
-                clip_z, active_subshell, dim_color,
-                WIDTH, HEIGHT, CENTER, ELECTRON_SIZE, ELECTRON_ALPHA, ACTIVE_SUBSHELL_ALPHA,
-                PROTON_SIZE, PROTON_COLOR)
+                buf,
+                preset,
+                arr,
+                angle,
+                tilt_angle,
+                roll_angle,
+                scale,
+                clip_z,
+                active_subshell,
+                dim_color,
+                WIDTH,
+                HEIGHT,
+                CENTER,
+                ELECTRON_SIZE,
+                ELECTRON_ALPHA,
+                ACTIVE_SUBSHELL_ALPHA,
+                PROTON_SIZE,
+                PROTON_COLOR,
+            )
             return
 
     buf[:] = bytes(len(buf))
@@ -141,19 +192,39 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
     cos_roll = math.cos(roll_angle)
     sin_roll = math.sin(roll_angle)
     xs, ys, zs, colors, shells, ells, signs = (
-        preset.xs, preset.ys, preset.zs, preset.colors, preset.shells, preset.ells, preset.signs)
+        preset.xs,
+        preset.ys,
+        preset.zs,
+        preset.colors,
+        preset.shells,
+        preset.ells,
+        preset.signs,
+    )
     dr, dg, db = dim_color
 
     def _draw(only_subshell, dim, alpha):
         for i in range(len(xs)):
             if only_subshell is not None and (shells[i], ells[i]) != only_subshell:
                 continue
-            if (only_subshell is None and dim and active_subshell is not None
-                    and (shells[i], ells[i]) == active_subshell):
+            if (
+                only_subshell is None
+                and dim
+                and active_subshell is not None
+                and (shells[i], ells[i]) == active_subshell
+            ):
                 continue
 
-            rx3, ry3, rz = rotate_yaw_tilt_roll(xs[i], ys[i], zs[i],
-                                                cos_yaw, sin_yaw, cos_tilt, sin_tilt, cos_roll, sin_roll)
+            rx3, ry3, rz = rotate_yaw_tilt_roll(
+                xs[i],
+                ys[i],
+                zs[i],
+                cos_yaw,
+                sin_yaw,
+                cos_tilt,
+                sin_tilt,
+                cos_roll,
+                sin_roll,
+            )
             if rz > clip_z:
                 continue
             px = CENTER + round(rx3 * scale)
@@ -168,7 +239,11 @@ def render_dissection_frame(buf, preset, angle, tilt_angle, roll_angle, scale, c
                     cr, cg, cb = cloud_common.PHASE_NEGATIVE_RGB
                 elif only_subshell is not None:
                     n = shells[i]
-                    cr, cg, cb = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
+                    cr, cg, cb = (
+                        atom_cloud.SHELL_RGB[n]
+                        if n < len(atom_cloud.SHELL_RGB)
+                        else atom_cloud.SHELL_RGB[-1]
+                    )
                 else:
                     cr, cg, cb = colors[i]
                 buf[idx] = buf[idx] + int((cr - buf[idx]) * alpha)
@@ -200,7 +275,11 @@ def draw_atom_title_canvas(x, y, z, config, outer_n=None, outer_ell=None):
     cursor_x = x + measure_text_canvas(prefix)
     for n, ell, occ in config:
         segment = "%s%d " % (slater.subshell_label(n, ell), occ)
-        color = atom_cloud.SHELL_RGB[n] if n < len(atom_cloud.SHELL_RGB) else atom_cloud.SHELL_RGB[-1]
+        color = (
+            atom_cloud.SHELL_RGB[n]
+            if n < len(atom_cloud.SHELL_RGB)
+            else atom_cloud.SHELL_RGB[-1]
+        )
         if n == outer_n and ell == outer_ell:
             color = atom_cloud._brighten_outer_shell(color)
         draw_text_canvas(cursor_x, y, segment, color)
@@ -215,7 +294,11 @@ def make_atom_preset(z):
     shape.
     """
     return atom_dissection_common.AtomPreset(
-        z, N_POINTS, PIXELS_PER_BOHR, size_factor=atom_dissection_common.default_size_factor(z))
+        z,
+        N_POINTS,
+        PIXELS_PER_BOHR,
+        size_factor=atom_dissection_common.default_size_factor(z),
+    )
 
 
 class WebAtomApp:
@@ -239,7 +322,9 @@ class WebAtomApp:
         self.two_pi = 2 * math.pi
         self.zoom_excursion_countdown = next_zoom_excursion_countdown()
 
-        self.sequence = None  # active generator (intro/switch/dissect/excursion), if any
+        self.sequence = (
+            None  # active generator (intro/switch/dissect/excursion), if any
+        )
 
     def effective_base_scale(self):
         return self.preset.base_scale * self.zoom_factor
@@ -249,11 +334,23 @@ class WebAtomApp:
 
     def blit(self, scale):
         wc.blit_buf(self.buf)
-        draw_orbit_marker_canvas(self.preset.r_ref, scale, self.angle, self.tilt_angle, self.roll_angle,
-                                  slater.element_symbol(self.z))
+        draw_orbit_marker_canvas(
+            self.preset.r_ref,
+            scale,
+            self.angle,
+            self.tilt_angle,
+            self.roll_angle,
+            slater.element_symbol(self.z),
+        )
         draw_scale_bar_canvas(cloud_common, scale / atom_cloud.PM_PER_BOHR, "pm")
-        draw_atom_title_canvas(TITLE_POS[0], TITLE_POS[1], self.z, self.preset.config,
-                               self.preset.outer_n, self.preset.outer_ell)
+        draw_atom_title_canvas(
+            TITLE_POS[0],
+            TITLE_POS[1],
+            self.z,
+            self.preset.config,
+            self.preset.outer_n,
+            self.preset.outer_ell,
+        )
 
     def blit_dissection(self, scale, r_ref, title):
         """Device-style dissection HUD (same as pc/atom_view_pc.py's
@@ -268,21 +365,52 @@ class WebAtomApp:
         draw_scale_bar_canvas(cloud_common, scale / atom_cloud.PM_PER_BOHR, "pm")
         if title is not None:
             big_label, caption, occ = title
-            draw_text_canvas(TITLE_POS[0], TITLE_POS[1], big_label, DISSECT_TITLE_COLOR,
-                             font_px=DISSECT_BIG_FONT_PX)
-            draw_text_canvas(TITLE_POS[0], TITLE_POS[1] + DISSECT_BIG_FONT_PX + 6, caption,
-                             DISSECT_TITLE_COLOR, font_px=DISSECT_CAPTION_FONT_PX)
-            occ_text = "%de-" % occ
-            occ_x = WIDTH - measure_text_canvas(occ_text, font_px=DISSECT_OCC_FONT_PX) - DISSECT_OCC_MARGIN_PX
-            draw_text_canvas(occ_x, DISSECT_OCC_MARGIN_PX, occ_text, DISSECT_TITLE_COLOR,
-                             font_px=DISSECT_OCC_FONT_PX)
-        draw_text_canvas(CENTER + PROTON_SIZE, CENTER - PROTON_SIZE, "Z=%d" % self.z, Z_NOTE_COLOR)
+            draw_text_canvas(
+                TITLE_POS[0],
+                TITLE_POS[1],
+                big_label,
+                DISSECT_TITLE_COLOR,
+                font_px=DISSECT_BIG_FONT_PX,
+            )
+            draw_text_canvas(
+                TITLE_POS[0],
+                TITLE_POS[1] + DISSECT_BIG_FONT_PX + 6,
+                caption,
+                DISSECT_TITLE_COLOR,
+                font_px=DISSECT_CAPTION_FONT_PX,
+            )
+            occ_text = "%d\x7f" % occ
+            occ_x = (
+                WIDTH
+                - measure_text_canvas(occ_text, font_px=DISSECT_OCC_FONT_PX)
+                - DISSECT_OCC_MARGIN_PX
+            )
+            draw_text_canvas(
+                occ_x,
+                DISSECT_OCC_MARGIN_PX,
+                occ_text,
+                DISSECT_TITLE_COLOR,
+                font_px=DISSECT_OCC_FONT_PX,
+            )
+        draw_text_canvas(
+            CENTER + PROTON_SIZE, CENTER - PROTON_SIZE, "Z=%d" % self.z, Z_NOTE_COLOR
+        )
 
     def dissect_tumble(self):
         self.roll_angle = (self.roll_angle + ROLL_ANGLE_STEP) % self.two_pi
 
-    def dissect_ease_gen(self, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, title=None,
-                          full_tumble=False):
+    def dissect_ease_gen(
+        self,
+        scale0,
+        scale1,
+        clip0,
+        clip1,
+        active_subshell,
+        r_ref,
+        frames,
+        title=None,
+        full_tumble=False,
+    ):
         """See pc/atom_view_pc.py's _dissect_ease() docstring for
         full_tumble's meaning -- same "clip is CLOSED throughout this leg,
         so full 3-axis tumble is safe" reasoning, used the same way by
@@ -293,8 +421,16 @@ class WebAtomApp:
             t = i / (frames - 1) if frames > 1 else 1.0
             scale = scale0 + (scale1 - scale0) * t
             clip = clip0 + (clip1 - clip0) * t
-            render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
-                                     scale, clip, active_subshell)
+            render_dissection_frame(
+                self.buf,
+                self.preset,
+                self.angle,
+                self.tilt_angle,
+                self.roll_angle,
+                scale,
+                clip,
+                active_subshell,
+            )
             self.blit_dissection(scale, r_ref, title)
             if full_tumble:
                 advance_rotation(self)
@@ -304,8 +440,16 @@ class WebAtomApp:
 
     def dissect_hold_gen(self, scale, clip, active_subshell, r_ref, frames, title):
         for _ in range(frames):
-            render_dissection_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle,
-                                     scale, clip, active_subshell)
+            render_dissection_frame(
+                self.buf,
+                self.preset,
+                self.angle,
+                self.tilt_angle,
+                self.roll_angle,
+                scale,
+                clip,
+                active_subshell,
+            )
             self.blit_dissection(scale, r_ref, title)
             self.dissect_tumble()
             yield
@@ -320,30 +464,73 @@ class WebAtomApp:
         plan = dissection_plan(self.preset)
 
         shell_count = self.preset.shell_count
-        orient_frames = shell_count_frames(DISSECT_ORIENT_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+        orient_frames = shell_count_frames(
+            DISSECT_ORIENT_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count
+        )
         # Shell-to-shell hops paced ~2x slower (see DISSECT_ZOOM_SLOWDOWN).
-        zoom_frames = int(shell_count_frames(DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
-                          * DISSECT_ZOOM_SLOWDOWN)
-        close_frames = shell_count_frames(DISSECT_CLOSE_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count)
+        zoom_frames = int(
+            shell_count_frames(
+                DISSECT_ZOOM_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count
+            )
+            * DISSECT_ZOOM_SLOWDOWN
+        )
+        close_frames = shell_count_frames(
+            DISSECT_CLOSE_FRAMES, DISSECT_FRAMES_PER_SHELL, shell_count
+        )
 
-        resting_scale = self.effective_base_scale() + self.effective_zoom_amplitude() * math.sin(self.zoom_angle)
+        resting_scale = (
+            self.effective_base_scale()
+            + self.effective_zoom_amplitude() * math.sin(self.zoom_angle)
+        )
         outer_scale = outer_bound_scale(self.preset.r_ref)
         inner_scale = inner_bound_scale(self.preset.inner_r_ref)
 
         steps = atom_dissection_common.build_dissection_steps(
-            plan, self.preset.r_ref, resting_scale, outer_scale, inner_scale,
-            orient_frames, zoom_frames, close_frames, DISSECT_HOLD_FRAMES,
-            DISSECT_TARGET_PX, DISSECT_CLIP_OPEN, DISSECT_CLIP_CLOSED,
-            slater.element_symbol(self.z))
+            plan,
+            self.preset.r_ref,
+            resting_scale,
+            outer_scale,
+            inner_scale,
+            orient_frames,
+            zoom_frames,
+            close_frames,
+            DISSECT_HOLD_FRAMES,
+            DISSECT_TARGET_PX,
+            DISSECT_CLIP_OPEN,
+            DISSECT_CLIP_CLOSED,
+            slater.element_symbol(self.z),
+        )
 
         for step in steps:
-            if step[0] == 'ease':
-                _, scale0, scale1, clip0, clip1, active_subshell, r_ref, frames, title, full_tumble = step
-                yield from self.dissect_ease_gen(scale0, scale1, clip0, clip1, active_subshell, r_ref,
-                                                  frames, title, full_tumble)
+            if step[0] == "ease":
+                (
+                    _,
+                    scale0,
+                    scale1,
+                    clip0,
+                    clip1,
+                    active_subshell,
+                    r_ref,
+                    frames,
+                    title,
+                    full_tumble,
+                ) = step
+                yield from self.dissect_ease_gen(
+                    scale0,
+                    scale1,
+                    clip0,
+                    clip1,
+                    active_subshell,
+                    r_ref,
+                    frames,
+                    title,
+                    full_tumble,
+                )
             else:
                 _, scale, clip, active_subshell, r_ref, frames, title = step
-                yield from self.dissect_hold_gen(scale, clip, active_subshell, r_ref, frames, title)
+                yield from self.dissect_hold_gen(
+                    scale, clip, active_subshell, r_ref, frames, title
+                )
 
     def dissection_wrapper(self):
         self.dissecting = True
@@ -362,7 +549,9 @@ class WebAtomApp:
             self.pending_dissect = True
 
     def zoom_by(self, factor):
-        self.zoom_factor = min(ZOOM_FACTOR_MAX, max(ZOOM_FACTOR_MIN, self.zoom_factor * factor))
+        self.zoom_factor = min(
+            ZOOM_FACTOR_MAX, max(ZOOM_FACTOR_MIN, self.zoom_factor * factor)
+        )
 
     def start(self):
         """Kicks off the intro fly-over. Does NOT bind the canvas -- that
@@ -371,8 +560,12 @@ class WebAtomApp:
         Element Explorer from the chooser, but they all share the one
         canvas web_app.py already bound.
         """
-        self.sequence = fly_over_gen(self, self.effective_base_scale() * INTRO_START_SCALE_FACTOR,
-                                      self.effective_base_scale(), INTRO_FRAMES)
+        self.sequence = fly_over_gen(
+            self,
+            self.effective_base_scale() * INTRO_START_SCALE_FACTOR,
+            self.effective_base_scale(),
+            INTRO_FRAMES,
+        )
 
     def tick(self):
         if self.sequence is not None:
@@ -391,22 +584,35 @@ class WebAtomApp:
             self.z = self.pending_z
             self.pending_z = None
             self.preset = make_atom_preset(self.z)
-            self.sequence = fly_over_gen(self, self.effective_base_scale() * SWITCH_START_SCALE_FACTOR,
-                                          self.effective_base_scale(), SWITCH_TRANSITION_FRAMES)
+            self.sequence = fly_over_gen(
+                self,
+                self.effective_base_scale() * SWITCH_START_SCALE_FACTOR,
+                self.effective_base_scale(),
+                SWITCH_TRANSITION_FRAMES,
+            )
             return
 
         self.zoom_excursion_countdown -= 1
         if self.zoom_excursion_countdown <= 0:
-            self.sequence = zoom_excursion_gen(self, self.effective_base_scale(), self.effective_zoom_amplitude(),
-                                                self.preset.r_ref, self.preset.inner_r_ref,
-                                                shell_count=self.preset.shell_count, scale_factor=self.zoom_factor)
+            self.sequence = zoom_excursion_gen(
+                self,
+                self.effective_base_scale(),
+                self.effective_zoom_amplitude(),
+                self.preset.r_ref,
+                self.preset.inner_r_ref,
+                shell_count=self.preset.shell_count,
+                scale_factor=self.zoom_factor,
+            )
             return
 
-        scale = self.effective_base_scale() + self.effective_zoom_amplitude() * math.sin(self.zoom_angle)
-        render_frame(self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle, scale)
+        scale = (
+            self.effective_base_scale()
+            + self.effective_zoom_amplitude() * math.sin(self.zoom_angle)
+        )
+        render_frame(
+            self.buf, self.preset, self.angle, self.tilt_angle, self.roll_angle, scale
+        )
         self.blit(scale)
 
         advance_rotation(self)
         self.zoom_angle = (self.zoom_angle + ZOOM_ANGLE_STEP) % self.two_pi
-
-

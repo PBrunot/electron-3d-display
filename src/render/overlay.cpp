@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "render/display.h"
 #include "render/font.h"
@@ -99,7 +100,13 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
     }
 
     char text[32];
-    std::snprintf(text, sizeof(text), "%s %s", len.label, unitLabel);
+    // kScaleBarCandidates tops out at 1000 (pm) -- past that round number the bar reads
+    // clearer in nm than as a 4-digit pm count. Geometry above (barPx) still comes from
+    // len.value in its original pm-based pixelsPerUnit, only the label text changes here.
+    if (std::strcmp(unitLabel, "pm") == 0 && len.value >= orb_real_t(1000))
+        std::snprintf(text, sizeof(text), "%d nm", int(len.value / orb_real_t(1000)));
+    else
+        std::snprintf(text, sizeof(text), "%s %s", len.label, unitLabel);
     // kFontLarge at its own true size, not kFontSmall integer-upscaled -- the doubled
     // pixels read as blocky on-device (same issue kFontHuge exists to avoid for the
     // element-symbol title, see font.h).

@@ -74,7 +74,7 @@ void renderAtomFrame(uint16_t *frameBuf, const AtomPresetState &preset, const Ca
     char zLabel[4];
     std::snprintf(zLabel, sizeof(zLabel), "%d", preset.z);
     int zX = Display::kDisplayWidth - textWidth(zLabel, kFontHuge) - 10;
-    drawText(frameBuf, zX, 10, zLabel, Display::kColorOrbitalRed, kFontHuge);
+    drawText(frameBuf, zX, kTitleTextY, zLabel, Display::kColorOrbitalRed, kFontHuge);
     drawScaleBar(frameBuf, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 }
 
@@ -227,7 +227,7 @@ namespace
         drawText(frameBuf, x, y + kFontHuge.height, caption, color, kFontLarge);
 
         char occText[8];
-        std::snprintf(occText, sizeof(occText), "%de-", occ);
+        std::snprintf(occText, sizeof(occText), "%d\x7F", occ);
         int occX = Display::kDisplayWidth - textWidth(occText, kFontHuge) - kDissectOccMarginPx;
         drawText(frameBuf, occX, kDissectOccMarginPx, occText, Display::kColorOrbitalBlue, kFontHuge);
     }

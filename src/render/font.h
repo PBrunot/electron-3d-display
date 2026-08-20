@@ -37,13 +37,13 @@ struct FontBase
 };
 
 /** Row storage for kFontSmall -- its widest glyph is under 8px. */
-using FontSmall = FontBase<uint8_t>;
+using FontSmall = FontBase<uint16_t>; // quick test: widened from uint8_t for DejaVu's wider glyphs
 
 /**
  * Row storage for kFontLarge -- its widest glyph is under 16px. Kept as the plain "Font"
  * name since it's the size generic call sites (chooser.cpp, ticker.h) are written against.
  */
-using Font = FontBase<uint16_t>;
+using Font = FontBase<uint32_t>; // quick test: widened from uint16_t for DejaVu's wider glyphs
 
 /** Row storage for kFontHuge -- its widest glyphs (e.g. '#', '@') run past 32px. */
 using FontHuge = FontBase<uint64_t>;
