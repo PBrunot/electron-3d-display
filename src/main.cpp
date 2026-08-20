@@ -9,7 +9,7 @@
 // #define ATOM_VIEW_TEST
 // #define ATOM_VIEW
 // #define COLOR_TEST
-#define BENCHMARK_TEST
+// #define BENCHMARK_TEST
 
 #include "ux/chooser.h"
 #include "esp_log.h"

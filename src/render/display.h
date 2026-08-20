@@ -78,6 +78,8 @@ public:
 
     [[nodiscard]] auto getFrameBuf() -> uint16_t *;
 
+    void clearScreen();
+
     /**
      * @brief Block until the most recently queued presentFrame() transfer has fully finished,
      * then flip frameBuf back to normal row order (undoing presentFrame()'s in-place flip).

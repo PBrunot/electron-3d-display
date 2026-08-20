@@ -25,20 +25,6 @@ static void drawCentered(uint16_t *frameBuf, int y, const char *text, uint16_t c
     drawText(frameBuf, x, y, text, color, font);
 }
 
-/// Like drawCentered(), but through drawTextScaled()/textWidthScaled() for a larger option
-/// font.
-static void drawCenteredScaled(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font,
-                               int scale)
-{
-    int x = (Display::kDisplayWidth - textWidthScaled(text, font, scale)) / 2;
-    drawTextScaled(frameBuf, x, y, text, color, font, scale);
-}
-
-static void clearScreen(uint16_t *frameBuf)
-{
-    std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
-}
-
 struct CalibTarget
 {
     TiltDirection dir;
@@ -75,7 +61,7 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
         {
             display.waitForFlushDone();
             uint16_t *frameBuf = display.getFrameBuf();
-            clearScreen(frameBuf);
+            display.clearScreen();
             drawCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
             drawCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kTextColor, kFontLarge);
             if (raw.phase == TiltPhase::kHolding)
@@ -103,7 +89,7 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
         {
             display.waitForFlushDone();
             uint16_t *frameBuf = display.getFrameBuf();
-            clearScreen(frameBuf);
+            display.clearScreen();
             drawCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
             drawCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kAccentColor, kFontLarge);
             drawCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, "OK - RELEASE", kAccentColor,
@@ -126,10 +112,8 @@ static void drawChooserScreen(uint16_t *frameBuf)
     // is just a memcpy straight out of the generated array every frame.
     std::memcpy(frameBuf, kSplashBitmapData, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
 
-    drawCenteredScaled(frameBuf, kChooserOption1Y, "UP: Orbitals", kTextColor, kFontLarge,
-                       kChooserOptionScale);
-    drawCenteredScaled(frameBuf, kChooserOption2Y, "DOWN: Elements", kTextColor, kFontLarge,
-                       kChooserOptionScale);
+    drawCentered(frameBuf, kChooserOption1Y, "UP: Orbitals", Display::kColorOrbitalRed, kFontLarge);
+    drawCentered(frameBuf, kChooserOption2Y, "DOWN: Elements", Display::kColorOrbitalRed, kFontLarge);
 }
 
 /**

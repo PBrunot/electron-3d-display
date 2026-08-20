@@ -124,7 +124,7 @@ inline constexpr orb_real_t kZoomAngleStep = orb_real_t(0.016);
 // ============================================================================================
 
 // Matches device_render_common.py's TITLE_TEXT_POS/LOADING_TEXT_POS.
-inline constexpr int kTitleTextX = 2, kTitleTextY = 2;
+inline constexpr int kTitleTextX = 1, kTitleTextY = 1;
 inline constexpr int kLoadingTextX = 2, kLoadingTextY = 22;
 
 // ============================================================================================
@@ -264,7 +264,7 @@ inline constexpr int kAtomProtonMarkerSize = 6;
 /// Neutral outline color for the bounding-sphere silhouette (render/overlay.h's
 /// drawBoundingCircle()) -- matches pc/viewer_common.py's/web/py/web_common.py's shared
 /// BOUNDING_SPHERE_COLOR, deliberately not shell-colored so it doesn't compete with the cloud.
-inline constexpr uint16_t kBoundingCircleColor = Display::packColor565(128, 128, 128);
+inline constexpr uint16_t kBoundingCircleColor = Display::packColor565(180, 180, 180);
 
 // --- Element-switch intro ticker (scrollElementIntro()) ---
 inline constexpr int kElementIntroMaxNameScale = 4;                                      ///< Largest text scale tried for the sliding element name.

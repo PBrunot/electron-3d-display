@@ -26,7 +26,7 @@ namespace
     {
         display.waitForFlushDone();
         uint16_t *frameBuf = display.getFrameBuf();
-        std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, Display::kColorBlack);
+        display.clearScreen();
         drawEquationBackdrop(frameBuf, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
         int width = textWidthScaled(text, kFontLarge, kOrbitalIntroNumberScale);
         int x = (Display::kDisplayWidth - width) / 2;
@@ -125,7 +125,8 @@ void OrbitalPresetState::load(int index)
     for (int i = 0; i < kOrbitalNumPoints; i++)
         colors[i] = orbitalLevelToColor565(levels[i], signs[i], d.posRgb565, d.negRgb565);
 
-    std::snprintf(title, sizeof(title), "%s (n=%d l=%d m=%d)", d.label, d.n, d.ell, d.m);
+    std::snprintf(title, sizeof(title), "%s", d.label);
+    std::snprintf(orbital_numbers, sizeof(orbital_numbers), "n=%d l=%d m=%d", d.n, d.ell, d.m);
 
     OrbitalScale scale = scaleFromRadii(points, kOrbitalNumPoints);
     baseScale = scale.baseScale;
@@ -171,7 +172,11 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     // GCC's -Werror rejects capturing a static local as a meaningless no-op capture.
     auto drawTitle = [](uint16_t *frameBuf, int x, int y, uint16_t color)
     {
-        drawText(frameBuf, x, y, preset.title, color, kFontLarge);
+        drawText(frameBuf, x, y, preset.title, color, kFontHuge);
+        // Draw the "n=... l=... m=..." numbers below the title, in a smaller font, so the user
+        // can see the quantum numbers without having to remember which preset index is which.
+        int width = textWidth(preset.orbital_numbers, kFontLarge);
+        drawText(frameBuf, Display::kDisplayWidth - width, y, preset.orbital_numbers, color, kFontLarge);
     };
 
     CameraState camera;
@@ -288,7 +293,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         // point landing on the same pixel can dim/hide it).
         drawOrbitalProtonMarker(display.getFrameBuf(), kProtonColor);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
-        drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontLarge);
+        drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, kTextColor);
         drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         if (tiltEv.phase != TiltPhase::kIdle)
             drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);
