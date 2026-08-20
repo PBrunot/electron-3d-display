@@ -93,10 +93,15 @@ namespace
 
     /// Preset title top-left, quantum numbers bottom-right, scale bar bottom-left -- same
     /// layout renderOrbitalFrame() uses for the 3D cloud, so the slice reads as the same
-    /// object's own view, not a separate mode with its own conventions.
+    /// object's own view, not a separate mode with its own conventions. A small "densita di
+    /// probabilita" legend sits right under the title: since D1's revision the heatmap is a
+    /// pure density plot (no phase/sign color, unlike the 3D cloud), so it's worth naming what
+    /// the color ramp actually encodes.
     void drawSliceOverlay(uint16_t *frameBuf, const OrbitalPresetState &preset, orb_real_t extentPm)
     {
         drawText(frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
+        constexpr const char *kSliceLegend = "densita di probabilita";
+        drawText(frameBuf, kTitleTextX, kTitleTextY + kFontHuge.height + 2, kSliceLegend, kScaleBarColor, kFontSmall);
         int width = textWidth(preset.orbital_numbers, kFontLarge);
         int height = kFontLarge.height;
         drawText(frameBuf, Display::kDisplayWidth - width, Display::kDisplayHeight - height - 15,

@@ -161,9 +161,10 @@ inline constexpr int kOrbitalCullRefreshFrames = 3;
 // Orbital slice view (views/orbital_slice.h, runSliceSequence() in views/orbital_view.cpp)
 // ============================================================================================
 
-/// Heatmap grid resolution: kSliceGridSize x kSliceGridSize cells, each kSliceCellPx x
-/// kSliceCellPx screen pixels -- together exactly filling the panel (240 = 120 * 2).
-inline constexpr int kSliceGridSize = 120;
+/// Heatmap grid resolution: kSliceGridSize x kSliceGridSize cells, one per screen pixel --
+/// full panel resolution (240 x 240) so the heatmap is smooth, imshow-style, with no block
+/// artifacts (the earlier 2x2-cell version looked blocky). kSliceCellPx stays derived (== 1).
+inline constexpr int kSliceGridSize = Display::kDisplayWidth;
 inline constexpr int kSliceCellPx = Display::kDisplayWidth / kSliceGridSize;
 
 /// Grid half-extent as a multiple of the preset's own p90 reference radius (rRef) -- >1 so
@@ -305,7 +306,7 @@ inline constexpr orb_real_t kOrbitalZoomAngleStep = kZoomAngleStep / orb_real_t(
 /// Diameter in pixels of the circular nucleus marker, passed to drawProtonMarker() after each
 /// frame's cloud so it redraws bigger/opaque on top. Bigger than the shared kProtonMarkerSize
 /// (3px) so the nucleus reads clearly even where orbital density peaks at the origin.
-inline constexpr int kOrbitalProtonMarkerSize = 6;
+inline constexpr int kOrbitalProtonMarkerSize = 5;
 
 // ============================================================================================
 // Atom-view proton/intro/dissection pacing (views/atom_view.cpp)
@@ -313,7 +314,7 @@ inline constexpr int kOrbitalProtonMarkerSize = 6;
 
 /// Diameter in pixels of the circular nucleus marker, passed to drawProtonMarker() after each
 /// frame's cloud so it redraws bigger/opaque on top.
-inline constexpr int kAtomProtonMarkerSize = 6;
+inline constexpr int kAtomProtonMarkerSize = 5;
 
 /// Neutral outline color for the bounding-sphere silhouette (render/overlay.h's
 /// drawBoundingCircle()) -- matches pc/viewer_common.py's/web/py/web_common.py's shared

@@ -30,7 +30,7 @@ import orbitals
 
 from PIL import Image
 
-GRID_SIZE = 120  # matches src/config/visual_constants.h's kSliceGridSize
+GRID_SIZE = 240  # matches src/config/visual_constants.h's kSliceGridSize (full panel resolution)
 OUT_DIR = os.path.join(os.path.dirname(__file__), 'out', 'slice_preview')
 
 # Matches src/config/visual_constants.h's kSliceLevelGamma/kSliceDensityPercentile -- the
@@ -42,9 +42,25 @@ OUT_DIR = os.path.join(os.path.dirname(__file__), 'out', 'slice_preview')
 LEVEL_GAMMA = 0.5
 DENSITY_PERCENTILE = 0.999
 
-# Same orange/blue phase pair every device preset uses (Display::kColorOrbitalRed/Blue).
-POS_RGB = (210, 40, 40)
-NEG_RGB = (40, 80, 210)
+# Same 16-stop rocket-like sequential ramp as src/views/orbital_slice.h's
+# kSliceColormapStops -- keep the two in sync, or the preview PNGs won't match the device.
+# Density-only (no phase sign): the slice is a heatmap, deliberately unlike the phase-colored
+# 3D cloud.
+COLORMAP_STOPS = [
+    (3, 0, 5), (16, 2, 22), (35, 4, 48), (56, 7, 78), (78, 12, 105), (102, 18, 122),
+    (127, 26, 130), (152, 37, 129), (178, 52, 118), (203, 71, 100), (224, 96, 80),
+    (238, 126, 64), (247, 160, 58), (251, 198, 66), (252, 230, 112), (252, 253, 191),
+]
+
+
+def colormap(level):
+    """Map a 0..255 density level through the sequential ramp (per-channel lerp between
+    stops), same as orbital_slice.cpp's renderSliceFrame()."""
+    pos = level / 255.0 * (len(COLORMAP_STOPS) - 1)
+    i = min(int(pos), len(COLORMAP_STOPS) - 2)
+    f = pos - i
+    a, b = COLORMAP_STOPS[i], COLORMAP_STOPS[i + 1]
+    return tuple(int(a[c] + (b[c] - a[c]) * f + 0.5) for c in range(3))
 
 
 def neg_half_sign(m):
@@ -94,16 +110,13 @@ def build_slice_table(n, ell, m, extent_bohr, grid_size=GRID_SIZE):
     return mags, signs, levels
 
 
-def save_png(name, signs, levels, grid_size=GRID_SIZE):
+def save_png(name, levels, grid_size=GRID_SIZE):
     os.makedirs(OUT_DIR, exist_ok=True)
     img = Image.new('RGB', (grid_size, grid_size))
     px = img.load()
     for row in range(grid_size):
         for col in range(grid_size):
-            idx = row * grid_size + col
-            base = POS_RGB if signs[idx] >= 0 else NEG_RGB
-            level = levels[idx] / 255.0
-            px[col, row] = tuple(int(c * level) for c in base)
+            px[col, row] = colormap(levels[row * grid_size + col])
     path = os.path.join(OUT_DIR, f'{name}.png')
     img.resize((grid_size * 2, grid_size * 2), Image.NEAREST).save(path)
     return path
@@ -129,7 +142,7 @@ def main():
     # arbitrary but fixed choice of which sign is "orange" -- see level_to_rgb()/
     # orbitalLevelToColor565(); what matters physically is the opposite-sign split). ---
     mags, signs, levels = build_slice_table(2, 1, 1, extent_bohr=20.0)
-    save_png('2px', signs, levels)
+    save_png('2px', levels)
     _, sRight = at(mags, signs, g, mid, right)
     _, sLeft = at(mags, signs, g, mid, left)
     check('2px: +-x lobes are opposite-signed (dumbbell split)', sRight * sLeft < 0)
@@ -138,7 +151,7 @@ def main():
     # (which sits at world azimuth pi/2) -- the physical y-dumbbell, sliced through its own
     # lobe plane instead of the world x-z plane. ---
     mags, signs, levels = build_slice_table(2, 1, -1, extent_bohr=20.0)
-    save_png('2py', signs, levels)
+    save_png('2py', levels)
     _, sRight = at(mags, signs, g, mid, right)
     _, sLeft = at(mags, signs, g, mid, left)
     check('2py: lobe-plane slice also shows an opposite-signed dumbbell split', sRight * sLeft < 0)
@@ -165,14 +178,14 @@ def main():
 
     # --- 3dxy (m=-2): ph0=pi/4, |m| even -> both halves SAME sign (same-phase lobe pair). ---
     mags, signs, levels = build_slice_table(3, 2, -2, extent_bohr=35.0)
-    save_png('3dxy', signs, levels)
+    save_png('3dxy', levels)
     _, sRight = at(mags, signs, g, mid, right)
     _, sLeft = at(mags, signs, g, mid, left)
     check('3dxy: both lobes share the same sign (|m| even, same-phase pair)', sRight * sLeft > 0)
 
     # --- 3dz2 (m=0): axially symmetric, no left/right sign split possible. ---
     mags, signs, levels = build_slice_table(3, 2, 0, extent_bohr=35.0)
-    save_png('3dz2', signs, levels)
+    save_png('3dz2', levels)
     _, sRight = at(mags, signs, g, mid, right)
     _, sLeft = at(mags, signs, g, mid, left)
     check('3dz2: m=0 -> left/right halves share the same sign', (sRight > 0) == (sLeft > 0))
@@ -181,23 +194,28 @@ def main():
     # the center, brightness must dip to a local minimum and then climb again, not just fall
     # off monotonically (R_2,0(r) has its one zero at r=2 bohr, see orbitals.py). ---
     mags, signs, levels = build_slice_table(2, 0, 0, extent_bohr=14.0)
-    save_png('2s', signs, levels)
+    save_png('2s', levels)
     row_levels = [levels[mid * g + col] for col in range(mid, g)]
-    dip_col = min(range(len(row_levels)), key=lambda i: row_levels[i])
-    # Robust under the density mapping: the node dip must sit below the bright core AND below
-    # the outer lobe's own peak (the last cell alone is unreliable -- the tail can be as dark
-    # as the node itself).
-    outer_max = max(row_levels[dip_col + 1:])
+    # The radial node is the FIRST interior LOCAL minimum: the far tail can be as dark as the
+    # node itself (at full resolution the tail's level even dips below the node's), so a
+    # global-min scan is unreliable. Detect the node as the first column below both neighbors,
+    # then require a later column (the outer lobe) to climb above it.
+    node_col = None
+    for i in range(1, len(row_levels) - 1):
+        if row_levels[i] < row_levels[i - 1] and row_levels[i] < row_levels[i + 1]:
+            node_col = i
+            break
+    outer_max = max(row_levels[node_col + 1:]) if node_col is not None else 0
     check(
-        '2s: radial node -- brightness dips to an interior local min, then the outer lobe climbs above it',
-        0 < dip_col < len(row_levels) - 1
-        and row_levels[dip_col] < row_levels[0]
-        and outer_max > row_levels[dip_col],
+        '2s: radial node -- first interior local min, then the outer lobe climbs above it',
+        node_col is not None
+        and row_levels[node_col] < row_levels[0]
+        and outer_max > row_levels[node_col],
     )
 
     # --- 1s (m=0): monotonically fading blob, no sign change anywhere. ---
     mags, signs, levels = build_slice_table(1, 0, 0, extent_bohr=6.0)
-    save_png('1s', signs, levels)
+    save_png('1s', levels)
     check('1s: every cell shares one sign (no node, single lobe)', all(s == signs[0] for s in signs))
 
     print(f'\nAll checks passed. PNG previews written to {OUT_DIR}')
