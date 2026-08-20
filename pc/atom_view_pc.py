@@ -797,7 +797,7 @@ class AtomViewApp:
         # doubled for the 480 buffer).
         for y in range(DISSECT_INTRO_BG_START, HEIGHT, DISSECT_INTRO_BG_SPACING[1]):
             for x in range(DISSECT_INTRO_BG_START, WIDTH, DISSECT_INTRO_BG_SPACING[0]):
-                draw.text((x, y), "e-", font=bg_font, fill=DISSECT_INTRO_BG_COLOR)
+                draw.text((x, y), "\x7F", font=bg_font, fill=DISSECT_INTRO_BG_COLOR)
 
         y1 = DISSECT_INTRO_START_Y
         y2 = y1 + DISSECT_INTRO_LINE_GAP_PX

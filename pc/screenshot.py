@@ -477,7 +477,7 @@ def _dissect_overlays(preset, z, scale, r_ref, title):
             draw.text(TITLE_POS, big_label, fill=DISSECT_TITLE_COLOR, font=_DISSECT_BIG_FONT)
             draw.text((TITLE_POS[0], TITLE_POS[1] + DISSECT_BIG_FONT_SIZE + 6),
                       caption, fill=DISSECT_TITLE_COLOR, font=_DISSECT_CAPTION_FONT)
-            occ_text = "%de-" % occ
+            occ_text = "%d\x7F" % occ
             occ_x = WIDTH - draw.textlength(occ_text, font=_DISSECT_OCC_FONT) - DISSECT_OCC_MARGIN_PX
             draw.text((occ_x, DISSECT_OCC_MARGIN_PX), occ_text, fill=DISSECT_TITLE_COLOR,
                       font=_DISSECT_OCC_FONT)

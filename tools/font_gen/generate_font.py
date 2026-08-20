@@ -43,15 +43,29 @@ import pathlib
 from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-FONT_PATH = SCRIPT_DIR / "fonts" / "Jersey10-Regular.ttf"
+FONT_PATH = (
+    SCRIPT_DIR / "fonts" / "DejaVuSans.ttf"
+)  # quick test: was Jersey10-Regular.ttf
 DEJAVU_PATH = SCRIPT_DIR / "fonts" / "DejaVuSans.ttf"
 
 # (C identifier prefix, point size, extra leading px added to lineAdvance, horizontal
 # spacing px appended to every glyph's advance, row-storage C type)
 SIZES = [
-    ("Small", 10, 1, 1, "uint8_t"),
-    ("Large", 24, 2, 1, "uint16_t"),
-    ("Huge", 54, 4, 2, "uint64_t"),
+    (
+        "Small",
+        8,
+        1,
+        1,
+        "uint16_t",
+    ),  # quick test: widened from uint8_t for DejaVu's wider glyphs
+    (
+        "Large",
+        16,
+        2,
+        1,
+        "uint32_t",
+    ),  # quick test: widened from uint16_t for DejaVu's wider glyphs
+    ("Huge", 40, 4, 2, "uint64_t"),
 ]
 
 FIRST_CHAR = 0x20
@@ -67,25 +81,18 @@ DEJAVU_GLYPHS = {
     ELECTRON_CHAR: "e⁻",
     SCRIPT_L_CHAR: "ℓ",
 }
-# Extra stroke width (px) drawn around script-l's outline to fake a bold weight -- DejaVu
-# has no separate Bold file in tools/font_gen/fonts/, and its thin single stroke is hard to
-# read at kFontLarge's size without it. Keyed by SIZES name rather than a flat px count:
-# kFontSmall's DejaVu instance (see fit_dejavu_font) is already down around 7pt, where even
-# 1px of stroke swallows the letterform into a blob, so it stays unbolded; kFontHuge's is
-# 54pt and can take a heavier stroke and still read as an "l". The electron glyph is left
-# at its native weight throughout -- only script-l was reported hard to read.
-SCRIPT_L_STROKE_BY_SIZE = {"Small": 0, "Large": 1, "Huge": 2}
 
 LAST_CHAR = SCRIPT_L_CHAR
 CHAR_CODES = list(range(FIRST_CHAR, LAST_CHAR + 1))
 
-# Each row-storage width has its own FontBase<RowT> alias in font.h, named for the size
-# that actually uses it (kFontLarge keeps the plain "Font" name -- it's the one generic
-# call sites like chooser.cpp/ticker.h are written against).
-ROW_CTYPE_TO_FONT_ALIAS = {
-    "uint8_t": "FontSmall",
-    "uint16_t": "Font",
-    "uint64_t": "FontHuge",
+# Each SIZES entry has its own FontBase<RowT> alias in font.h, named for the size that
+# actually uses it (kFontLarge keeps the plain "Font" name -- it's the one generic call
+# sites like chooser.cpp/ticker.h are written against). Keyed by name, not row_ctype --
+# quick-test font swaps can widen two sizes to the same row_ctype without colliding.
+NAME_TO_FONT_ALIAS = {
+    "Small": "FontSmall",
+    "Large": "Font",
+    "Huge": "FontHuge",
 }
 
 
@@ -155,7 +162,9 @@ def compute_ink_window(glyph_specs, full_height):
     top, bottom = full_height + Y_ORIGIN, 0
     for font, text, stroke_width in glyph_specs:
         canvas = Image.new("1", (200, full_height + 2 * Y_ORIGIN), 0)
-        ImageDraw.Draw(canvas).text((stroke_width, Y_ORIGIN), text, font=font, fill=1, stroke_width=stroke_width)
+        ImageDraw.Draw(canvas).text(
+            (stroke_width, Y_ORIGIN), text, font=font, fill=1, stroke_width=stroke_width
+        )
         bbox = canvas.getbbox()
         if bbox:
             top = min(top, bbox[1])
@@ -163,7 +172,9 @@ def compute_ink_window(glyph_specs, full_height):
     return top, bottom
 
 
-def rasterize_glyph(font, text, ink_top, ink_bottom, full_height, stroke_width=0, y_offset=0, pad=6):
+def rasterize_glyph(
+    font, text, ink_top, ink_bottom, full_height, stroke_width=0, y_offset=0, pad=6
+):
     """Return (width, rows) -- width in px (the font's own advance for text, widened only
     if ink would otherwise clip) and rows[ink_bottom - ink_top] of per-row bit-ints (bit
     (width-1-col) set = that column lit, row 0 = ink_top). text is usually one codepoint's
@@ -180,7 +191,13 @@ def rasterize_glyph(font, text, ink_top, ink_bottom, full_height, stroke_width=0
     width = max(1, round(adv)) + stroke_width
     canvas = Image.new("1", (width + pad, full_height + 2 * Y_ORIGIN), 0)
     draw = ImageDraw.Draw(canvas)
-    draw.text((stroke_width, Y_ORIGIN + y_offset), text, font=font, fill=1, stroke_width=stroke_width)
+    draw.text(
+        (stroke_width, Y_ORIGIN + y_offset),
+        text,
+        font=font,
+        fill=1,
+        stroke_width=stroke_width,
+    )
     bbox = canvas.getbbox()
     ink_right = bbox[2] if bbox else 0
     width = max(width, ink_right)
@@ -194,29 +211,32 @@ def rasterize_glyph(font, text, ink_top, ink_bottom, full_height, stroke_width=0
     return width, rows
 
 
-def fit_dejavu_font(target_size, row_bits, name, jersey_ascent, ink_top):
+def fit_dejavu_font(target_size, row_bits, jersey_ascent, ink_top):
     """Largest DejaVu instance (point size <= target_size) that (a) fits every DEJAVU_GLYPHS
-    string (with its SCRIPT_L_STROKE_BY_SIZE stroke, for script-l) inside row_bits px, and
-    (b) once baseline-aligned to Jersey10 (see emit_size's baseline_offset), doesn't poke
-    ink above ink_top. The electron glyph ("e" + superscript minus) is wider than Jersey10's
-    own widest glyph at kFontSmall/kFontLarge's point sizes; script-l's ascender loop is
-    *taller* than Jersey10's own tallest glyph at every size, DejaVu being a conventional
-    typeface where an ascender reaches close to true ascent, unlike pixel-font Jersey10's
-    own shorter glyphs -- so shrinking DejaVu until its ascender clears ink_top (rather than
-    growing the ASCII-derived window, see below) is what keeps script-l's loop intact
-    without reflowing the other 95 glyphs.
+    string inside row_bits px, and (b) once baseline-aligned to Jersey10 (see emit_size's
+    baseline_offset), doesn't poke ink above ink_top. The electron glyph ("e" + superscript
+    minus) is wider than Jersey10's own widest glyph at kFontSmall/kFontLarge's point sizes;
+    script-l's ascender loop is *taller* than Jersey10's own tallest glyph at every size,
+    DejaVu being a conventional typeface where an ascender reaches close to true ascent,
+    unlike pixel-font Jersey10's own shorter glyphs -- so shrinking DejaVu until its ascender
+    clears ink_top (rather than growing the ASCII-derived window, see below) is what keeps
+    script-l's loop intact without reflowing the other 95 glyphs.
     """
-    stroke = SCRIPT_L_STROKE_BY_SIZE[name]
     for s in range(target_size, 0, -1):
         f = ImageFont.truetype(str(DEJAVU_PATH), s)
-        if not all(f.getlength(t) + (2 * stroke if code == SCRIPT_L_CHAR else 0) <= row_bits
-                   for code, t in DEJAVU_GLYPHS.items()):
+        if not all(f.getlength(t) <= row_bits for t in DEJAVU_GLYPHS.values()):
             continue
         dejavu_ascent, _ = f.getmetrics()
         baseline_offset = jersey_ascent - dejavu_ascent
-        canvas = Image.new("1", (row_bits + 8, f.getmetrics()[0] + f.getmetrics()[1] + 2 * Y_ORIGIN), 0)
-        ImageDraw.Draw(canvas).text((stroke, Y_ORIGIN + baseline_offset), DEJAVU_GLYPHS[SCRIPT_L_CHAR], font=f,
-                                     fill=1, stroke_width=stroke)
+        canvas = Image.new(
+            "1", (row_bits + 8, f.getmetrics()[0] + f.getmetrics()[1] + 2 * Y_ORIGIN), 0
+        )
+        ImageDraw.Draw(canvas).text(
+            (0, Y_ORIGIN + baseline_offset),
+            DEJAVU_GLYPHS[SCRIPT_L_CHAR],
+            font=f,
+            fill=1,
+        )
         bbox = canvas.getbbox()
         if bbox is None or bbox[1] >= ink_top:
             return f
@@ -235,11 +255,13 @@ def emit_size(name, size, leading, spacing, row_ctype):
     # few px for the sake of two rarely-drawn symbols. fit_dejavu_font() instead shrinks the
     # DejaVu instance until its own ascender clears this window.
     ink_top, ink_bottom = compute_ink_window(
-        [(font, chr(c), 0) for c in range(FIRST_CHAR, LAST_ASCII_CHAR + 1)], ascent + descent)
+        [(font, chr(c), 0) for c in range(FIRST_CHAR, LAST_ASCII_CHAR + 1)],
+        ascent + descent,
+    )
     height = ink_bottom - ink_top
     suffix = "ULL" if row_ctype == "uint64_t" else ""
 
-    dejavu_font = fit_dejavu_font(size, row_bits, name, ascent, ink_top)
+    dejavu_font = fit_dejavu_font(size, row_bits, ascent, ink_top)
     dejavu_ascent, dejavu_descent = dejavu_font.getmetrics()
     full_height = max(ascent + descent, dejavu_ascent + dejavu_descent)
     # PIL draws text with its font's own ascent-top at the given y, so Jersey10 and DejaVu
@@ -251,8 +273,6 @@ def emit_size(name, size, leading, spacing, row_ctype):
     baseline_offset = ascent - dejavu_ascent
 
     def spec(code):
-        if code == SCRIPT_L_CHAR:
-            return dejavu_font, DEJAVU_GLYPHS[code], SCRIPT_L_STROKE_BY_SIZE[name], baseline_offset
         if code in DEJAVU_GLYPHS:
             return dejavu_font, DEJAVU_GLYPHS[code], 0, baseline_offset
         return font, chr(code), 0, 0
@@ -261,7 +281,9 @@ def emit_size(name, size, leading, spacing, row_ctype):
     rows_by_char = []
     for code in CHAR_CODES:
         glyph_font, text, stroke_width, y_offset = spec(code)
-        w, rows = rasterize_glyph(glyph_font, text, ink_top, ink_bottom, full_height, stroke_width, y_offset)
+        w, rows = rasterize_glyph(
+            glyph_font, text, ink_top, ink_bottom, full_height, stroke_width, y_offset
+        )
         assert w <= row_bits, (
             f"kFont{name}: '{text}' is {w}px wide, past the {row_bits}-bit row type "
             f"{row_ctype} -- widen SIZES' row_ctype for this size"
@@ -295,7 +317,7 @@ def emit_size(name, size, leading, spacing, row_ctype):
     lines.append("")
 
     line_advance = height + leading
-    font_alias = ROW_CTYPE_TO_FONT_ALIAS[row_ctype]
+    font_alias = NAME_TO_FONT_ALIAS[name]
     font_decl = (
         f"extern const {font_alias} kFont{name} = {{ k{name}Widths, k{name}Rows, "
         f"{len(CHAR_CODES)}, ' ', {height}, {line_advance}, {spacing} }};"

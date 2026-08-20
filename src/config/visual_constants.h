@@ -214,10 +214,25 @@ inline constexpr int kCalibLineY0 = 60;      ///< Y of the first calibration lin
 inline constexpr int kCalibLineSpacing = 36; ///< Vertical gap between calibration lines -- more than a bare
                                              ///< lineAdvance since these are separate standalone lines, not wrapped body text.
 
-/// Menu option text scale, on top of kFontLarge.
-inline constexpr int kChooserOptionScale = 2;
-inline constexpr int kChooserOption1Y = 105; ///< Y of the "UP: Orbitals" line.
-inline constexpr int kChooserOption2Y = 165; ///< Y of the "DOWN: Elements" line.
+/// Menu option text scale, on top of kFontLarge. 1 (native size) is the largest that keeps
+/// the longer "DOWN: Elements" line (186px unscaled) inside the 240px panel width -- scale 2
+/// (372px) ran off both edges.
+inline constexpr int kChooserOptionScale = 1;
+/// Both lines sit in the lower part of the panel (below the splash's own focal art, which
+/// occupies the upper/middle area) rather than the previous vertically-centered placement.
+inline constexpr int kChooserOption1Y = 180; ///< Y of the "UP: Orbitals" line.
+inline constexpr int kChooserOption2Y = 205; ///< Y of the "DOWN: Elements" line.
+
+/// Bright, high-contrast colors the menu options blink between (rather than blinking
+/// on/off) so they read clearly over the splash backdrop (unlike kColorOrbitalRed, which is
+/// tuned for orbital-lobe shading, not on-screen text legibility) and stay flashy even
+/// during the "off" half of the cycle instead of disappearing.
+inline constexpr uint16_t kChooserOptionColorA = Display::packColor565(255, 255, 0); // yellow
+inline constexpr uint16_t kChooserOptionColorB = Display::packColor565(255, 0, 255); // magenta
+
+/// Blink half-period for the menu options (color-swap cadence) -- fast enough to read as an
+/// attention-grabbing flash without being so fast it flickers illegibly.
+inline constexpr uint32_t kChooserBlinkHalfPeriodMs = 400;
 
 // ============================================================================================
 // Orbital-view intro/switch pacing (views/orbital_view.cpp)

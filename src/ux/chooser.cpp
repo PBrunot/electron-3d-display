@@ -15,7 +15,7 @@
 #include "debug/screenshot_pause.h"
 #include "render/splash_bitmap.h"
 #include "ux/tilt_gesture.h"
-#include "config/visual_constants.h" // kTextColor, kAccentColor, kChooserPollDelayMs, kChooserIdleJumpUs, kCalibLine*, kChooserOption*
+#include "config/visual_constants.h" // kTextColor, kAccentColor, kChooserPollDelayMs, kChooserIdleJumpUs, kCalibLine*, kChooserOption*, kChooserBlinkHalfPeriodMs
 
 static const char *kChooserTag = "chooser";
 
@@ -106,10 +106,12 @@ static void drawChooserScreen(uint16_t *frameBuf)
     // is just a memcpy straight out of the generated array every frame.
     std::memcpy(frameBuf, kSplashBitmapData, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
 
-    drawTextCentered(frameBuf, kChooserOption1Y, "UP: Orbitals", Display::kColorOrbitalRed, kFontLarge,
-                     kChooserOptionScale);
-    drawTextCentered(frameBuf, kChooserOption2Y, "DOWN: Elements", Display::kColorOrbitalRed, kFontLarge,
-                     kChooserOptionScale);
+    // Alternate between two colors each half-period (rather than blinking on/off) so the
+    // text stays put and flashy the whole time instead of periodically vanishing.
+    bool colorA = (esp_timer_get_time() / (int64_t(kChooserBlinkHalfPeriodMs) * 1000)) % 2 == 0;
+    uint16_t color = colorA ? kChooserOptionColorA : kChooserOptionColorB;
+    drawTextCentered(frameBuf, kChooserOption1Y, "UP: Orbitals", color, kFontLarge, kChooserOptionScale);
+    drawTextCentered(frameBuf, kChooserOption2Y, "DOWN: Elements", color, kFontLarge, kChooserOptionScale);
 }
 
 /**
