@@ -4,8 +4,8 @@
 #include <cmath>
 
 #include "esp_attr.h" // EXT_RAM_BSS_ATTR
-#include "physics/orbital_presets.h" // orbitalLevelToColor565, kOrbitalColorMaxLevel
-#include "render/display.h"          // Display::kColorOrbitalRed/Blue, kDisplayWidth
+#include "physics/orbital_presets.h" // kOrbitalColorMaxLevel
+#include "render/display.h"          // Display::packColor565, kDisplayWidth
 #include "render/overlay.h"          // kPmPerBohr
 
 namespace
@@ -57,7 +57,7 @@ void buildSliceTable(int n, int ell, int m, const orb_real_t *radialCoeff, const
             orb_real_t value = (x < orb_real_t(0)) ? base * orb_real_t(negHalfSign) : base;
 
             int idx = row * kSliceGridSize + col;
-            out->sign[idx] = value >= orb_real_t(0) ? int8_t(1) : int8_t(-1);
+            // |value| only -- the sequential heatmap has no phase channel (see kSliceColormapStops).
             sliceMag[idx] = value < orb_real_t(0) ? -value : value;
         }
     }
@@ -92,23 +92,28 @@ void buildSliceTable(int n, int ell, int m, const orb_real_t *radialCoeff, const
 
 void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade)
 {
-    for (int row = 0; row < kSliceGridSize; row++)
+    // Full-resolution grid (kSliceGridSize == kDisplayWidth): one cell per pixel, so no 2x2
+    // block writes and no interpolation -- each pixel is its own |psi|^2 sample, the
+    // imshow-style look of the reference repo's plots.
+    for (int i = 0; i < kSliceCellCount; i++)
     {
-        for (int col = 0; col < kSliceGridSize; col++)
-        {
-            int idx = row * kSliceGridSize + col;
-            int level = int(orb_real_t(t.level[idx]) * fade);
-            uint16_t color =
-                orbitalLevelToColor565(level, t.sign[idx], Display::kColorOrbitalRed, Display::kColorOrbitalBlue);
+        int level = int(orb_real_t(t.level[i]) * fade);
+        if (level > kOrbitalColorMaxLevel)
+            level = kOrbitalColorMaxLevel;
 
-            int px0 = col * kSliceCellPx;
-            int py0 = row * kSliceCellPx;
-            for (int py = py0; py < py0 + kSliceCellPx; py++)
-            {
-                int rowBase = py * Display::kDisplayWidth;
-                for (int px = px0; px < px0 + kSliceCellPx; px++)
-                    frameBuf[rowBase + px] = color;
-            }
-        }
+        // Map the 0..255 level through the 16-stop sequential ramp (kSliceColormapStops),
+        // per-channel linear interpolation between the two bracketing stops.
+        orb_real_t pos = orb_real_t(level) / orb_real_t(kOrbitalColorMaxLevel) *
+                         orb_real_t(kSliceColormapStopsCount - 1);
+        int idx = int(pos);
+        if (idx > kSliceColormapStopsCount - 2)
+            idx = kSliceColormapStopsCount - 2;
+        orb_real_t f = pos - orb_real_t(idx);
+        const SliceColorStop &a = kSliceColormapStops[idx];
+        const SliceColorStop &b = kSliceColormapStops[idx + 1];
+        uint8_t r = uint8_t(orb_real_t(a.r) + (orb_real_t(b.r) - orb_real_t(a.r)) * f + orb_real_t(0.5));
+        uint8_t g = uint8_t(orb_real_t(a.g) + (orb_real_t(b.g) - orb_real_t(a.g)) * f + orb_real_t(0.5));
+        uint8_t bl = uint8_t(orb_real_t(a.b) + (orb_real_t(b.b) - orb_real_t(a.b)) * f + orb_real_t(0.5));
+        frameBuf[i] = Display::packColor565(r, g, bl);
     }
 }

@@ -29,6 +29,11 @@ namespace
         uint16_t *frameBuf = display.getFrameBuf();
         renderSliceFrame(frameBuf, table, fade);
         drawText(frameBuf, kTitleTextX, kTitleTextY, title, kTextColor, kFontHuge);
+        // Same legend orbital_view.cpp's drawSliceOverlay() shows on the real device --
+        // naming the density plot here too, so this quick-look harness matches what Right-hold
+        // actually looks like.
+        drawText(frameBuf, kTitleTextX, kTitleTextY + kFontHuge.height + 2, "densita di probabilita", kScaleBarColor,
+                 kFontSmall);
         display.presentFrame();
     }
 } // namespace

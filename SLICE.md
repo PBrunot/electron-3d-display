@@ -16,9 +16,9 @@ concept, not its rendering stack.
 
 - A Right tilt-hold in the orbital view (currently a logged no-op, see `orbital_view.h`'s
   header comment) starts a self-contained, auto-playing **slice sequence** for the current
-  preset: a brief intro card, then a full-screen 2D heatmap of |ψ|² (phase-colored, D1)
-  on a fixed plane through the orbital (static, D2), then an automatic fade-out back to the
-  3D cloud.
+  preset: a brief intro card, then a full-screen 2D density heatmap of |ψ|² through a
+  sequential colormap (rocket-like, D1) on a fixed plane through the orbital (static, D2),
+  then an automatic fade-out back to the 3D cloud.
 - The interaction contract mirrors `atom_view.cpp`'s `runDissectionSequence()` exactly:
   * one gesture starts the whole sequence (no per-step gestures);
   * any tilt movement mid-sequence aborts it and returns to the full 3D view;
@@ -29,9 +29,10 @@ concept, not its rendering stack.
 
 - We currently have only the 3D point cloud; the reference repo is *only* slices. A slice is
   a genuinely new visual mode and a much better "textbook picture" of an orbital.
-- Our real-orbital convention (`psiReal()`, `orbitals.h`) makes **lobes and nodes visible in
-  the slice** (sign of ψ varies across the plane), which the reference cannot show because
-  its complex Y_l^m makes |ψ|² azimuthally uniform. Our slice will be *more* informative.
+- Our real-orbital convention (`psiReal()`, `orbitals.h`) gives the slice **actual lobe
+  structure** (for m ≠ 0 the density varies with azimuth, so e.g. 2px shows a dumbbell while
+  the reference's complex Y_l^m makes |ψ|² azimuthally uniform and lobe-less). The slice
+  renders density only (nodes as dark regions) -- the phase sign stays in the 3D cloud.
 - Everything needed already exists on-device: `psiReal` primitives, per-preset
   `radialCoeff`/`legendreCoeff` (`OrbitalResampleState`), `orbitalLevelToColor565()` for
   color, and the dissection gesture contract to copy.
@@ -71,24 +72,28 @@ The per-cell value is then computed ONCE at build time, folding the azimuthal fa
     cell_value(x, z) = R(r)*P(th) * A(m, ph0) * (x < 0 ? (-1)^|m| : 1)
 
 and the 2D pattern is fully static — the reference repo's exact situation, except that our
-real orbitals make the sign structure visible (lobes orange/blue, nodes as boundaries).
+real orbitals make the lobe structure visible (m ≠ 0 density varies across the plane; the
+slice renders density only, sign is not drawn -- see D1).
 
 Sanity checks to validate in Python before firmware (see §9): the 2px slice (ph0 = 0) is a
-dumbbell along ±x, orange right / blue left; the 2py slice (ph0 = pi/2) is the y-dumbbell
-with the same orange/blue split (the x–z slice of 2py is all zero — the reason ph0 is
-per-sign); the 3dxy slice (ph0 = pi/4) shows the same-phase 45°/225° lobe pair (both halves
-+1, matching the orbital's actual phase structure); 3dz2 (m = 0) is static and axially
-patterned; the s orbitals show a single bright core (2s/3s with their radial node as a dark
-ring).
+dumbbell along ±x (two bright lobes); the 2py slice (ph0 = pi/2) is the y-dumbbell (the x–z
+slice of 2py is all zero — the reason ph0 is per-sign); the 3dxy slice (ph0 = pi/4) shows
+the same-phase 45°/225° lobe pair; 3dz2 (m = 0) is static and axially patterned; the s
+orbitals show a single bright core (2s/3s with their radial node as a dark ring). The
+harness additionally validates the SIGN structure of the underlying ψ (dumbbell split,
+(-1)^|m| half-flip) against its own computation -- physics checks that hold even though the
+rendered heatmap is density-only.
 
 ## 4. Visual design decisions — flagged for approval
 
-**D1 — Slice coloring. RESOLVED by user: phase-colored.** Brightness = rank-normalized |ψ|
-(density), hue = sign of ψ via the preset's existing orange/blue pair
-(`orbitalLevelToColor565`). Identical color language to the 3D cloud, so the slice and the
-cloud read as the same object; nodes are visible as color boundaries; radial nodes (2s, 3s)
-show as dark rings. (Rejected alternative: pure-density single-hue heatmap — closer to the
-reference repo's look but loses the lobe/node phase story.)
+**D1 — Slice coloring. REVISED after implementation (user feedback, then approved):
+sequential density heatmap.** Brightness = density-normalized |ψ|² (level, see §5), color =
+a 16-stop rocket-like sequential ramp (`kSliceColormapStops`, near-black → deep purple →
+magenta → coral → pale yellow-cream), density-only — the phase sign is NOT drawn. The
+phase-colored orange/blue version was built first and rejected on hardware/preview: with the
+same hue pair as the 3D cloud it read as "the 3D view, flattened" rather than as a heatmap.
+The sequential ramp (the reference repo's own visual language) is what makes the slice read
+as a density map: bright cores, dark node lines/rings, smooth gradients.
 
 **D2 — Plane animation. RESOLVED by user: static slice.** The plane stays at the lobe-plane
 azimuth ph0 of §3 (0 for m >= 0, pi/(2|m|) for m < 0). The only motion is a fade-in over
@@ -114,34 +119,42 @@ physics primitives + Display; the sequence orchestration stays in `orbital_view.
 `runDissectionSequence()` stays in `atom_view.cpp`).
 
 ```cpp
-// Grid: full-screen heatmap, 120x120 cells at 2x2 px each (= 240x240).
-inline constexpr int kSliceGridSize = 120;
+// Grid: full panel resolution, 240x240 cells at 1 px each -- smooth, imshow-style.
+inline constexpr int kSliceGridSize = Display::kDisplayWidth;
 
 struct SliceTable {
     int n, ell, m;
     orb_real_t planeAzimuth;         // lobe-plane ph0: 0 for m >= 0, pi/(2|m|) for m < 0
     orb_real_t extentBohr;           // grid half-extent, kSliceFramingFactor * rRef (bohr)
     orb_real_t extentPm;             // same, in pm -- feeds drawScaleBar()
-    uint8_t level[kSliceGridSize * kSliceGridSize]; // rank-normalized |cell_value| brightness
-    int8_t  sign[kSliceGridSize * kSliceGridSize];  // sign(cell_value), see §3
+    // Density-normalized brightness 0..255 (no sign channel -- density-only render):
+    // 255*min(1, |psi|^2/v99)^kSliceLevelGamma, v99 = the grid's own 99.9th percentile.
+    uint8_t level[kSliceGridSize * kSliceGridSize];
 };
 
-// One-time build: sample base = R(r)*P(th) at cell centers, multiply by the folded
-// azimuthal factor A(m, ph0)*(x<0 ? (-1)^|m| : 1), rank-normalize levels.
-// Needs n/ell/m + the preset's already-loaded radialCoeff/legendreCoeff + rRef (see §6).
+// 16-stop rocket-like sequential ramp (near-black -> purple -> magenta -> coral -> cream),
+// per-channel lerp at render time. Density-only by design (see D1).
+inline constexpr SliceColorStop kSliceColormapStops[] = { ... }; // in orbital_slice.h
+
+// One-time build: sample base = R(r)*P(th) at cell centers, fold the azimuthal sign flip,
+// density-normalize |psi|^2 against the grid's own 99.9th percentile (v99 via nth_element).
 void buildSliceTable(int n, int ell, int m, const orb_real_t *radialCoeff,
                      const orb_real_t *legendreCoeff, orb_real_t rRef, SliceTable *out);
 
-// Per-frame: fade in [0,1]. Writes 2x2 px blocks via
-// orbitalLevelToColor565(level*fade, sign, posRgb565, negRgb565). No per-frame trig.
+// Per-frame: fade in [0,1]. One pixel per cell (no blocks, no interpolation), colored via
+// kSliceColormapStops. No per-frame trig.
 void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
 ```
 
 - Cells sample at their **centers** (r = 0 only for the exact center cell; R(0) = 0 for
   ell > 0 anyway — no division hazard; z/r clamped to [-1, 1]).
 - Static PSRAM scratch (`EXT_RAM_BSS_ATTR`, following `atom_view.cpp`/`orbital_view.cpp`
-  precedent): `base[14400] float` + `order[14400] int` for the one-time build (~115 KB),
-  `SliceTable` itself (~29 KB). Total ≈ 145 KB PSRAM, trivial against 8 MB.
+  precedent): `sliceMag[57600] float` + `sliceOrder[57600] int` for the one-time v99 pass
+  (~460 KB transient), `SliceTable` itself (~58 KB). Total ≈ 520 KB PSRAM transient,
+  trivial against 8 MB.
+- **Full-resolution grid (post-implementation change, user-approved):** 240x240 cells at
+  1 px each (was 120x120 at 2x2 blocks) — the blocky 2x2 look read as a low-res copy of the
+  cloud; one-pixel cells give the smooth imshow-style gradients the reference repo has.
 - The heatmap is a **plain overwrite** (no blend, no fade-persistence): each frame redraws
   every cell at full brightness scaled by `fade`. No trails needed for a solid image.
 - **Brightness mapping (post-review change to the original plan, user-approved):** density
@@ -162,6 +175,11 @@ void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
 1. **NEW `src/views/orbital_slice.h` + `.cpp`** — §5's `SliceTable`/`buildSliceTable()`/
    `renderSliceFrame()`. Also a tiny `drawSliceOverlay()` (preset title top-left, orbital
    numbers bottom-right, scale bar bottom-left) or that stays inline in the sequence.
+   **Post-implementation addition (user-requested):** a small "densita di probabilita" legend
+   right under the title, kFontSmall/kScaleBarColor -- once D1 dropped phase coloring for a
+   density-only heatmap, the color ramp no longer speaks for itself the way the phase-colored
+   3D cloud does, so the plot names what it's showing. Same legend line added to
+   `orbital_slice_test.cpp`'s `SLICE_TEST` harness for parity.
 2. **EDIT `src/views/orbital_view.h`** — add `orb_real_t rRef;` to `OrbitalPresetState`
    (currently dropped by `load()`; the slice needs it for framing). Update the header's
    tilt-gesture comment: Right-hold now = slice, matching atom dissection.
@@ -183,11 +201,12 @@ void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
    promotion stays (the 3D cloud still uses it) and keeps the option open, but the
    "byte-identical curve" requirement from the original plan is superseded for the slice.
 5. **EDIT `src/config/visual_constants.h`** — new "Orbital slice view" section:
-   `kSliceGridSize = 120`, `kSliceFramingFactor = 1.2` (half-extent = factor·rRef),
-   `kSliceHoldUs = 12 s`, `kSliceIntroHoldMs = 900`, `kSliceIntroFrames = 30` (fade-in),
-   `kSliceFadeOutFrames = 20`. No angular-speed constant: the plane is static (D2); the
-   lobe-plane azimuth ph0 is a per-preset value computed in `buildSliceTable()` (§3), not a
-   tunable.
+   `kSliceGridSize = 240` (full panel resolution, one cell per pixel), `kSliceFramingFactor =
+   1.2` (half-extent = factor·rRef), `kSliceHoldUs = 12 s`, `kSliceIntroHoldMs = 900`,
+   `kSliceIntroFrames = 30` (fade-in), `kSliceFadeOutFrames = 20`, `kSliceLevelGamma = 0.5`,
+   `kSliceDensityPercentile = 0.999`. No angular-speed constant: the plane is static (D2);
+   the lobe-plane azimuth ph0 is a per-preset value computed in `buildSliceTable()` (§3), not
+   a tunable.
 6. **NEW `src/debug/orbital_slice_test.h` + `.cpp`** (recommended) — a `SLICE_TEST` toggle
    in `main.cpp` that boots straight into slice sequences for a few presets (2px, 2pz,
    3dx2−y2, 4fz3, 1s), ~3 s each, no IMU needed — the quick way to eyeball patterns and
@@ -199,19 +218,21 @@ void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
 
 ## 7. Performance and memory budget
 
-- One-time build: 14 400 cells × (R eval: polynomial + r^ell + exp; P eval: polynomial +
-  sin^|m|; one folded azimuthal multiply) ≈ ~10–30 ms once (after the intro card; no frame
+- One-time build: 57 600 cells × (R eval: polynomial + r^ell + exp; P eval: polynomial +
+  sin^|m|; one folded azimuthal multiply) ≈ ~40–120 ms once (after the intro card; no frame
   deadline). No per-frame trig at all (static plane).
-- Steady state: 14 400 × (multiply, clamp, 565 pack, 4 pixel writes ≈ 57 600 writes) —
-  comfortably inside the existing 16 ms frame budget at 62.5 FPS; the slice loop is
-  vTaskDelay-paced anyway.
-- Memory: ≈ 145 KB static PSRAM (see §5); `OrbitalPresetState` already lives in PSRAM.
+- Steady state: 57 600 × (clamp, 16-stop lerp, 565 pack, 1 pixel write) — comfortably inside
+  the existing 16 ms frame budget at 62.5 FPS; the slice loop is vTaskDelay-paced anyway.
+- Memory: ≈ 520 KB transient static PSRAM (see §5); `OrbitalPresetState` already lives in
+  PSRAM.
 - The 3D cloud machinery (`renderScene`, persistence, buzz) is untouched; the slice uses its
   own small loop, so there is zero regression risk to the measured 62.5 FPS path.
 
 ## 8. Out of scope (explicitly deferred)
 
-- The 3D-cloud colormap LUT rework — user asked to hold off.
+- The 3D-cloud colormap LUT rework — still deferred; the slice-scoped sequential ramp
+  (kSliceColormapStops) is implemented and does not touch the cloud's phase-colored
+  brightness mapping.
 - A 3D cutaway (slice plane embedded in the tumbling 3D view) — a possible future mode,
   deliberately not part of this change (different rasterizer, muddiness risk).
 - Complex (non-real) orbitals — our library is real orbitals by design.
@@ -236,14 +257,18 @@ void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
 
 ## 10. Decisions (user-approved) and remaining question
 
-Resolved: D1 phase-colored · D2 static slice (no rotating plane) · D3 12 s hold ·
-D4 "Sezione" intro card.
+Resolved: D1 sequential density heatmap (rocket-like colormap, density-only — revised from
+phase-colored after implementation feedback) · D2 static slice (no rotating plane) · D3 12 s
+hold · D4 "Sezione" intro card.
 
-Post-review change (user-approved): the slice's brightness uses density normalization
-(percentile-clipped |ψ|² + gamma, §5) instead of the 3D cloud's rank curve — see §5's
-contrast note. Implementation complete; remaining: hardware validation (`pio run` →
-SLICE_TEST → full flow), then gamma tuning by eye if needed.
+Post-review changes (user-approved): (1) density normalization (percentile-clipped |ψ|² +
+gamma) instead of the 3D cloud's rank curve — see §5's contrast note; (2) full-resolution
+240x240 grid instead of 2x2 blocks; (3) sequential rocket-like colormap instead of the
+orange/blue phase pair (D1). Implementation complete; remaining: hardware validation
+(`pio run` → SLICE_TEST → full flow), then colormap/gamma tuning by eye if needed.
 
 ---
 
-*Written before implementation per request. No source changes until this plan is approved.*
+*Plan written before implementation; revised in place as the design evolved through review
+and hardware feedback. Current state matches the committed code on the `orbital-slice-view`
+branch.*
