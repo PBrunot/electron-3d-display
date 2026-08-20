@@ -71,6 +71,32 @@ struct AtomPresetState
 void drawAtomTitle(uint16_t *frameBuf, int x, int y, int z, uint16_t textColor);
 
 /**
+ * @brief Draws one fully-composited frame of `preset` (point cloud, opaque nucleus marker,
+ *        bounding circle, title + Z-number label, scale bar) onto `frameBuf` at `scale`/
+ *        `camera` -- the exact per-frame content runAtomView()'s fly-overs and steady-state
+ *        loop draw every frame (outside the shell-dissection sequence, which has its own
+ *        title). Exposed so screenshot_batch.cpp's still-image capture calls this directly
+ *        instead of re-implementing a partial copy, keeping on-device screenshots
+ *        pixel-identical to what's actually on screen.
+ */
+void renderAtomFrame(uint16_t *frameBuf, const AtomPresetState &preset, const CameraState &camera, orb_real_t scale,
+                     uint32_t frameSalt, uint32_t buzzThreshold);
+
+/**
+ * @brief Renders one still frame of `preset`'s shell-dissection view at dissection `level`
+ *        (1-based: 1 = full atom with its outermost shell highlighted, up to the returned
+ *        count = only the innermost shell left) onto `frameBuf` -- the same peeled-shell
+ *        view, re-normalized scale, and shell-notation title runDissectionSequence() (in
+ *        atom_view.cpp) holds on mid-sequence. Computes its own dissection plan from
+ *        `preset` (via physics/atom_cloud.h's subshellDissectionPlan()) rather than reading
+ *        any state left over from a live view's dissection, so it's safe to call with an
+ *        unrelated preset (e.g. screenshot_batch.cpp's own instance) at any time.
+ * @param level  Out-of-range values (< 1 or > the returned count) draw nothing.
+ * @return       The number of dissectable shells for `preset`, i.e. the valid level range.
+ */
+int renderAtomDissectFrame(uint16_t *frameBuf, const AtomPresetState &preset, const CameraState &camera, int level);
+
+/**
  * @brief Run the atom viewer until a Left tilt-hold confirms.
  * @param display Target display; frames are rendered and presented each loop iteration.
  * @param tilt Gesture source for navigation input.

@@ -40,7 +40,7 @@ struct OrbitalPresetState
     OrbitalPoint points[kOrbitalNumPoints];
     uint16_t colors[kOrbitalNumPoints];
     OrbitalResampleState resample;
-    char title[8];
+    char title[12];
     char orbital_numbers[32];
     orb_real_t baseScale, zoomAmplitude;
     /// This preset's phase-color pair (see orbital_library.h's OrbitalDescriptor), kept here
@@ -55,6 +55,17 @@ struct OrbitalPresetState
     /// points from the same distribution, in place.
     void resamplePoints(int count);
 };
+
+/**
+ * @brief Draws one fully-composited frame of `preset` (point cloud, enlarged opaque nucleus
+ *        marker, title + quantum-number readout, scale bar) onto `frameBuf` at `scale`/
+ *        `camera` -- the exact per-frame content runOrbitalView()'s fly-overs and
+ *        steady-state loop draw every frame. Exposed so screenshot_batch.cpp's still-image
+ *        capture calls this directly instead of re-implementing a partial copy, keeping
+ *        on-device screenshots pixel-identical to what's actually on screen.
+ */
+void renderOrbitalFrame(uint16_t *frameBuf, const OrbitalPresetState &preset, const CameraState &camera,
+                        orb_real_t scale, uint32_t frameSalt, uint32_t buzzThreshold);
 
 /**
  * @brief Run the orbital viewer until a Left tilt-hold confirms.
