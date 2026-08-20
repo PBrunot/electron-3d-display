@@ -48,7 +48,16 @@ using Font = FontBase<uint16_t>;
 /** Row storage for kFontHuge -- its widest glyphs (e.g. '#', '@') run past 32px. */
 using FontHuge = FontBase<uint64_t>;
 
-/** Secondary/readout text: the tiled "e-" backdrop behind the dissection intro card. */
+/**
+ * Two physics-symbol glyphs baked in past the printable-ASCII range (0x20-0x7E), sourced
+ * from DejaVuSans.ttf (see tools/font_gen/generate_font.py) since Jersey10 has none. Each
+ * is a one-char C string, so it drops straight into a snprintf format or a drawText() call
+ * (e.g. drawText(fb, x, y, kGlyphScriptL, color, kFontLarge)).
+ */
+constexpr char kGlyphElectron[] = "\x7F"; // electron symbol: e with superscript minus
+constexpr char kGlyphScriptL[] = "\x80";  // script small l (U+2113): orbital angular-momentum quantum number l
+
+/** Secondary/readout text: the tiled electron-symbol backdrop behind the dissection intro card. */
 extern const FontSmall kFontSmall;
 
 /**
@@ -106,3 +115,14 @@ int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t 
 int textWidthScaled(const char *text, const FontSmall &font, int scale);
 int textWidthScaled(const char *text, const Font &font, int scale);
 int textWidthScaled(const char *text, const FontHuge &font, int scale);
+
+/**
+ * Draws `text` horizontally centered on the display at row `y` (x picked from
+ * textWidthScaled() so it's centered at whatever scale is drawn at -- see drawTextScaled(),
+ * scale <= 1 behaves like plain drawText()).
+ */
+void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontSmall &font,
+                       int scale = 1);
+void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font, int scale = 1);
+void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontHuge &font,
+                       int scale = 1);

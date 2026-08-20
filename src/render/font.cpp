@@ -131,6 +131,15 @@ namespace
         }
         return cursorX;
     }
+
+    template <typename RowT>
+    void drawTextCenteredImpl(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontBase<RowT> &font,
+                               int scale)
+    {
+        int width = scale <= 1 ? textWidthImpl(text, font) : textWidthImpl(text, font) * scale;
+        int x = (Display::kDisplayWidth - width) / 2;
+        drawTextScaledImpl(frameBuf, x, y, text, color, font, scale);
+    }
 } // namespace
 
 int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontSmall &font)
@@ -193,4 +202,19 @@ int textWidthScaled(const char *text, const Font &font, int scale)
 int textWidthScaled(const char *text, const FontHuge &font, int scale)
 {
     return scale <= 1 ? textWidthImpl(text, font) : textWidthImpl(text, font) * scale;
+}
+
+void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontSmall &font, int scale)
+{
+    drawTextCenteredImpl(frameBuf, y, text, color, font, scale);
+}
+
+void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font, int scale)
+{
+    drawTextCenteredImpl(frameBuf, y, text, color, font, scale);
+}
+
+void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontHuge &font, int scale)
+{
+    drawTextCenteredImpl(frameBuf, y, text, color, font, scale);
 }

@@ -46,11 +46,11 @@ namespace
         renderOrbitalIntroStage(display, stage);
         vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs));
 
-        std::snprintf(stage, sizeof(stage), "n=%d l=%d", n, ell);
+        std::snprintf(stage, sizeof(stage), "n=%d %s=%d", n, kGlyphScriptL, ell);
         renderOrbitalIntroStage(display, stage);
         vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs));
 
-        std::snprintf(stage, sizeof(stage), "n=%d l=%d m=%d", n, ell, m);
+        std::snprintf(stage, sizeof(stage), "n=%d %s=%d m=%d", n, kGlyphScriptL, ell, m);
         renderOrbitalIntroStage(display, stage);
         vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs + 500));
     }
@@ -63,20 +63,38 @@ namespace
             for (int x = x0; x < x0 + kOrbitalProtonMarkerSize; x++)
                 frameBuf[y * Display::kDisplayWidth + x] = color;
     }
+} // namespace
 
+void renderOrbitalFrame(uint16_t *frameBuf, const OrbitalPresetState &preset, const CameraState &camera,
+                        orb_real_t scale, uint32_t frameSalt, uint32_t buzzThreshold)
+{
+    // Nucleus drawn BEFORE the cloud (matching pc/viewer_common.py's blend order on purpose,
+    // see camera.h's renderScene()), so a point landing on the same pixel can alpha-blend
+    // over it and dim/hide it near the origin -- drawOrbitalProtonMarker() redraws it
+    // opaque and larger on top, after the cloud, so it's always visible.
+    renderScene(frameBuf, preset.points, preset.colors, kOrbitalNumPoints, kProtonColor, camera, scale, frameSalt,
+                buzzThreshold);
+    drawOrbitalProtonMarker(frameBuf, kProtonColor);
+    drawText(frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
+    // The "n=... l=... m=..." numbers below the title, in a smaller font, so the user can see
+    // the quantum numbers without having to remember which preset index is which.
+    int width = textWidth(preset.orbital_numbers, kFontLarge);
+    int height = kFontLarge.height;
+    drawText(frameBuf, Display::kDisplayWidth - width, Display::kDisplayHeight - height - 15, preset.orbital_numbers,
+             kTextColor, kFontLarge);
+    drawScaleBar(frameBuf, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+}
+
+namespace
+{
     /**
-     * @brief Like camera.h's flyOver(), but redraws the proton marker fully opaque (and larger,
-     *        see drawOrbitalProtonMarker() above) on top of every frame after the cloud.
-     *
-     * The shared flyOver()/renderScene() draw the nucleus BEFORE the cloud (matching
-     * pc/viewer_common.py's blend order on purpose, see camera.h), so a point that lands on the
-     * same pixel alpha-blends over it and dims/hides it -- likely near the center for any orbital
-     * whose density peaks at the origin. Kept local to this file rather than changing camera.h's
-     * flyOver(): only orbital_view wants the nucleus guaranteed visible and enlarged.
+     * @brief Like camera.h's flyOver(), but calls renderOrbitalFrame() (nucleus marker
+     *        redrawn opaque/enlarged on top, title + quantum numbers, scale bar) instead of
+     *        camera.h's own generic per-frame draw -- kept local to this file rather than
+     *        changing camera.h's flyOver(): only orbital_view wants the nucleus guaranteed
+     *        visible and enlarged.
      */
-    template <typename PointT, typename TitleDrawFn>
-    void orbitalFlyOver(Display &display, const PointT *points, const uint16_t *colors, int count, TitleDrawFn drawTitle,
-                        uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor, CameraState *camera,
+    void orbitalFlyOver(Display &display, const OrbitalPresetState &preset, CameraState *camera,
                         orb_real_t startScale, orb_real_t endScale, int frames, uint32_t buzzThreshold = 0)
     {
         for (int i = 0; i < frames; i++)
@@ -85,11 +103,7 @@ namespace
             orb_real_t scale = startScale + (endScale - startScale) * t;
 
             display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-            renderScene(display.getFrameBuf(), points, colors, count, protonColor, *camera, scale, uint32_t(i),
-                        buzzThreshold);
-            drawOrbitalProtonMarker(display.getFrameBuf(), protonColor);
-            drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
-            drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
+            renderOrbitalFrame(display.getFrameBuf(), preset, *camera, scale, uint32_t(i), buzzThreshold);
             display.presentFrame();
 
             stepCamera(camera);
@@ -126,7 +140,7 @@ void OrbitalPresetState::load(int index)
         colors[i] = orbitalLevelToColor565(levels[i], signs[i], d.posRgb565, d.negRgb565);
 
     std::snprintf(title, sizeof(title), "%s", d.label);
-    std::snprintf(orbital_numbers, sizeof(orbital_numbers), "n=%d l=%d m=%d", d.n, d.ell, d.m);
+    std::snprintf(orbital_numbers, sizeof(orbital_numbers), "n=%d %s=%d m=%d", d.n, kGlyphScriptL, d.ell, d.m);
 
     OrbitalScale scale = scaleFromRadii(points, kOrbitalNumPoints);
     baseScale = scale.baseScale;
@@ -168,22 +182,10 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
 
     constexpr uint32_t kBuzzThreshold = kHiddenPointsThreshold; // see config/visual_constants.h's comment
 
-    // preset has static storage duration, so it's odr-usable without capturing --
-    // GCC's -Werror rejects capturing a static local as a meaningless no-op capture.
-    auto drawTitle = [](uint16_t *frameBuf, int x, int y, uint16_t color)
-    {
-        drawText(frameBuf, x, y, preset.title, color, kFontHuge);
-        // Draw the "n=... l=... m=..." numbers below the title, in a smaller font, so the user
-        // can see the quantum numbers without having to remember which preset index is which.
-        int width = textWidth(preset.orbital_numbers, kFontLarge);
-        drawText(frameBuf, Display::kDisplayWidth - width, y, preset.orbital_numbers, color, kFontLarge);
-    };
-
     CameraState camera;
     orb_real_t zoomAngle = orb_real_t(0);
 
-    orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor, kTextColor,
-                   kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale,
+    orbitalFlyOver(display, preset, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale,
                    kOrbitalIntroFrames, kBuzzThreshold);
 
     int frameCount = 0;
@@ -206,8 +208,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         scrollOrbitalIntro(display, newD.n, newD.ell, newD.m);
         presetIndex = newIndex;
         preset.load(presetIndex);
-        orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor, kTextColor,
-                       kScaleBarColor, &camera, currentScale, preset.baseScale, kOrbitalSwitchTransitionFrames,
+        orbitalFlyOver(display, preset, &camera, currentScale, preset.baseScale, kOrbitalSwitchTransitionFrames,
                        kBuzzThreshold);
         zoomAngle = orb_real_t(0);
         zoomExcursionCountdown = nextZoomExcursionCountdown();
@@ -263,12 +264,10 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
             orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
-            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor,
-                           kTextColor, kScaleBarColor, &camera, currentScale, targetScale, kOrbitalZoomExcursionEaseFrames,
+            orbitalFlyOver(display, preset, &camera, currentScale, targetScale, kOrbitalZoomExcursionEaseFrames,
                            kBuzzThreshold);
-            orbitalFlyOver(display, preset.points, preset.colors, kOrbitalNumPoints, drawTitle, kProtonColor,
-                           kTextColor, kScaleBarColor, &camera, targetScale, preset.baseScale,
-                           kOrbitalZoomExcursionEaseFrames, kBuzzThreshold);
+            orbitalFlyOver(display, preset, &camera, targetScale, preset.baseScale, kOrbitalZoomExcursionEaseFrames,
+                           kBuzzThreshold);
             zoomAngle = orb_real_t(0);
             zoomExcursionCountdown = nextZoomExcursionCountdown();
             // See switchToPreset()'s comment above -- same unmeasured-time issue.
@@ -286,15 +285,8 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-        renderScene(display.getFrameBuf(), preset.points, preset.colors, kOrbitalNumPoints, kProtonColor, camera,
-                    scale, buzzFrame, kBuzzThreshold);
-        // Redraw bigger, on top of the cloud -- see orbitalFlyOver()'s docstring above for
-        // why (renderScene() alone draws the small shared marker BEFORE the points, so a
-        // point landing on the same pixel can dim/hide it).
-        drawOrbitalProtonMarker(display.getFrameBuf(), kProtonColor);
+        renderOrbitalFrame(display.getFrameBuf(), preset, camera, scale, buzzFrame, kBuzzThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
-        drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, kTextColor);
-        drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         if (tiltEv.phase != TiltPhase::kIdle)
             drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);
         display.presentFrame();

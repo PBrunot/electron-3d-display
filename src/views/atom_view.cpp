@@ -58,6 +58,26 @@ void drawAtomTitle(uint16_t *frameBuf, int x, int y, int z, uint16_t textColor)
     drawText(frameBuf, x, y, elementSymbol(z), textColor, kFontHuge);
 }
 
+void renderAtomFrame(uint16_t *frameBuf, const AtomPresetState &preset, const CameraState &camera, orb_real_t scale,
+                     uint32_t frameSalt, uint32_t buzzThreshold)
+{
+    // Nucleus drawn BEFORE the cloud by renderSceneGrouped() (matching pc/viewer_common.py's
+    // blend order on purpose, see camera.h), so a point landing on the same pixel can
+    // alpha-blend over it and dim/hide it near the origin -- drawAtomProtonMarker() redraws
+    // it opaque on top, after the cloud, so it's always visible.
+    renderSceneGrouped(frameBuf, preset.points, preset.groups, preset.groupCount, kProtonColor, camera, scale,
+                       frameSalt, buzzThreshold);
+    drawAtomProtonMarker(frameBuf, kProtonColor);
+    drawBoundingCircle(frameBuf, preset.rRef, scale, kBoundingCircleColor);
+    drawAtomTitle(frameBuf, kTitleTextX, kTitleTextY, preset.z, kTextColor);
+    // Z number in the top-right corner, so the user can see it while browsing the periodic table.
+    char zLabel[4];
+    std::snprintf(zLabel, sizeof(zLabel), "%d", preset.z);
+    int zX = Display::kDisplayWidth - textWidth(zLabel, kFontHuge) - 10;
+    drawText(frameBuf, zX, 10, zLabel, Display::kColorOrbitalRed, kFontHuge);
+    drawScaleBar(frameBuf, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+}
+
 // --- Element-switch intro ticker (Right/Left tilt-hold) -------------------------------
 
 namespace
@@ -162,15 +182,21 @@ namespace
      * outermost remaining shell) draws at full shell color; every deeper shell draws flat gray
      * (kDissectDimColor).
      *
+     * Takes `plan`/`planCount` explicitly (rather than reading the file-local
+     * dissectPlan/dissectPlanCount below directly) so it has no hidden dependency on which
+     * AtomPresetState last called refreshDissectPlan() -- screenshot_batch.cpp's dissection
+     * gallery builds its own local plan for its own preset and calls this the same way
+     * runDissectionSequence() below does.
+     *
      * @param outGroups  [out] Must hold at least kMaxConfigSubshells entries.
-     * @return           Number of groups written (== dissectPlanCount - (level - 1)).
+     * @return           Number of groups written (== planCount - (level - 1)).
      */
-    int buildDissectGroups(int level, PointGroup *outGroups)
+    int buildDissectGroups(const DissectionEntry *plan, int planCount, int level, PointGroup *outGroups)
     {
         int written = 0;
-        for (int rank = level - 1; rank < dissectPlanCount; rank++)
+        for (int rank = level - 1; rank < planCount; rank++)
         {
-            const DissectionEntry &e = dissectPlan[rank];
+            const DissectionEntry &e = plan[rank];
             uint16_t color;
             if (rank == level - 1)
             {
@@ -285,14 +311,14 @@ namespace
         return true;
     }
 
-    /// Tile "e-" across the whole frame in a dim, unobtrusive grid -- drawn first so the title
-    /// lines composite on top of it (plain overwrite, no blending, matching every other draw
-    /// function in this project).
+    /// Tile the electron symbol across the whole frame in a dim, unobtrusive grid -- drawn first
+    /// so the title lines composite on top of it (plain overwrite, no blending, matching every
+    /// other draw function in this project).
     void drawElectronBackdrop(uint16_t *frameBuf)
     {
         for (int y = 6; y < Display::kDisplayHeight; y += kDissectIntroBgSpacingY)
             for (int x = 6; x < Display::kDisplayWidth; x += kDissectIntroBgSpacingX)
-                drawText(frameBuf, x, y, "e-", kDissectIntroBgColor, kFontSmall);
+                drawText(frameBuf, x, y, kGlyphElectron, kDissectIntroBgColor, kFontSmall);
     }
 
     /// Static 3-line "Configurazione / elettronica / <nameIt>" title card over the electron
@@ -348,7 +374,7 @@ namespace
         {
             DissectionEntry active = dissectPlan[level - 1];
             PointGroup levelGroups[kMaxConfigSubshells];
-            int levelGroupCount = buildDissectGroups(level, levelGroups);
+            int levelGroupCount = buildDissectGroups(dissectPlan, dissectPlanCount, level, levelGroups);
             int visibleCount = 0;
             for (int g = 0; g < levelGroupCount; g++)
                 visibleCount += levelGroups[g].count;
@@ -413,15 +439,13 @@ namespace
                        kHiddenPointsThreshold);
     }
 
-    /// Like camera.h's flyOver(), but redraws the proton marker on top of every frame after the
-    /// cloud (see drawAtomProtonMarker()'s docstring). Used for the boot intro, element
-    /// switches, and random zoom excursions; easeScaleTimed()/renderDissectFrame() above get
-    /// the same redraw inline since they're already local to this file.
-    template <typename TitleDrawFn>
-    void atomFlyOver(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
-                     TitleDrawFn drawTitle, uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor,
-                     CameraState *camera, orb_real_t startScale, orb_real_t endScale, orb_real_t rRef, int frames,
-                     uint32_t buzzThreshold = 0)
+    /// Like camera.h's flyOver(), but calls renderAtomFrame() (proton marker redrawn opaque
+    /// on top, bounding circle, title + Z-number label, scale bar) instead of camera.h's own
+    /// generic per-frame draw. Used for the boot intro, element switches, and random zoom
+    /// excursions; easeScaleTimed()/renderDissectFrame() above get the same redraw inline
+    /// since they need the dissection-specific title instead.
+    void atomFlyOver(Display &display, const AtomPresetState &preset, CameraState *camera, orb_real_t startScale,
+                     orb_real_t endScale, int frames, uint32_t buzzThreshold = 0)
     {
         for (int i = 0; i < frames; i++)
         {
@@ -429,18 +453,40 @@ namespace
             orb_real_t scale = startScale + (endScale - startScale) * t;
 
             display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-            renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, protonColor, *camera, scale,
-                               uint32_t(i), buzzThreshold);
-            drawAtomProtonMarker(display.getFrameBuf(), protonColor);
-            drawBoundingCircle(display.getFrameBuf(), rRef, scale, kBoundingCircleColor);
-            drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
-            drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
+            renderAtomFrame(display.getFrameBuf(), preset, *camera, scale, uint32_t(i), buzzThreshold);
             display.presentFrame();
 
             stepCamera(camera);
         }
     }
 } // namespace
+
+int renderAtomDissectFrame(uint16_t *frameBuf, const AtomPresetState &preset, const CameraState &camera, int level)
+{
+    DissectionEntry plan[kMaxConfigSubshells];
+    int planCount = subshellDissectionPlan(preset.points, preset.ranges, preset.rangeCount, plan);
+    if (level < 1 || level > planCount)
+        return planCount;
+
+    const DissectionEntry &active = plan[level - 1];
+    PointGroup groups[kMaxConfigSubshells];
+    int groupCount = buildDissectGroups(plan, planCount, level, groups);
+    // Re-normalized to this shell's own radius, same as buildDissectGroups()'s live callers
+    // (runDissectionSequence()'s hold phase) and AtomPresetState::load()'s full-atom scale.
+    AtomScale s = scaleForAtom(active.rRef);
+
+    char bigLabel[8];
+    std::snprintf(bigLabel, sizeof(bigLabel), "%d%c", active.n, subshellLabelChar(active.ell));
+    char caption[40];
+    std::snprintf(caption, sizeof(caption), "%s (%d/%d)", elementSymbol(preset.z), level, planCount);
+
+    renderSceneGrouped(frameBuf, preset.points, groups, groupCount, kProtonColor, camera, s.baseScale);
+    drawAtomProtonMarker(frameBuf, kProtonColor);
+    drawBoundingCircle(frameBuf, active.rRef, s.baseScale, kBoundingCircleColor);
+    drawDissectTitle(frameBuf, kTitleTextX, kTitleTextY, kTextColor, bigLabel, caption, active.occ);
+    drawScaleBar(frameBuf, s.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+    return planCount;
+}
 
 void runAtomView(Display &display, TiltGestureDetector &tilt)
 {
@@ -456,24 +502,11 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         preset.load(kAtomViewDefaultZ); // keep whatever element was last showing
     refreshDissectPlan(preset);
 
-    // preset has static storage duration, so it's odr-usable without capturing -- see
-    // orbital_view.cpp's drawTitle for the same pattern.
-    auto drawTitle = [](uint16_t *frameBuf, int x, int y, uint16_t color)
-    {
-        drawAtomTitle(frameBuf, x, y, preset.z, color);
-        // Add the Z number in the top-right corner, so the user can see it while browsing the periodic table.
-        char zLabel[4];
-        std::snprintf(zLabel, sizeof(zLabel), "%d", preset.z);
-        int zX = Display::kDisplayWidth - textWidth(zLabel, kFontHuge) - 10;
-        drawText(frameBuf, zX, 10, zLabel, Display::kColorOrbitalRed, kFontHuge);
-    };
-
     CameraState camera;
     orb_real_t zoomAngle = orb_real_t(0);
 
-    atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                kScaleBarColor, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, preset.rRef,
-                kIntroFrames, kHiddenPointsThreshold);
+    atomFlyOver(display, preset, &camera, preset.baseScale * kIntroStartScaleFactor, preset.baseScale, kIntroFrames,
+                kHiddenPointsThreshold);
 
     int frameCount = 0;
     int64_t fpsWindowStartUs = esp_timer_get_time();
@@ -495,8 +528,7 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         preset.load(newZ);
         refreshDissectPlan(preset);
         idleDissectedThisElement = false; // fresh element -- fresh idle dissection budget
-        atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                    kScaleBarColor, &camera, currentScale, preset.baseScale, preset.rRef, kSwitchTransitionFrames,
+        atomFlyOver(display, preset, &camera, currentScale, preset.baseScale, kSwitchTransitionFrames,
                     kHiddenPointsThreshold);
         zoomAngle = orb_real_t(0);
         zoomExcursionCountdown = nextZoomExcursionCountdown();
@@ -589,11 +621,9 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
             orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
             orb_real_t targetScale =
                 preset.baseScale * randomUniform(kZoomExcursionScaleMinFactor, kZoomExcursionScaleMaxFactor);
-            atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                        kScaleBarColor, &camera, currentScale, targetScale, preset.rRef, kZoomExcursionEaseFrames,
+            atomFlyOver(display, preset, &camera, currentScale, targetScale, kZoomExcursionEaseFrames,
                         kHiddenPointsThreshold);
-            atomFlyOver(display, preset.points, preset.groups, preset.groupCount, drawTitle, kProtonColor, kTextColor,
-                        kScaleBarColor, &camera, targetScale, preset.baseScale, preset.rRef, kZoomExcursionEaseFrames,
+            atomFlyOver(display, preset, &camera, targetScale, preset.baseScale, kZoomExcursionEaseFrames,
                         kHiddenPointsThreshold);
             zoomAngle = orb_real_t(0);
             zoomExcursionCountdown = nextZoomExcursionCountdown();
@@ -604,13 +634,8 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
 
         orb_real_t scale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-        renderSceneGrouped(display.getFrameBuf(), preset.points, preset.groups, preset.groupCount, kProtonColor,
-                           camera, scale, buzzFrame, kHiddenPointsThreshold);
-        drawAtomProtonMarker(display.getFrameBuf(), kProtonColor); // see its docstring -- keep it visible over the cloud
-        drawBoundingCircle(display.getFrameBuf(), preset.rRef, scale, kBoundingCircleColor);
+        renderAtomFrame(display.getFrameBuf(), preset, camera, scale, buzzFrame, kHiddenPointsThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
-        drawAtomTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, preset.z, kTextColor);
-        drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
         if (tiltEv.phase != TiltPhase::kIdle)
             drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);
         display.presentFrame();

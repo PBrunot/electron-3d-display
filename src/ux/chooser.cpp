@@ -19,12 +19,6 @@
 
 static const char *kChooserTag = "chooser";
 
-static void drawCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font)
-{
-    int x = (Display::kDisplayWidth - textWidth(text, font)) / 2;
-    drawText(frameBuf, x, y, text, color, font);
-}
-
 struct CalibTarget
 {
     TiltDirection dir;
@@ -62,19 +56,19 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
             display.waitForFlushDone();
             uint16_t *frameBuf = display.getFrameBuf();
             display.clearScreen();
-            drawCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
-            drawCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kTextColor, kFontLarge);
+            drawTextCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
+            drawTextCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kTextColor, kFontLarge);
             if (raw.phase == TiltPhase::kHolding)
             {
                 char progress[24];
                 std::snprintf(progress, sizeof(progress), "%.1fs / 1.0s", double(raw.holdMs) / 1000.0);
-                drawCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, progress, kAccentColor,
-                             kFontLarge);
+                drawTextCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, progress, kAccentColor,
+                                 kFontLarge);
             }
             else
             {
-                drawCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, "and hold", kTextColor,
-                             kFontLarge);
+                drawTextCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, "and hold", kTextColor,
+                                 kFontLarge);
             }
             display.presentFrame();
 
@@ -90,10 +84,10 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
             display.waitForFlushDone();
             uint16_t *frameBuf = display.getFrameBuf();
             display.clearScreen();
-            drawCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
-            drawCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kAccentColor, kFontLarge);
-            drawCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, "OK - RELEASE", kAccentColor,
-                         kFontLarge);
+            drawTextCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
+            drawTextCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kAccentColor, kFontLarge);
+            drawTextCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, "OK - RELEASE", kAccentColor,
+                             kFontLarge);
             display.presentFrame();
 
             release = tilt.pollRaw();
@@ -112,8 +106,10 @@ static void drawChooserScreen(uint16_t *frameBuf)
     // is just a memcpy straight out of the generated array every frame.
     std::memcpy(frameBuf, kSplashBitmapData, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
 
-    drawCentered(frameBuf, kChooserOption1Y, "UP: Orbitals", Display::kColorOrbitalRed, kFontLarge);
-    drawCentered(frameBuf, kChooserOption2Y, "DOWN: Elements", Display::kColorOrbitalRed, kFontLarge);
+    drawTextCentered(frameBuf, kChooserOption1Y, "UP: Orbitals", Display::kColorOrbitalRed, kFontLarge,
+                     kChooserOptionScale);
+    drawTextCentered(frameBuf, kChooserOption2Y, "DOWN: Elements", Display::kColorOrbitalRed, kFontLarge,
+                     kChooserOptionScale);
 }
 
 /**

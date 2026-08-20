@@ -11,10 +11,10 @@
  *
  *   s | SS_CAP        -> capture the current frame; replies "SS_CAPTURED <name> <size>"
  *   l | SS_LIST        -> one "SS_FILE <name> <size>" line per screenshot, then "SS_LIST_END"
- *   a | SS_CAP_ALL      -> renders and saves every orbital preset + curated element (see
- *                          screenshot_batch.h) -- replies "SS_CAP_ALL_START", then blocks
- *                          (progress via ESP_LOGI, not the SS_ protocol) until done, then
- *                          "SS_CAP_ALL_DONE"
+ *   a | SS_CAP_ALL      -> renders and saves every orbital preset + curated element, plus a
+ *                          couple of Fe shell-dissection stills (see screenshot_batch.h) --
+ *                          replies "SS_CAP_ALL_START", then blocks (progress via ESP_LOGI,
+ *                          not the SS_ protocol) until done, then "SS_CAP_ALL_DONE"
  *   SS_GET <name>       -> "SS_BEGIN <name> <size> <crc32-hex>", then base64 data in
  *                          "SS_DATA <chunk>" lines, then "SS_END"
  *   SS_DEL <name>       -> deletes the file; replies "SS_DELETED <name>" or "SS_ERR <why>"

@@ -287,6 +287,6 @@ inline constexpr uint32_t kDissectFlyMinMs = 700;                               
 inline constexpr int kDissectIntroWordScale = 2;                                    ///< Text scale for "Configurazione" / "elettronica" / the element name.
 inline constexpr int kDissectIntroLineGapPx = 50;                                   ///< Vertical start-to-start spacing between the 3 title lines.
 inline constexpr uint32_t kDissectIntroHoldMs = 900;                                ///< How long the static title card holds before dissection starts.
-inline constexpr uint16_t kDissectIntroBgColor = Display::packColor565(55, 55, 55); ///< Dim color for the tiled "e-" backdrop.
+inline constexpr uint16_t kDissectIntroBgColor = Display::packColor565(55, 55, 55); ///< Dim color for the tiled electron-symbol backdrop.
 inline constexpr int kDissectIntroBgSpacingX = 44;                                  ///< Backdrop tile spacing, px.
 inline constexpr int kDissectIntroBgSpacingY = 34;
