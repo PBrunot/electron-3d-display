@@ -33,8 +33,10 @@ inline constexpr uint16_t kProtonColor = Display::kColorRed;
 inline constexpr uint16_t kTextColor = Display::kColorWhite;
 inline constexpr uint16_t kScaleBarColor = Display::kColorLightGrey;
 
-/// Frame count between FPS log lines, both viewers' main loops.
-inline constexpr int kFpsUpdateInterval = 100;
+/// Frame count between FPS log lines, both viewers' main loops. Kept high (not every-frame,
+/// not even every 100) since the moving-average timings in debug/frame_stats.h already
+/// smooth out single-frame jitter -- logging that often over serial would just be spam.
+inline constexpr int kFpsUpdateInterval = 1000;
 
 /// Idle time with no confirmed tilt input before a viewer auto-advances to a random
 /// preset/element. Same value for both viewers (orbital_view.cpp, atom_view.cpp).

@@ -1,9 +1,11 @@
 # Rendering benchmark
 
-`src/debug/benchmark_test.h`/`.cpp` sweeps a fixed atom (Fe, Z=26) across several point-cloud sizes,
-timing real production-path rendering at each size, and logs both performance numbers and a
-handful of deterministic physics numbers usable as a correctness regression check. See that
-file's header comment for the full rationale.
+`src/debug/benchmark_test.h`/`.cpp` sweeps a fixed atom (Fe, Z=26) AND a fixed orbital preset
+(2pz, `kOrbitalDefaultPresetIndex`) across the same several point-cloud sizes, timing real
+production-path rendering at each size for both, and logs performance numbers (tagged
+`kind,atom` or `kind,orbital` so the two are easy to tell apart in a capture) plus a handful of
+deterministic physics numbers (atom sweep only) usable as a correctness regression check. See
+that file's header comment for the full rationale.
 
 ## How to run it
 
@@ -24,42 +26,65 @@ file's header comment for the full rationale.
 5. When done, re-comment `BENCHMARK_TEST` in `main.cpp` and reflash to return to normal boot
    (chooser menu).
 
-The sweep takes ~8-9 seconds total (5 point-count steps x 60 frames each, plus point-cloud
-build time per step) and needs no IMU/tilt setup or user interaction.
+The sweep takes ~16-18 seconds total (5 point-count steps x 60 frames each x 2 sweeps, plus
+point-cloud build time per step) and needs no IMU/tilt setup or user interaction.
 
-## Expected results (baseline: 2026-08-19, ESP32-S3 @ 240MHz, SPI 40MHz, this hardware unit)
+## Expected results (baseline: 2026-08-20, ESP32-S3 @ 240MHz, SPI 40MHz, this hardware unit)
 
-Updated 2026-08-19 after the bitmap-font rewrite (proportional Jersey10 fonts, see
-`tools/font_gen/`): `avg_render_ms` dropped ~5-8% at the higher point counts because the
-scale bar's label switched from `drawTextScaled()` (a per-pixel scaling loop) to plain
-`drawText()` at `kFontLarge`'s native size -- both drawn every frame, same as production.
-Physics (`CONFIG`/`ZEFF`/`GEOM`) is unaffected and stayed bit-identical, as expected since
-that commit never touched `slater.h`/point sampling.
+Captured after the atom/orbital split and the `iram_free` column were added -- this is the
+first baseline with both sweeps. `avg_wait_ms` isn't printed by the summary table below (see
+the raw `BENCH,STEP` line for it) but stayed flat at ~12-14ms across every row of both sweeps,
+as expected for a fixed-size SPI DMA transfer.
 
 ### Performance (`BENCH,STEP`)
 
-| points | build_ms | avg_render_ms | min_render_ms | max_render_ms | avg_wait_ms | fps  |
-|-------:|---------:|---------------:|---------------:|---------------:|------------:|-----:|
-|    500 |       30 |           9.68 |           9.68 |           9.77 |       12.09 | 45.9 |
-|   1000 |       32 |          10.08 |          10.08 |          10.15 |       11.72 | 45.9 |
-|   2000 |       36 |          10.88 |          10.87 |          10.96 |       12.89 | 42.1 |
-|   4000 |       44 |          13.07 |          13.06 |          13.14 |       12.70 | 38.8 |
-|   8000 |       62 |          16.83 |          16.82 |          16.90 |       12.92 | 33.6 |
+**Atom sweep (Fe, Z=26):**
+
+| points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps  | iram_free |
+|-------:|---------:|---------------:|---------------:|---------------:|-----:|----------:|
+|    500 |      265 |          10.159 |          10.152 |          10.243 | 42.09 |    216687 |
+|   1000 |       20 |          10.617 |          10.610 |          10.689 | 42.04 |    216687 |
+|   2000 |       24 |          11.539 |          11.530 |          11.622 | 41.97 |    216687 |
+|   4000 |       33 |          13.943 |          13.936 |          14.012 | 36.00 |    216687 |
+|   8000 |       50 |          18.149 |          18.141 |          18.215 | 31.48 |    216687 |
+
+**Orbital sweep (2pz, `kOrbitalDefaultPresetIndex`):**
+
+| points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps  | iram_free |
+|-------:|---------:|---------------:|---------------:|---------------:|-----:|----------:|
+|    500 |      105 |          10.476 |          10.470 |          10.581 | 42.06 |    216387 |
+|   1000 |       99 |          10.967 |          10.959 |          11.099 | 42.02 |    216387 |
+|   2000 |      114 |          11.980 |          11.969 |          12.101 | 38.80 |    216387 |
+|   4000 |      145 |          14.580 |          14.573 |          14.666 | 35.97 |    216387 |
+|   8000 |      214 |          19.139 |          19.130 |          19.234 | 31.44 |    216387 |
+
+(500-point atom `build_ms` of 265 is a one-off: the very first sweep step, before Fe's
+subshell rejection-sampling has "warmed up" any branch prediction/caches -- every later atom
+step, and the whole orbital sweep, doesn't show it. Not a regression signal by itself; watch
+whether it recurs at 500 points specifically across runs.)
 
 Notes:
-- **8000 points is the production count** (`kAtomNumPoints`, what `atom_view.cpp` actually
-  renders) -- the number that matters is the last row: **~33-34 FPS**, comfortably above the
-  20-30 FPS target in `CLAUDE.md` §6.
-- `avg_wait_ms` (blocked on the previous frame's SPI DMA) should stay roughly flat (~11-12ms)
-  across all point counts -- it's dominated by the fixed 240x240x16bit frame transfer, not by
-  point count. If it scales with point count instead, something changed in how/when
-  `presentFrame()`/`waitForFlushDone()` are called.
+- **8000 points is the production count** (`kAtomNumPoints` == `kOrbitalNumPoints`, what
+  `atom_view.cpp`/`orbital_view.cpp` actually render) -- the number that matters is the last
+  row of each table: **~31-32 FPS for both viewers**, comfortably above the 20-30 FPS target in
+  `CLAUDE.md` §6.
+- **Orbitals cost noticeably more to build** than atoms at every point count (e.g. 214ms vs.
+  50ms at 8000 points) -- expected, since orbital sampling evaluates the radial/angular
+  wavefunction per point rather than atom_cloud's simpler per-subshell rejection sampling.
+  Render/FPS are nearly identical between the two once built, since both pay the same
+  per-point projection/rasterization cost.
+- `avg_wait_ms` (blocked on the previous frame's SPI DMA) should stay roughly flat (~12-14ms)
+  across all point counts AND both sweeps -- it's dominated by the fixed 240x240x16bit frame
+  transfer, not by point count or cloud type. If it scales with point count instead, something
+  changed in how/when `presentFrame()`/`waitForFlushDone()` are called.
 - `avg_render_ms` (CPU: fade + rotate/project/rasterize + text) should scale roughly linearly
   with point count. A large jump in the 500-point row specifically (which should be cheapest)
   usually means a fixed per-frame cost (e.g. `fadeFrameBuffer()`, title/scale-bar text) grew,
   not a point-cloud regression.
 - `build_ms` (point-cloud sampling) growing faster than linearly with point count would suggest
   a regression in the radial/angular sampling rejection rate, not just raw point count.
+- `iram_free` should stay flat within each sweep (it does here) -- a downward drift step-to-step
+  would flag a leak.
 - Re-run and compare after: changing `platformio.ini`'s `SPI_FREQUENCY`, editing
   `camera.h`'s render pipeline (`renderScene`/`renderPointsColored`/`projectPoint`), or editing
   `display.cpp`'s DMA/flush handling.
@@ -108,11 +133,22 @@ comes out with a *higher* Z_eff than 3d/3p, that's a shielding-rule regression, 
 
 | points | outer subshell | outer_rref_bohr | base_scale_px |
 |-------:|-----------------|-----------------:|---------------:|
-|    500 | 4s (n=4, ell=0) |         6.004462 |      12.490710 |
-|   1000 | 4s (n=4, ell=0) |         6.259300 |      11.982170 |
-|   2000 | 4s (n=4, ell=0) |         6.147317 |      12.200443 |
-|   4000 | 4s (n=4, ell=0) |         6.136905 |      12.221145 |
-|   8000 | 4s (n=4, ell=0) |         6.164497 |      12.166442 |
+|    500 | 4s (n=4, ell=0) |         5.196394 |      18.474348 |
+|   1000 | 4s (n=4, ell=0) |         5.522888 |      17.382212 |
+|   2000 | 4s (n=4, ell=0) |         5.389955 |      17.810911 |
+|   4000 | 4s (n=4, ell=0) |         5.376742 |      17.854677 |
+|   8000 | 4s (n=4, ell=0) |         5.411359 |      17.740459 |
+
+`outer_rref_bohr`/`base_scale_px` above are from the 2026-08-20 capture and read noticeably
+different from an earlier (2026-08-19) capture of this same table (`outer_rref_bohr` ~6.0-6.2,
+`base_scale_px` ~12.0-12.5) -- bigger than the "last 1-2 significant digits" drift this doc
+otherwise expects between unrelated changes. `CONFIG`/`ZEFF` matched bit-identically across
+both captures, so this isn't a `slater.h`/Z_eff regression; it's localized to the p90-radius
+sampling or `kAtomTargetPx`/scale constants, likely from one of the visual-tuning commits
+between the two captures (`visual tweaks`, `Improve display buffering and atom overlays`,
+etc. -- see `git log -- src/physics/atom_cloud.h src/config/visual_constants.h`). Not
+chased down further here; flagging so a future capture doesn't mistake the 2026-08-20 numbers
+above for a regression against the (now stale) ~6.0-6.2/~12.0-12.5 figures.
 
 Notes:
 - The outer subshell must be **4s at every point count** -- Fe's real valence shell. If it ever

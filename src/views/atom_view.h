@@ -59,6 +59,7 @@ struct AtomPresetState
     int z = 0;
     orb_real_t baseScale, zoomAmplitude, rRef; ///< rRef: outer subshell's own reference radius,
                                                 ///< for drawBoundingCircle() (render/overlay.h).
+    int64_t loadMs = 0; ///< Wall-clock time load() took to build the cloud above, for debug/frame_stats.h's log line.
 
     /// Build this element's point cloud, subshell ranges/colors, and renormalized scale.
     void load(int zIn);

@@ -43,6 +43,7 @@ struct OrbitalPresetState
     char title[12];
     char orbital_numbers[32];
     orb_real_t baseScale, zoomAmplitude;
+    int64_t loadMs = 0; ///< Wall-clock time load() took to build the cloud above, for debug/frame_stats.h's log line.
     /// This preset's phase-color pair (see orbital_library.h's OrbitalDescriptor), kept here
     /// so resamplePoints() re-encodes turned-over points in the same colors.
     uint8_t posRgb[3];
