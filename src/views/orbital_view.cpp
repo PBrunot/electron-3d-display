@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "physics/orbital_library.h"
 #include "render/overlay.h"
+#include "views/orbital_slice.h"
 #include "debug/frame_stats.h"
 #include "debug/screenshot_pause.h"
 #include "config/visual_constants.h" // kViewIdleJumpUs, kOrbitalIntro*, kOrbitalProtonMarkerSize, etc.
@@ -56,6 +57,134 @@ namespace
         vTaskDelay(pdMS_TO_TICKS(kOrbitalIntroStageHoldMs + 500));
     }
 
+} // namespace
+
+// --- On-device plane-slice heatmap (Right tilt-hold) -- see orbital_view.h's header comment,
+// SLICE.md for the full design -- mirrors atom_view.cpp's runDissectionSequence() split: this
+// file orchestrates the gesture sequence, orbital_slice.h/.cpp owns the physics table build
+// and per-frame draw.
+
+namespace
+{
+    /// Static "Sezione" title card (D4, SLICE.md) over the same dim equation backdrop
+    /// scrollOrbitalIntro() uses, held kSliceIntroHoldMs before the slice build starts.
+    void showSliceIntro(Display &display, const OrbitalPresetState &preset)
+    {
+        constexpr const char *kSliceLabel = "Sezione";
+
+        display.waitForFlushDone();
+        uint16_t *frameBuf = display.getFrameBuf();
+        display.clearScreen();
+        drawEquationBackdrop(frameBuf, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
+        // kOrbitalIntroNumberY is tuned for scrollOrbitalIntro()'s single scaled kFontLarge
+        // line -- this card stacks a full kFontHuge line above a kFontLarge one, so it needs
+        // its own, taller layout to stay clear of the panel's bottom edge (240px).
+        int labelY = kOrbitalIntroEqY + kEquationBitmapHeight + 10;
+        int numbersY = labelY + kFontHuge.height + 4;
+        int labelWidth = textWidth(kSliceLabel, kFontHuge);
+        drawText(frameBuf, (Display::kDisplayWidth - labelWidth) / 2, labelY, kSliceLabel, kAccentColor, kFontHuge);
+        int numbersWidth = textWidth(preset.orbital_numbers, kFontLarge);
+        drawText(frameBuf, (Display::kDisplayWidth - numbersWidth) / 2, numbersY, preset.orbital_numbers, kTextColor,
+                 kFontLarge);
+        display.presentFrame();
+
+        vTaskDelay(pdMS_TO_TICKS(kSliceIntroHoldMs));
+    }
+
+    /// Preset title top-left, quantum numbers bottom-right, scale bar bottom-left -- same
+    /// layout renderOrbitalFrame() uses for the 3D cloud, so the slice reads as the same
+    /// object's own view, not a separate mode with its own conventions.
+    void drawSliceOverlay(uint16_t *frameBuf, const OrbitalPresetState &preset, orb_real_t extentPm)
+    {
+        drawText(frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
+        int width = textWidth(preset.orbital_numbers, kFontLarge);
+        int height = kFontLarge.height;
+        drawText(frameBuf, Display::kDisplayWidth - width, Display::kDisplayHeight - height - 15,
+                 preset.orbital_numbers, kTextColor, kFontLarge);
+        // Half the panel width spans extentPm (SliceTable's own framing, see buildSliceTable()).
+        orb_real_t pixelsPerPm = orb_real_t(Display::kDisplayWidth) / (orb_real_t(2) * extentPm);
+        drawScaleBar(frameBuf, pixelsPerPm, "pm", kScaleBarColor, kTextColor);
+    }
+
+    /**
+     * @brief Automatic slice sequence: intro card -> build -> fade in -> hold -> fade out.
+     *
+     * One gesture starts the whole thing; `tilt` is polled every fade-in/hold frame and any
+     * non-idle phase (the device starting to tip, not necessarily a full confirmed hold) cuts
+     * the sequence short -- but the closing fade-out leg below always still runs afterward
+     * (from wherever the fade level was cut off), so the sequence always lands back on the
+     * untouched 3D view smoothly, exactly like runDissectionSequence()'s unconditional
+     * ease-back tail. No camera motion at any point (D2, SLICE.md): the plane is static and
+     * the 3D camera is left alone so it resumes seamlessly once this returns.
+     */
+    void runSliceSequence(Display &display, OrbitalPresetState &preset, TiltGestureDetector &tilt)
+    {
+        showSliceIntro(display, preset);
+
+        // Static PSRAM scratch (~29KB), not stack -- same convention as
+        // OrbitalPresetState/AtomPresetState (see runOrbitalView()'s own `preset` comment).
+        static EXT_RAM_BSS_ATTR SliceTable table;
+        int64_t buildStartUs = esp_timer_get_time();
+        buildSliceTable(preset.resample.n, preset.resample.ell, preset.resample.m, preset.resample.radialCoeff,
+                       preset.resample.legendreCoeff, preset.rRef, &table);
+        int64_t buildMs = (esp_timer_get_time() - buildStartUs) / 1000;
+        ESP_LOGI(kOrbitalViewTag, "slice built in %lldms (n=%d %s=%d m=%d)", buildMs, table.n, kGlyphScriptL,
+                 table.ell, table.m);
+
+        auto drawFrame = [&](orb_real_t fade, TiltEvent ev)
+        {
+            display.waitForFlushDone();
+            uint16_t *frameBuf = display.getFrameBuf();
+            renderSliceFrame(frameBuf, table, fade);
+            drawSliceOverlay(frameBuf, preset, table.extentPm);
+            if (ev.phase != TiltPhase::kIdle)
+                drawTiltArrow(frameBuf, ev.direction, kAccentColor);
+            display.presentFrame();
+        };
+
+        bool aborted = false;
+        orb_real_t fade = orb_real_t(0);
+        for (int i = 0; i < kSliceIntroFrames; i++)
+        {
+            fade = kSliceIntroFrames > 1 ? orb_real_t(i) / orb_real_t(kSliceIntroFrames - 1) : orb_real_t(1);
+            TiltEvent ev = tilt.poll();
+            drawFrame(fade, ev);
+            if (ev.phase != TiltPhase::kIdle)
+            {
+                aborted = true;
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+
+        if (!aborted)
+        {
+            fade = orb_real_t(1);
+            int64_t holdStartUs = esp_timer_get_time();
+            while (esp_timer_get_time() - holdStartUs < kSliceHoldUs)
+            {
+                TiltEvent ev = tilt.poll();
+                drawFrame(fade, ev);
+                if (ev.phase != TiltPhase::kIdle)
+                {
+                    aborted = true;
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+        }
+
+        // Unconditional ease-back to black (and, once this returns, the untouched 3D view) --
+        // not itself interruptible, matching runDissectionSequence()'s closing leg.
+        for (int i = kSliceFadeOutFrames; i >= 0; i--)
+        {
+            orb_real_t t = kSliceFadeOutFrames > 0 ? orb_real_t(i) / orb_real_t(kSliceFadeOutFrames) : orb_real_t(0);
+            drawFrame(fade * t, TiltEvent{});
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+
+        ESP_LOGI(kOrbitalViewTag, "slice sequence %s", aborted ? "aborted -- movement detected" : "complete");
+    }
 } // namespace
 
 void renderOrbitalFrame(uint16_t *frameBuf, const OrbitalPresetState &preset, const CameraState &camera,
@@ -138,6 +267,7 @@ void OrbitalPresetState::load(int index)
     OrbitalScale scale = scaleFromRadii(points, kOrbitalNumPoints);
     baseScale = scale.baseScale;
     zoomAmplitude = scale.zoomAmplitude;
+    rRef = scale.rRef;
 
     loadMs = (esp_timer_get_time() - startUs) / 1000;
     ESP_LOGI(kOrbitalViewTag, "%s loaded in %lldms, scale=%.1f", d.label, loadMs, double(baseScale));
@@ -192,6 +322,10 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
     uint32_t buzzFrame = 0;
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
     int64_t lastActivityUs = esp_timer_get_time();
+    // Caps idle auto-advance to at most one slice sequence per preset before it's forced to
+    // jump, mirroring atom_view.cpp's idleDissectedThisElement. Reset whenever a new preset
+    // loads, see switchToPreset() below.
+    bool idleSlicedThisPreset = false;
 
     // Shared by the manual Up/Down switch and the idle random jump below.
     auto switchToPreset = [&](int newIndex)
@@ -203,6 +337,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         presetIndex = newIndex;
         preset.load(presetIndex);
         stats.lastLoadMs = preset.loadMs;
+        idleSlicedThisPreset = false; // fresh preset -- fresh idle-slice budget
         orbitalFlyOver(display, preset, &camera, currentScale, preset.baseScale, kOrbitalSwitchTransitionFrames,
                        kBuzzThreshold);
         zoomAngle = orb_real_t(0);
@@ -238,16 +373,37 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
                 continue;
             }
             if (tiltEv.direction == TiltDirection::kRight)
-                ESP_LOGI(kOrbitalViewTag, "tilt RIGHT confirmed -- no action in orbital view");
+            {
+                ESP_LOGI(kOrbitalViewTag, "tilt RIGHT confirmed -- starting slice sequence");
+                runSliceSequence(display, preset, tilt);
+                zoomAngle = orb_real_t(0);
+                zoomExcursionCountdown = nextZoomExcursionCountdown();
+                stats.reset(); // see switchToPreset()'s FPS-window comment above
+                continue;
+            }
         }
 
-        // Idle auto-advance -- kViewIdleJumpUs is shared with atom_view.cpp; reuses
-        // switchToPreset()'s exact animation with a random (not adjacent) target.
+        // Idle auto-advance: each idle timeout has a coin-flip chance to slice the current
+        // preset instead of jumping, but only once per preset (idleSlicedThisPreset); once
+        // that budget is used, idle timeouts always jump -- mirrors atom_view.cpp's
+        // idle-dissection. kViewIdleJumpUs is shared with atom_view.cpp.
         if (esp_timer_get_time() - lastActivityUs > kViewIdleJumpUs)
         {
-            int newIndex = randomIndexExcluding(presetIndex, kOrbitalLibraryCount);
-            ESP_LOGI(kOrbitalViewTag, "idle 60s+ -- jumping to random preset %d", newIndex);
-            switchToPreset(newIndex);
+            if (!idleSlicedThisPreset && randomUnit() < orb_real_t(0.5))
+            {
+                ESP_LOGI(kOrbitalViewTag, "idle 60s+ -- slicing current preset (%s)", preset.title);
+                runSliceSequence(display, preset, tilt);
+                idleSlicedThisPreset = true;
+                zoomAngle = orb_real_t(0);
+                zoomExcursionCountdown = nextZoomExcursionCountdown();
+                stats.reset(); // see switchToPreset()'s FPS-window comment above
+            }
+            else
+            {
+                int newIndex = randomIndexExcluding(presetIndex, kOrbitalLibraryCount);
+                ESP_LOGI(kOrbitalViewTag, "idle 60s+ -- jumping to random preset %d", newIndex);
+                switchToPreset(newIndex);
+            }
             lastActivityUs = esp_timer_get_time();
             continue;
         }

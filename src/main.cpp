@@ -1,4 +1,4 @@
-// Exactly one of the five #define toggles below may be active at a time; with none
+// Exactly one of the six #define toggles below may be active at a time; with none
 // defined, app_main() boots the runtime chooser menu (the real default, see chooser.h) --
 // tilt UP launches the orbital viewer, tilt DOWN the element viewer, matching
 // micropython/chooser.py's role. COLOR_TEST is currently active below for direct
@@ -10,6 +10,7 @@
 // #define ATOM_VIEW
 // #define COLOR_TEST
 // #define BENCHMARK_TEST
+// #define SLICE_TEST
 
 #include "ux/chooser.h"
 #include "esp_log.h"
@@ -33,6 +34,7 @@
 #endif
 
 #include "debug/atom_view_test.h"
+#include "debug/orbital_slice_test.h"
 #include "views/atom_view.h"
 
 static const char *kMainTag = "main";
@@ -56,6 +58,9 @@ extern "C" void app_main(void)
                        "reflash without BENCHMARK_TEST to return to normal boot");
     while (1)
         vTaskDelay(pdMS_TO_TICKS(1000));
+#elif defined(SLICE_TEST)
+    Display display{};
+    runOrbitalSliceTest(display); // never returns -- see orbital_slice_test.h
 #else
     Display display{};
     startScreenshotConsole(display); // 's'/'l'/SS_GET/SS_DEL over the console -- see screenshot_console.h

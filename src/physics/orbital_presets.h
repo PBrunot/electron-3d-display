@@ -6,6 +6,7 @@
 // scale_from_radii().
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 
 #include "physics/orbitals.h"   // orb_real_t
@@ -13,6 +14,31 @@
 #include "config/visual_constants.h" // kOrbitalNumPoints, kOrbitalCullFraction, kOrbitalCullRefreshFrames
 
 inline constexpr int kOrbitalColorMaxLevel = 255; // callers must clamp a resampled point's level to this before comparing
+
+/// Floor on a point's brightness level (of kOrbitalColorMaxLevel), so even the dimmest
+/// points/cells still read clearly instead of fading to near-invisible.
+inline constexpr int kOrbitalColorMinLevel = 80;
+
+/// Rank-fraction shaping exponent for brightness (see orbitalLevelFromRankFraction()): 0.5
+/// (sqrt) biases the whole population toward brighter levels instead of the raw
+/// linear/uniform rank spread, similar to how a Paint.NET Levels "black point" stretch reads
+/// visually, but as one smooth curve applied to every point -- no flat/clamped region, so no
+/// popcorn as points turn over near a cutoff.
+inline constexpr float kOrbitalLevelGamma = 0.4f;
+
+/**
+ * Shapes a 0..1 rank fraction (can exceed 1, see resampleOneOrbitalPoint()'s docstring) into
+ * a brightness level via kOrbitalLevelGamma. Public (not orbital_presets.cpp-local) so any
+ * rank-normalized brightness in this project -- the 3D cloud's computeOrbitalLevels()/
+ * resampleOneOrbitalPoint() below, and orbital_slice.cpp's static slice build -- lands on the
+ * exact same curve: a cell/point at density-rank q always ends up as bright as any other at
+ * the same rank, regardless of which one built it.
+ */
+inline int orbitalLevelFromRankFraction(float frac)
+{
+    return kOrbitalColorMinLevel +
+           int(std::pow(frac, kOrbitalLevelGamma) * float(kOrbitalColorMaxLevel - kOrbitalColorMinLevel));
+}
 
 /** Brightness level (0..kOrbitalColorMaxLevel) + wavefunction sign + this preset's
  * phase-color pair (positive/negative, see orbital_library.h's OrbitalDescriptor) ->
