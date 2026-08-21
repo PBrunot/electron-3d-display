@@ -34,3 +34,4 @@ pio_run1.log
 /pc/_tmp
 /tools/__pycache__
 /tools/splash_gen/__pycache__
+/pc/out/slice_preview

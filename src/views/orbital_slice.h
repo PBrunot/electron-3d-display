@@ -26,8 +26,9 @@ struct SliceTable
     orb_real_t planeAzimuth; ///< Lobe-plane ph0: 0 for m >= 0, pi/(2|m|) for m < 0.
     orb_real_t extentBohr;   ///< Grid half-extent, kSliceFramingFactor * rRef, in Bohr radii.
     orb_real_t extentPm;     ///< Same, in picometers -- feeds drawScaleBar().
-    /// Density-normalized brightness, 0..255: 255*min(1,|psi|^2/v99)^kSliceLevelGamma (see
-    /// buildSliceTable()). Rendered through kSliceColormapStops -- a sequential ramp, so the
+    /// Density-normalized brightness, 0..255: 255*min(1,|psi|^2/v99)^gamma, gamma computed
+    /// per orbital by buildSliceTable()'s auto-exposure pass (see visual_constants.h's
+    /// kSliceExposureScale). Rendered through kSliceColormapStops -- a sequential ramp, so the
     /// slice reads as a density heatmap rather than a flattened copy of the phase-colored 3D
     /// cloud (no sign channel; see the colormap's comment).
     uint8_t level[kSliceGridSize * kSliceGridSize];
