@@ -185,14 +185,35 @@ inline constexpr int kSliceIntroFrames = 30;
 inline constexpr int kSliceFadeOutFrames = 20;
 
 /// Brightness mapping for the slice heatmap (orbital_slice.cpp's buildSliceTable()):
-/// level = 255 * min(1, |psi|^2 / v99)^kSliceLevelGamma, with v99 = the grid's own
+/// level = 255 * min(1, |psi|^2 / v99)^gamma, with v99 = the grid's own
 /// kSliceDensityPercentile-th percentile of |psi|^2. Deliberately NOT the 3D cloud's rank
 /// curve (orbitalLevelFromRankFraction): a uniform grid has no empty screen space, so
 /// rank-equalizing it lights half the screen to ~83% brightness by construction (median level
 /// 212 for every orbital, 0% dark cells -- see SLICE.md's contrast note); density
 /// normalization preserves the real falloff instead (bright lobe cores, near-black tails).
-inline constexpr orb_real_t kSliceLevelGamma = orb_real_t(0.5);
 inline constexpr orb_real_t kSliceDensityPercentile = orb_real_t(0.999);
+
+/// Auto-exposure, per orbital -- mirrors the reference repo's (ssebastianmag/
+/// hydrogen-wavefunctions, hwf_plots.py) hand-tuned exposure knob: gamma =
+/// max(kSliceMinGamma, 1/(1+exposure)), vmax = the 99.9th percentile of |psi|^2. There, a
+/// human picked `exposure` per image by eye (0 for orbitals that already filled the frame,
+/// up to 1.5 for tightly-peaked ones) because a flat gamma washes out/saturates the
+/// already-bright ones. We compute the equivalent automatically per orbital instead of a
+/// hand-picked table: our real orbitals have genuine lobe structure even for m != 0
+/// (SLICE.md's phi-dependence note), unlike the reference's azimuthally-uniform complex
+/// harmonics, so its per-(n,l,m) choices don't transfer over.
+///
+/// brightFraction = (cells with density >= kSliceBrightFrac*v99) /
+///                  (cells with density >= kSliceVisibleFrac*v99)
+/// i.e. what fraction of the visible cloud (density above a small v99-relative floor) is
+/// already near-max. A concentrated orbital (small hot core, most of the visible cloud far
+/// dimmer than its own peak) gets a low brightFraction -> exposure lift; a broad orbital
+/// (density already near v99 across much of its visible footprint) gets a high
+/// brightFraction -> little to no lift, avoiding the saturation a flat gamma caused.
+inline constexpr orb_real_t kSliceVisibleFrac = orb_real_t(0.01);
+inline constexpr orb_real_t kSliceBrightFrac = orb_real_t(0.5);
+inline constexpr orb_real_t kSliceExposureScale = orb_real_t(1.5);
+inline constexpr orb_real_t kSliceMinGamma = orb_real_t(0.10);
 
 // ============================================================================================
 // Atom point-cloud density/shading/scale (physics/atom_cloud.h)

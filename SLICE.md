@@ -128,7 +128,8 @@ struct SliceTable {
     orb_real_t extentBohr;           // grid half-extent, kSliceFramingFactor * rRef (bohr)
     orb_real_t extentPm;             // same, in pm -- feeds drawScaleBar()
     // Density-normalized brightness 0..255 (no sign channel -- density-only render):
-    // 255*min(1, |psi|^2/v99)^kSliceLevelGamma, v99 = the grid's own 99.9th percentile.
+    // 255*min(1, |psi|^2/v99)^gamma, v99 = the grid's own 99.9th percentile, gamma computed
+    // per orbital by an auto-exposure pass (see below).
     uint8_t level[kSliceGridSize * kSliceGridSize];
 };
 
@@ -158,15 +159,38 @@ void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
 - The heatmap is a **plain overwrite** (no blend, no fade-persistence): each frame redraws
   every cell at full brightness scaled by `fade`. No trails needed for a solid image.
 - **Brightness mapping (post-review change to the original plan, user-approved):** density
-  normalization, NOT rank. level = 255·min(1, |ψ|²/v99)^kSliceLevelGamma, with v99 = the
-  grid's own 99.9th percentile of |ψ|² (self-normalizing per orbital, same convention as the
-  reference repo's vmax) and kSliceLevelGamma = 0.5. Rationale (confirmed numerically during
-  review): rank-equalizing a uniform grid lights half the screen to ~83% brightness by
-  construction (median level 212 for every orbital, 0% dark cells) — the 3D cloud gets away
-  with rank because its density-weighted point samples leave empty screen space black; a grid
-  has no empty space. Density normalization preserves the real falloff (bright lobe cores,
-  near-black tails) and is what produces the reference repo's crisp look. v99 is found with
-  std::nth_element on the index array — no full sort, no extra scratch.
+  normalization, NOT rank. level = 255·min(1, |ψ|²/v99)^gamma, with v99 = the grid's own
+  99.9th percentile of |ψ|² (self-normalizing per orbital, same convention as the reference
+  repo's vmax). Rationale (confirmed numerically during review): rank-equalizing a uniform
+  grid lights half the screen to ~83% brightness by construction (median level 212 for every
+  orbital, 0% dark cells) — the 3D cloud gets away with rank because its density-weighted
+  point samples leave empty screen space black; a grid has no empty space. Density
+  normalization preserves the real falloff (bright lobe cores, near-black tails) and is what
+  produces the reference repo's crisp look. v99 is found with std::nth_element on the index
+  array of |ψ| (not |ψ|² directly — squaring is monotonic over non-negative values, so the
+  percentile-of-|ψ| squared equals the percentile-of-|ψ|²) — no full sort, no extra scratch.
+- **Auto-exposure (post-hardware-review fix, user-reported oversaturation).** A single fixed
+  gamma for every orbital was wrong: on hardware, orbitals whose density already fills much of
+  the visible footprint (e.g. higher-|m| states) looked oversaturated/washed out under the
+  same gamma lift that a tightly-peaked orbital (e.g. an s state) needs to reveal its dim
+  tails. The reference repo hits the same issue and its `plot_hydrogen_wavefunction_xz()`
+  fixes it with an `exposure` parameter, hand-picked per rendered image (`gamma =
+  max(0.1, 1/(1+exposure))`, `exposure=0` — i.e. plain linear, `gamma=1` — for orbitals that
+  already fill the frame, up to `1.5` for tightly-peaked ones; see its `main.py`). We can't
+  hand-pick per preset the same way: our orbitals are real (`psiReal()`), which gives genuine
+  lobe structure even for m ≠ 0 (§2's phi-dependence note), unlike the reference's
+  azimuthally-uniform complex harmonics — so its per-(n,l,m) exposure choices don't transfer.
+  Instead `buildSliceTable()` computes the equivalent automatically per orbital: after v99,
+  one counting pass over the grid finds `brightFraction` = (cells with density ≥
+  `kSliceBrightFrac`·v99) / (cells with density ≥ `kSliceVisibleFrac`·v99) — what fraction of
+  the *visible* cloud (density above a small v99-relative floor, i.e. excluding background) is
+  already near-max. A concentrated orbital has a low brightFraction (small hot core against a
+  dim visible tail) → more exposure lift; a broad orbital has a high brightFraction (density
+  already near v99 across much of its footprint) → little to none, avoiding the saturation the
+  flat gamma caused. `exposure = kSliceExposureScale·(1 − brightFraction)`, `gamma =
+  max(kSliceMinGamma, 1/(1+exposure))` — the reference's own formula, applied per orbital
+  instead of by hand. Constants in `visual_constants.h`; `pc/orbital_slice_pc.py` mirrors the
+  same computation for parity.
 - No proton marker, no bounding circle, no camera motion during the slice (it is a 2D
   presentation; the camera is left untouched so the 3D view resumes seamlessly).
 
@@ -203,8 +227,10 @@ void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
 5. **EDIT `src/config/visual_constants.h`** — new "Orbital slice view" section:
    `kSliceGridSize = 240` (full panel resolution, one cell per pixel), `kSliceFramingFactor =
    1.2` (half-extent = factor·rRef), `kSliceHoldUs = 12 s`, `kSliceIntroHoldMs = 900`,
-   `kSliceIntroFrames = 30` (fade-in), `kSliceFadeOutFrames = 20`, `kSliceLevelGamma = 0.5`,
-   `kSliceDensityPercentile = 0.999`. No angular-speed constant: the plane is static (D2);
+   `kSliceIntroFrames = 30` (fade-in), `kSliceFadeOutFrames = 20`,
+   `kSliceDensityPercentile = 0.999`, and the auto-exposure group `kSliceVisibleFrac = 0.01`,
+   `kSliceBrightFrac = 0.5`, `kSliceExposureScale = 1.5`, `kSliceMinGamma = 0.10` (see §5's
+   auto-exposure note). No angular-speed constant: the plane is static (D2);
    the lobe-plane azimuth ph0 is a per-preset value computed in `buildSliceTable()` (§3), not
    a tunable.
 6. **NEW `src/debug/orbital_slice_test.h` + `.cpp`** (recommended) — a `SLICE_TEST` toggle
@@ -264,8 +290,15 @@ hold · D4 "Sezione" intro card.
 Post-review changes (user-approved): (1) density normalization (percentile-clipped |ψ|² +
 gamma) instead of the 3D cloud's rank curve — see §5's contrast note; (2) full-resolution
 240x240 grid instead of 2x2 blocks; (3) sequential rocket-like colormap instead of the
-orange/blue phase pair (D1). Implementation complete; remaining: hardware validation
-(`pio run` → SLICE_TEST → full flow), then colormap/gamma tuning by eye if needed.
+orange/blue phase pair (D1). Implementation complete.
+
+Post-hardware-review fix (user-reported oversaturation): the v99 percentile was taken of |ψ|
+but used as if it were already |ψ|² (missing a square — v99 must be squared before dividing
+|ψ|² by it), and a single fixed gamma (0.5) was applied to every orbital regardless of shape.
+Fixed: v99 is now correctly squared, and gamma is computed per orbital via an auto-exposure
+pass mirroring the reference repo's own hand-tuned `exposure` parameter (see §5's auto-exposure
+note). Remaining: hardware validation (`pio run` → SLICE_TEST → full flow), then
+`kSliceExposureScale`/`kSliceBrightFrac`/`kSliceVisibleFrac` tuning by eye if needed.
 
 ---
 

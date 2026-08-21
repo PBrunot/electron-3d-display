@@ -33,14 +33,24 @@ from PIL import Image
 GRID_SIZE = 240  # matches src/config/visual_constants.h's kSliceGridSize (full panel resolution)
 OUT_DIR = os.path.join(os.path.dirname(__file__), 'out', 'slice_preview')
 
-# Matches src/config/visual_constants.h's kSliceLevelGamma/kSliceDensityPercentile -- the
-# slice's brightness is DENSITY-normalized (percentile-clipped |psi|^2 + gamma), NOT the 3D
-# cloud's rank curve (orbitalLevelFromRankFraction): rank-equalizing a uniform grid lights
-# half the screen to ~83% brightness by construction (median level 212 for every orbital, 0%
-# dark cells -- see SLICE.md's contrast note). The sign/pattern checks below only need a
-# monotonic curve, but the PNGs should look like what the device shows.
-LEVEL_GAMMA = 0.5
+# Matches src/config/visual_constants.h's kSliceDensityPercentile/auto-exposure constants --
+# the slice's brightness is DENSITY-normalized (percentile-clipped |psi|^2 + a per-orbital
+# gamma lift), NOT the 3D cloud's rank curve (orbitalLevelFromRankFraction): rank-equalizing a
+# uniform grid lights half the screen to ~83% brightness by construction (median level 212 for
+# every orbital, 0% dark cells -- see SLICE.md's contrast note). The sign/pattern checks below
+# only need a monotonic curve, but the PNGs should look like what the device shows.
 DENSITY_PERCENTILE = 0.999
+
+# Auto-exposure -- mirrors src/views/orbital_slice.cpp's buildSliceTable(): brightFraction is
+# the share of the visible cloud (density >= VISIBLE_FRAC*v99) that's already near-max
+# (density >= BRIGHT_FRAC*v99); exposure/gamma follow the reference repo's own formula
+# (hwf_plots.py: gamma = max(min_gamma, 1/(1+exposure))) but computed per orbital instead of
+# hand-picked, since our real orbitals have genuine lobe structure even for m != 0 unlike the
+# reference's azimuthally-uniform complex harmonics (SLICE.md's phi-dependence note).
+VISIBLE_FRAC = 0.01
+BRIGHT_FRAC = 0.5
+EXPOSURE_SCALE = 1.5
+MIN_GAMMA = 0.10
 
 # Same 16-stop rocket-like sequential ramp as src/views/orbital_slice.h's
 # kSliceColormapStops -- keep the two in sync, or the preview PNGs won't match the device.
@@ -99,14 +109,24 @@ def build_slice_table(n, ell, m, extent_bohr, grid_size=GRID_SIZE):
             signs[idx] = 1 if value >= 0 else -1
             mags[idx] = abs(value)
 
-    # Density-normalize |psi|^2 against the grid's own 99.9th percentile, then apply the
-    # gamma lift -- same mapping as src/views/orbital_slice.cpp's buildSliceTable().
+    # Density-normalize |psi|^2 against the grid's own 99.9th percentile, then apply a
+    # per-orbital auto-exposure gamma lift -- same mapping as
+    # src/views/orbital_slice.cpp's buildSliceTable().
     dens = [v * v for v in mags]
     srt = sorted(dens)
     v99 = srt[int((len(srt) - 1) * DENSITY_PERCENTILE)]
     if v99 <= 0.0:
         v99 = 1.0
-    levels = [min(255, int(255.0 * (min(1.0, d / v99) ** LEVEL_GAMMA))) for d in dens]
+
+    visible_floor = VISIBLE_FRAC * v99
+    bright_floor = BRIGHT_FRAC * v99
+    visible_count = sum(1 for d in dens if d >= visible_floor)
+    bright_count = sum(1 for d in dens if d >= bright_floor)
+    bright_fraction = (bright_count / visible_count) if visible_count > 0 else 1.0
+    exposure = max(0.0, EXPOSURE_SCALE * (1.0 - bright_fraction))
+    gamma = max(MIN_GAMMA, 1.0 / (1.0 + exposure))
+
+    levels = [min(255, int(255.0 * (min(1.0, d / v99) ** gamma))) for d in dens]
     return mags, signs, levels
 
 
@@ -217,6 +237,26 @@ def main():
     mags, signs, levels = build_slice_table(1, 0, 0, extent_bohr=6.0)
     save_png('1s', levels)
     check('1s: every cell shares one sign (no node, single lobe)', all(s == signs[0] for s in signs))
+
+    # --- Higher-n stress test (auto-exposure was tuned/checked only up to n=3 above; n=6 has
+    # 5 radial nodes packed into the same grid and is a much better test of whether
+    # brightFraction still finds a sane exposure when the density is a set of concentric
+    # rings rather than one blob). extent_bohr picked the same way as the n=2/3 checks above
+    # (~4*n^2, roughly kSliceFramingFactor*rRef's order of magnitude). ---
+    mags, signs, levels = build_slice_table(6, 0, 0, extent_bohr=144.0)
+    save_png('6s', levels)
+    row_levels = [levels[mid * g + col] for col in range(mid, g)]
+    local_minima = sum(
+        1
+        for i in range(1, len(row_levels) - 1)
+        if row_levels[i] < row_levels[i - 1] and row_levels[i] < row_levels[i + 1]
+    )
+    check('6s: multiple radial nodes resolved (not just one blob)', local_minima >= 3)
+    check('6s: auto-exposure did not flatten the image to uniform gray', max(levels) - min(levels) > 100)
+
+    mags, signs, levels = build_slice_table(6, 1, 0, extent_bohr=144.0)
+    save_png('6pz', levels)
+    check('6pz: auto-exposure did not flatten the image to uniform gray', max(levels) - min(levels) > 100)
 
     print(f'\nAll checks passed. PNG previews written to {OUT_DIR}')
 

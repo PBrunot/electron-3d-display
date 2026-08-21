@@ -68,24 +68,54 @@ void buildSliceTable(int n, int ell, int m, const orb_real_t *radialCoeff, const
     // samples, a grid has no empty screen space to stay black. Normalizing each cell's |psi|^2
     // against the grid's own 99.9th percentile (self-normalizing per orbital, same convention
     // as the reference repo's vmax) with a gamma lift preserves the real density falloff:
-    //   level = 255 * min(1, |psi|^2 / v99)^kSliceLevelGamma
+    //   level = 255 * min(1, |psi|^2 / v99)^gamma
     // Bright lobe cores, near-black tails. v99 via nth_element on the index array (keeps
     // sliceMag's per-cell values intact for the level pass) -- cheaper than a full sort.
+    // nth_element picks the percentile of |psi| (sliceMag), not of |psi|^2 -- but squaring is
+    // monotonic over non-negative values, so the percentile-of-|psi|, squared, equals the
+    // percentile-of-|psi|^2 directly: v99 below IS the density (|psi|^2) percentile.
     for (int i = 0; i < kSliceCellCount; i++)
         sliceOrder[i] = i;
     int v99Index = int(kSliceDensityPercentile * orb_real_t(kSliceCellCount - 1));
     std::nth_element(sliceOrder, sliceOrder + v99Index, sliceOrder + kSliceCellCount,
                      [](int a, int b) { return sliceMag[a] < sliceMag[b]; });
-    orb_real_t v99 = sliceMag[sliceOrder[v99Index]];
+    orb_real_t v99Mag = sliceMag[sliceOrder[v99Index]];
+    orb_real_t v99 = v99Mag * v99Mag;
     if (v99 <= orb_real_t(0))
         v99 = orb_real_t(1);
+
+    // Auto-exposure (see visual_constants.h's kSliceExposureScale comment for the rationale):
+    // brightFraction = fraction of the visible cloud (density >= kSliceVisibleFrac*v99) that
+    // is already near-max (density >= kSliceBrightFrac*v99). One counting pass, no extra
+    // sorting.
+    int visibleCount = 0, brightCount = 0;
+    orb_real_t visibleFloor = kSliceVisibleFrac * v99;
+    orb_real_t brightFloor = kSliceBrightFrac * v99;
+    for (int i = 0; i < kSliceCellCount; i++)
+    {
+        orb_real_t density = sliceMag[i] * sliceMag[i];
+        if (density >= visibleFloor)
+        {
+            visibleCount++;
+            if (density >= brightFloor)
+                brightCount++;
+        }
+    }
+    orb_real_t brightFraction =
+        visibleCount > 0 ? orb_real_t(brightCount) / orb_real_t(visibleCount) : orb_real_t(1);
+    orb_real_t exposure = kSliceExposureScale * (orb_real_t(1) - brightFraction);
+    if (exposure < orb_real_t(0))
+        exposure = orb_real_t(0);
+    orb_real_t gamma = orb_real_t(1) / (orb_real_t(1) + exposure);
+    if (gamma < kSliceMinGamma)
+        gamma = kSliceMinGamma;
 
     for (int i = 0; i < kSliceCellCount; i++)
     {
         orb_real_t density = sliceMag[i] * sliceMag[i] / v99;
         if (density > orb_real_t(1))
             density = orb_real_t(1);
-        orb_real_t lv = std::pow(density, kSliceLevelGamma) * orb_real_t(kOrbitalColorMaxLevel);
+        orb_real_t lv = std::pow(density, gamma) * orb_real_t(kOrbitalColorMaxLevel);
         out->level[i] = uint8_t(lv >= orb_real_t(255) ? 255 : int(lv));
     }
 }
