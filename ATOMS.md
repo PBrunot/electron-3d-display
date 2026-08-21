@@ -1,9 +1,24 @@
-# ATOMS.md — Estensione a atomi multi-elettronici (PC, non ancora firmware)
+# ATOMS.md — Estensione a atomi multi-elettronici (PC, web e firmware ESP32)
 
 Stato di avanzamento e note tecniche per riprendere la sessione. Riguarda
-SOLO la visualizzazione approssimata di atomi con Z>1 (`pc/atom_main.py`),
-costruita sopra la matematica idrogenoide già validata in `ORBITALI.md`.
-Non ancora portata su ESP32/firmware — vedi §6.
+la visualizzazione approssimata di atomi con Z>1, costruita sopra la
+matematica idrogenoide già validata in `ORBITALI.md`.
+
+**Aggiornamento (agosto 2026):** questo documento descrive **due** modelli
+che coesistono nel codice:
+
+1. Il modello "storico" §0-§4 sotto — idrogenoide con carica nucleare
+   efficace (Clementi-Raimondi/Slater), usato per la modalità `hydrogenic`
+   e come **fallback per Z>92** (dove la tabella §5 non copre).
+2. Il modello di default attuale — funzioni radiali **tabulate** da un
+   risolutore Kohn-Sham a tutti gli elettroni (SPARC-atomSFE), validate
+   contro NIST, **portate su PC, web e firmware ESP32 (C++ e MicroPython)**.
+   Vedi §5 (che sostituisce/aggiorna la vecchia sezione "Accuratezza") e i
+   documenti di dettaglio in inglese `pc/screened_potential_model.md`
+   (design/stato) e `pc/RUN_HFS.md` (runbook) — non duplicati qui.
+
+Il porting firmware, descritto come lavoro futuro nella versione precedente
+di questo file, **è fatto** (§5.4).
 
 ## 0. Obiettivo e approccio scelto
 
@@ -52,6 +67,8 @@ per shell esattamente semi-piene con un elettrone per orbitale); il neon
 
 ## 1. Mappa dei file
 
+Modello storico (idrogenoide + Z_eff, invariato da questa sessione):
+
 ```
 micropython/slater.py       Config. elettronica (Madelung + eccezioni reali,
                              _CONFIG_EXCEPTIONS), Z_eff (Clementi-Raimondi via
@@ -60,25 +77,101 @@ micropython/slater.py       Config. elettronica (Madelung + eccezioni reali,
                              Hund (hund_fill_m), tabella simboli Z=1..118.
 micropython/slater_cr_zeff.py  Tabella Z_eff Clementi-Raimondi Z=1..54 per
                              sottoshell (dati, citati in testa al file).
-micropython/pointcloud.py   + init_radial_sampler()/sample_isotropic_point()
-                             (nuovo, sottoshell piene)
-                             + z_eff opzionale in init_orbital_sampler()
-                             + radial_mode_radius() (moda di r²R(r)², usata
-                             dalla validazione — vedi pc/validate_atoms.py)
-micropython/orbitals.py     NON MODIFICATO — lo Z_eff entra come
-                             sostituzione di variabile al momento della
-                             chiamata (r → Z_eff·r), non nella libreria
-                             stessa.
+micropython/pointcloud.py   init_radial_sampler()/sample_isotropic_point()
+                             (sottoshell piene), z_eff opzionale in
+                             init_orbital_sampler(), radial_mode_radius()
+                             (moda di r²R(r)², usata da pc/validate_atoms.py);
+                             + interp_u()/_build_inverse_cdf_from_grid() e
+                             radial_fn opzionale, usati dal path a tabella §5.
+micropython/orbitals.py     Motore d'onda idrogenoide, condiviso col catalogo
+                             puro dell'idrogeno — vedi ORBITALI.md.
 micropython/atom_cloud.py   Orchestrazione: electron_configuration ->
                              gruppi di disegno (_drawing_groups, isotropo
-                             vs Hund) -> point cloud unica. Anche:
-                             ANGSTROM_PER_BOHR, scale_for_atom(),
-                             PIXELS_PER_BOHR (calibrazione scala fissa).
-pc/atom_view_pc.py           Viewer tkinter: Su/Giù cambia elemento (Z).
-pc/atom_main.py              Entry point: python3 pc/atom_main.py [Z]
-pc/orbital_view_pc.py        + draw_orbit_marker() e draw_scale_bar()
-                             estratti come funzioni riusabili (refactor
-                             minimo, comportamento demo idrogeno invariato)
+                             vs Hund) -> point cloud unica; accetta
+                             radial_tables= opzionale (§5) per sostituire la
+                             sorgente radiale idrogenoide con quella tabulata.
+                             Anche: ANGSTROM_PER_BOHR, scale_for_atom(),
+                             PIXELS_PER_BOHR (calibrazione scala fissa),
+                             kAtomShellRgb (colori per shell K/L/M/N...).
+pc/atom_view_pc.py           Viewer tkinter: Su/Giù cambia elemento (Z),
+                             --model hydrogenic|hfs (hfs = tabelle §5).
+pc/atom_main.py              Entry point: python3 pc/atom_main.py [Z] [--model hfs]
+pc/atom_dissection_common.py Piano di dissezione a sottoshell (Fase 0-5,
+                             scala/clip/timing) condiviso tra pc/atom_view_pc.py
+                             e web/py/web_atom.py. Esplicitamente NON copre
+                             micropython/atom_view.py: il dispositivo non ha
+                             la dissezione.
+pc/orbital_view_pc.py        draw_orbit_marker() e draw_scale_bar() riusabili.
+```
+
+Modello a tabelle radiali (§5, default attuale) e porting firmware:
+
+```
+pc/hfs_atomsfe.py           Genera le tabelle radiali via SPARC-atomSFE
+                             (solver Kohn-Sham a tutti gli elettroni, LDA_SVWN,
+                             vendorizzato in pc/_atomsfe_vendor/). Sorgente di
+                             default di pc/hfs_tables.npz (Z=1..92).
+pc/hfs_solver.py             Vecchio risolutore HFS scritto in casa (potenziale
+pc/dirac_solver.py           a schermo + Numerov/ARPACK, con passata
+                             relativistica di Dirac per Z≥55) — SUPERATO dal
+                             modello atomSFE, mantenuto per confronto
+                             (pc/compare_old_vs_atomsfe.py) e per rigenerare
+                             tabelle Z=1..118 (pc/RUN_HFS.md §2), scope non
+                             più usato di default da nessun consumer.
+pc/hfs_tables.py             Lettore npz (DEFAULT_TABLES = hfs_tables.npz).
+pc/hfs_tables.npz            Tabella di default in uso (= hfs_tables_atomsfe.npz,
+                             Z=1..92). hfs_tables_reduced.npz: compattazione a
+                             128 punti/sottoshell (formato per il device).
+                             "hfs_tables - Copia.npz": backup vecchio Z=1..118.
+pc/nist_compare_atomsfe.py   Validazione primaria: autovalori vs NIST
+                             dftdata (examples/nis data/dftdata) — vedi §5.2.
+pc/nist_compare.py           Vecchia validazione (risolutore in-repo vs NIST,
+                             α=2/3) — superata, mantenuta per confronto.
+pc/validate_atoms.py         Invariato nel ruolo: --model hfs --strict --all.
+pc/ionization_energy.py      Tabella energie di prima ionizzazione NIST SRD 111
+                             (Z=1..92), usata da pc/plot_atomic_radii.py per il
+                             pannello di confronto Koopmans vs sperimentale.
+pc/screened_potential_model.md  Documento di design/stato (inglese) — dettaglio
+pc/RUN_HFS.md                completo del modello a tabelle e runbook per
+                             rigenerarle; non duplicato qui, vedi §5.
+
+tools/hfs_table_gen.py      Impacchetta la npz ridotta in un blob binario
+                             (griglia r condivisa + indice per Z + indice per
+                             sottoshell (n,ell) + righe u(r)).
+tools/atom_size_calib_gen.py  Genera 3 file di calibrazione scala: C++
+                             (src/physics/atom_size_calib.h, a tabella),
+                             MicroPython a tabella (micropython/hfs_atom_size_calib.py,
+                             usato solo da atom_view.py) e MicroPython idrogenoide
+                             (micropython/atom_size_calib.py, invariato — usato
+                             da pc/atom_view_pc.py --model hydrogenic e dal
+                             fallback di dissezione web).
+
+data/hfs_tables.bin          Blob dati flashato sulla partizione SPIFFS
+                             "storage" (partitions_16M.csv) via
+                             `pio run -t uploadfs` — passo SEPARATO da
+                             `pio run -t upload`. Il firmware NON lo include
+                             come .rodata: viene letto on-demand da flash.
+src/physics/hfs_radial.h/.cpp  Caricatore/campionatore delle tabelle da
+                             flash: hfsInit() monta /storage in modo
+                             idempotente; hfsFindU() ritorna la riga o
+                             nullptr (Z>92 o partizione non montata) — nullptr
+                             fa scattare il fallback idrogenoide, mai un crash.
+src/physics/hfs_tables.h     Generato: solo 3 costanti di dimensione
+                             (kHfsGridSize/kHfsElementCount/kHfsSubshellCount).
+src/physics/pointcloud.h     + buildInverseCdfFromGrid()/interpOnGrid() per
+                             costruire la CDF inversa da una griglia arbitraria
+                             (le tabelle §5), oltre al path idrogenoide invariato.
+src/physics/atom_cloud.h/.cpp  Seleziona la sorgente radiale per (Z,n,l):
+                             tabulata se Z≤92, altrimenti idrogenoide.
+src/views/atom_view.cpp/.h   Viewer atomo sul dispositivo (chooser/galleria,
+                             Su/Giù cambia Z) — nessuna dissezione (vedi sopra).
+
+micropython/hfs_radial_tables.py  Lettore da flash on-demand (header/indice
+                             residenti, righe via open()/seek()).
+micropython/hfs_tables.bin   File dati device (MicroPython), deployato con
+                             `mpremote fs cp`.
+micropython/atom_view.py     Entry point viewer device (MicroPython), passa
+                             radial_tables= a build_atom_point_cloud().
 ```
 
 ## 2. Perché la scala della camera doveva essere fissa, non per-atomo
@@ -238,129 +331,140 @@ fisici: isotropia Unsöld su shell piene e semi-piene, anisotropia Hund su
 - [WebElements — Atomic radii (Clementi)](https://winter.group.shef.ac.uk/webelements/periodicity/atomic_radius/)
   (conferma provenienza/definizione dei dati)
 
-## 5. Accuratezza — fatto e da fare
+## 5. Modello radiale attuale: da HFS in-repo a SPARC-atomSFE (default)
 
-Fatto in questa sessione (R1/R4/R5):
+Il risolutore HFS "fatto in casa" descritto nella cronologia sopra (R1-R5,
+§4) **non è più la sorgente di default** delle tabelle radiali. È stato
+sostituito da **SPARC-atomSFE** (github.com/SPARC-X/SPARC-atomSFE,
+vendorizzato in `pc/_atomsfe_vendor/`), un risolutore Kohn-Sham a tutti gli
+elettroni con base a elementi finiti spettrali, funzionale LDA_SVWN — un
+codice esterno validato dalla sua comunità, non più matematica ricostruita
+a mano in questo repo. Dettaglio completo (design, derivazione, storia del
+bug SCF) in `pc/screened_potential_model.md`; runbook di rigenerazione in
+`pc/RUN_HFS.md`. Qui solo lo stato riassunto.
 
-- **Eccezioni di configurazione** (R4): tabella `slater._CONFIG_EXCEPTIONS`
-  per Cr, Cu, Nb, Mo, Ru, Rh, Pd, Ag, Pt, Au, La, Ce, Gd, Ac, Th, Pa, U,
-  Np, Cm, Lr — corregge la forma qualitativa della shell esterna (es. Pd
-  diventa 4d¹⁰ senza la 5s diffusa che Madelung sbagliato avrebbe creato).
-- **Z_eff Clementi-Raimondi** (R5): tabella trascritta e verificata in
-  `micropython/slater_cr_zeff.py` (Z≤54), usata da `slater.z_eff_radial()`;
-  oltre Xe si torna a Slater. Impatto misurato: corregge il residuo del
-  periodo 2 (già quasi esatto con la definizione giusta) e aiuta i periodi
-  3-4 di qualche punto %, ma la sovrastima residua è dominata dalla forma
-  idrogenoide (vedi §4.2), non dalle costanti.
-- **Consistenza n*** (R5, resa come `n_star()`): `slater.n_star()` applicato SOLO al fallback
-  Slater (il valore Clementi-Raimondi è per costruzione consistente con n,
-  Z_eff = n·√(−2ε), quindi non va riscalato). Recupera il 30% su Cs 6s
-  (1420 → 994 pm); i pesanti restano ~3-5×.
-- **Harness di validazione** (R1): `pc/validate_atoms.py` + dati letteratura
-  in `pc/clementi_radii.py` + `pointcloud.radial_mode_radius()`. La
-  metodologia è ora quella corretta (valenza vs valenza) e il gate `--strict`
-  protegge dalle regressioni.
+### 5.1 Copertura e ruolo dei due modelli
 
-Da fare (il vero salto di accuratezza):
+- **Modello a tabelle (atomSFE), default**: `pc/hfs_atomsfe.py` genera
+  `pc/hfs_tables.npz` (= `pc/hfs_tables_atomsfe.npz`) per **Z=1..92**, non
+  relativistico. È la sorgente usata di default da `pc/atom_view_pc.py`,
+  dal viewer web e dal firmware ESP32 (§5.4).
+- **Vecchio risolutore in-repo** (`pc/hfs_solver.py` + `pc/dirac_solver.py`,
+  potenziale a schermo + Numerov/ARPACK, passata relativistica di Dirac per
+  Z≥55, descritto in dettaglio in §4 sopra — R1-R5): **superato**,
+  mantenuto solo per confronto (`pc/compare_old_vs_atomsfe.py`) e perché
+  può ancora generare tabelle Z=1..118 (`pc/RUN_HFS.md` §2, →
+  `pc/hfs_tables - Copia.npz`) — oggi non consumato da nessun viewer di
+  default. I numeri R1-R5 sopra restano corretti come storia di quel
+  modello, ma descrivono un percorso ormai secondario.
+- **Fallback idrogenoide** (§0-§4.2): usato per Z>92 (oltre lo scope di
+  atomSFE) e nella modalità esplicita `--model hydrogenic`.
 
-- ~~**Potenziale centrale a schermo + Numerov (R2, consigliato)**~~ → FATTO
-  (vedi sotto, "R2/R3 implementati"): sostituire l'idrogenoide a Z_eff
-  costante con autofunzioni di V(r) = −Z_eff(r)/r (Z_eff(r) → Z per r→0,
-  → valore asintotico per r→∞), risolte numericamente offline e tabulate
-  come [rR]² — il sampler esistente non cambia. È l'unica strada che
-  corregge davvero la sovrastima di Li/Be e dei periodi 3-4 (1.3-1.5×), dei
-  pesanti (3-5×) e che dà la coda asintotica giusta (carica +1), perché la
-  forma radiale reale è più contratta dell'idrogenoide per ortogonalità al
-  core.
-- ~~**Effetto relativistico (R3)** per Z≳55~~ → FATTO come risolutore
-  dell'equazione radiale di Dirac (vedi sotto): non più il fattore empirico
-  √(1−(Zα)²), ma la contrazione vera (1s di U −25%, 6s di Au −6% in
-  potenziale di Coulomb nudo, più per lo schermato reale).
+### 5.2 Validazione NIST — fatta, con numeri concreti
 
-### R2/R3 implementati (sessione corrente)
+Da `README.md` ("How we know the math is right"): il modello atomSFE
+riproduce gli autovalori LDA del *NIST Atomic Reference Data for Electronic
+Structure Calculations* (Kotochigova et al., 1997) entro **≤7×10⁻⁶ Ha su
+tutte le 915 sottoshell di Z=1..92**, e le configurazioni elettroniche di
+stato fondamentale coincidono con NIST **92/92**
+(`pc/nist_compare_atomsfe.py`, confronto contro l'archivio NIST in
+`examples/nis data/dftdata`, tolleranza `--tol 2e-5` Ha/sottoshell). Questo
+sostituisce/supera la vecchia validazione (`pc/nist_compare.py`, risolutore
+in-repo ad α=2/3, accordo ~1 eV, numeri riportati sopra) che resta nel repo
+solo per confronto storico.
 
-Implementazione PC completa, in attesa della validazione finale contro i
-dati NIST (Kotochigova et al., `dftdata.tar.gz` — l'utente lo sta
-scaricando; la tabella contiene energie + autovalori orbitali per Z=1..92
-in LDA/LSD/RLDA/ScRLDA, NON le funzioni d'onda radiale):
+Nota fisica: gli orbitali di valenza LDA sono più diffusi del riferimento
+Hartree-Fock (Clementi-Raimondi) per errore di self-interazione — la
+struttura interna delle shell è quindi NIST-esatta, ma la **dimensione
+resa a schermo** è ricalibrata per elemento sul raggio di letteratura
+Clementi-Raimondi (`pc/validate_atoms.py --model hfs --strict --all`,
+`tools/atom_size_calib_gen.py`), non presa grezza dal modello LDA.
 
-- `pc/hfs_solver.py` — solver HFS (Hartree-Fock-Slater) autocoerente:
-  potenziale centrale V = −Z/r + V_ee + V_x(α) con cutoff di Latter
-  (V ≤ −1/r), equazione radiale risolta come problema agli autovalori
-  tridiagonale generalizzato su griglia log-uniforme (ARPACK shift-invert;
-  dsterf/dstevx falliscono per il dynamic range ~1e16). Output:
-  `pc/hfs_tables.npz` (u(r)=rR, autovalori, configurazioni, Z=1..118).
-  Gate: `--coulomb-check` (idrogeno esatto a 1e-5).
-- `pc/dirac_solver.py` — versione relativistica (equazione radiale di
-  Dirac, shooting + conteggio nodi, autofunzione con matching a due lati).
-  Gate: energie idrogenoidi di Dirac esatte a 1e-9. Agganciata a
-  `hfs_solver.py --relativistic` (passata finale sui potenziali SCF
-  non-relativistici, one-shot; j=l±1/2 mediate sul peso di degenerazione).
-- `pc/hfs_tables.py` — lettore delle tabelle; sorgenti radiali per i
-  sampler (interfaccia duck-typed consumata da atom_cloud.py).
-- `micropython/pointcloud.py` — `init_radial_sampler_from_table()`,
-  `radial_mode_radius_from_table()`, `interp_u()`, e `radial_fn` opzionale
-  in `init_orbital_sampler()` (percorso idrogeno invariato).
-- `micropython/atom_cloud.py` — `build_atom_point_cloud(..., radial_tables=)`.
-- `pc/validate_atoms.py --model hfs` — stesso harness con le nuove funzioni
-  radiali + check di Koopmans (autovalore di valenza vs IP sperimentale,
-  NIST SRD 111).
-- `pc/nist_compare.py` — confronto autovalori vs dati NIST (pronto; dati in
-  arrivo).
-- `pc/atom_main.py --model hfs` / `atom_view_pc.py` — viewer PC con la
-  nuova nuvola.
+Il bug SCF di collasso ns→d dei metalli di transizione (warm-start sigma
+di ARPACK, cronologia sopra) è ora raccontato in
+`pc/screened_potential_model.md` §5, citato dal README come "a real bug
+caught by cross-checking against NIST eigenvalues" — riguarda solo il
+vecchio risolutore in-repo, non atomSFE.
 
-Numeri misurati (α=1.0, Slater; rapporto raggio modello/letteratura sulla
-sottoshell di valenza): H 0.95, Li 0.89, C 0.83, Na 0.88, Fe 0.80, Kr 0.86,
-Xe 0.88, Cs 0.96, Au 0.91, U 1.32 — contro 1.30 / 1.45 / 1.54 / 1.52 /
-3.34 / 3.40 / 4.96 del modello precedente. Residuo sistematico ~0.8-0.9×
-(bias Xα noto); α=2/3 porta molti elementi a 0.91-0.99 ma inverte l'ordine
-3d/4s dei metalli di transizione (Fe: 3d diffusa a 420 pm — patologia LDA
-del self-interaction per shell d compatte), quindi il default resta α=1.0.
-U (1.32) si corregge in gran parte con la relatività (contrazione 7s ~26%).
+### 5.3 Pannello energie di ionizzazione (non un'interfaccia device)
+
+`pc/ionization_energy.py` aggiunge la tabella NIST SRD 111 delle energie di
+prima ionizzazione (Z=1..92, fonte Kramida/Ralchenko/Reader/NIST ASD, citata
+in testa al file); `pc/plot_atomic_radii.py` la usa per un secondo pannello
+matplotlib che confronta gli autovalori di valenza HFS/atomSFE (teorema di
+Koopmans) con le IP sperimentali. È uno strumento di analisi/plotting
+offline, non una schermata sul dispositivo, nonostante il nome del commit
+che lo ha introdotto ("Add ionization energy panel").
+
+### 5.4 Porting ESP32 — fatto (agosto 2026), C++ e MicroPython
+
+Contrariamente a quanto diceva la versione precedente di questo documento
+(porting ESP32 descritto come "obiettivo finale"), il porting firmware **è
+completo**, su entrambe le vie:
+
+- **Formato dati**: `tools/hfs_table_gen.py` compatta la npz ridotta
+  (128 punti/sottoshell, `pc/hfs_tables_reduced.npz`) in un blob binario
+  little-endian (griglia `r` condivisa + indice per Z + indice per
+  sottoshell (n,ℓ) + righe `u(r)`).
+- **C++/ESP-IDF**: il blob (`data/hfs_tables.bin`) va sulla partizione
+  SPIFFS `storage` (`partitions_16M.csv`) via `pio run -t uploadfs` — **un
+  passo separato** da `pio run -t upload` (facile da dimenticare). Letto
+  on-demand da `src/physics/hfs_radial.h/.cpp`: `hfsInit()` monta
+  `/storage` in modo idempotente, `hfsFindU()` ritorna la riga o `nullptr`
+  (Z>92, o partizione non montata) — `nullptr` fa scattare il fallback
+  idrogenoide, **mai un crash**: una scheda su cui non è stato ancora
+  lanciato `uploadfs` continua a funzionare con i raggi idrogenoidi vecchi.
+  `src/physics/pointcloud.h` guadagna `buildInverseCdfFromGrid()` +
+  `interpOnGrid()` per costruire la CDF inversa da una griglia arbitraria
+  (non equispaziata); `src/physics/atom_cloud.cpp` sceglie la sorgente
+  radiale per (Z,n,ℓ). Il firmware **non include i dati come .rodata
+  compilato**: un'iterazione precedente lo faceva (~470KB), ora sono letti
+  da flash SPIFFS (partizione da 7MB, poco altro la usa).
+- **MicroPython**: stesso blob (`micropython/hfs_tables.bin`, deployato via
+  `mpremote fs cp`), letto da `micropython/hfs_radial_tables.py` (header/
+  indice residenti in RAM, righe via `open()`/`seek()`);
+  `micropython/atom_view.py` lo passa come `radial_tables=` a
+  `build_atom_point_cloud()`.
+- **Calibrazione scala**: `tools/atom_size_calib_gen.py` genera ora *tre*
+  file — `src/physics/atom_size_calib.h` (C++, a tabella),
+  `micropython/hfs_atom_size_calib.py` (MicroPython, a tabella, solo per
+  `atom_view.py`) e l'originale `micropython/atom_size_calib.py` resta
+  idrogenoide (condiviso da `pc/atom_view_pc.py --model hydrogenic` e dal
+  fallback di dissezione web).
+- **Validazione incrociata**: C++ (float64) vs NumPy (CDF trapezoidale)
+  concordano a ~1e-8 relativo (casi Fe 4s, U 1s); pipeline MicroPython
+  verificata byte-esatta sotto interprete MicroPython 1.17 unix-port reale.
+- **Viewer device**: `src/views/atom_view.cpp/.h` — galleria/chooser con
+  Z + configurazione elettronica, Su/Giù cambia elemento. **Nessuna
+  dissezione a sottoshell sul device** (quella resta PC/web,
+  `pc/atom_dissection_common.py`, la cui docstring dice esplicitamente che
+  non copre `micropython/atom_view.py`).
+- **Non ancora fatto**: benchmark/screenshot A/B su hardware reale vs PC
+  (nessuna misura FPS sul device per questo path specifico — nessuna
+  regressione attesa: il costo per punto resta un'interpolazione + una
+  lettura di CDF inversa, uguale al path idrogenoide, più una singola
+  lettura file per sottoshell al cambio elemento, non per frame/per punto).
 
 ## 6. Prossimi passi
 
-Accuratezza fisica (in ordine di impatto):
+1. **Estendere Z_eff Clementi-Raimondi oltre Z=54**, se si trova la fonte
+   (il paper 1967 copre fino a Z=86) — non critico: il modello a tabelle
+   (§5) non dipende da Z_eff per Z>54, riguarda solo il fallback idrogenoide.
+2. **Benchmark su hardware reale** del path a tabelle (§5.4, ultimo punto):
+   misura FPS/tempo di cambio-elemento su ESP32-S3 fisico, non solo stimato.
+3. Valutare se estendere la copertura atomSFE oltre Z=92 (oggi limite duro
+   della libreria/scelta di scope) o se lasciare il fallback idrogenoide per
+   quel range, dato l'errore comunque grande atteso lì (§4.2).
 
-1. **Validazione NIST (Kotochigova et al.) FATTA** — \pc/nist_compare.py   (archivio dftdata.tar.gz in \xamples/nis data/dftdata\):
-   configurazioni NIST vs \slater.electron_configuration()\ **92/92**;
-   autovalori di valenza LDA vs HFS a α=2/3 entro ~1 eV (Ar −0.04,
-   Kr +0.33, Xe +0.66, Cs −1.09, Au −0.89, U −0.26 eV);
-   splitting spin-orbita RLDA (nlP/nlM) vs risolutore di Dirac: rapporto
-   1.08–1.19 (il 10–20% residuo è l'atteso scarto exchange-only vs
-   LDA+correlazione). Chiude la scelta α=2/3.
-2. **Batch completo delle tabelle** (\pc/hfs_solver.py --zmin 1 --zmax 118
-   --alpha 0.6666667 --relativistic --out pc/hfs_tables.npz\ — relativistico
-   solo per Z≥55 via --rel-min) + \pc/validate_atoms.py
-   --model hfs --strict --all\.
-3. **Bug SCF trovato e corretto (2026-08-19)**: lo warm-start sigma di
-   ARPACK per-l (autovalore più profondo dell'iterazione precedente − 0.05)
-   poteva finire SOPRA uno stato occupato quando gli autovalori si
-   spostano tra iterazioni (Fe 3d: −0.06 → −1.35 Ha); ARPACK restituiva
-   allora un autovalore NON occupato al suo posto e la densità corrotta
-   guidava il collasso ns→d dei metalli di transizione (Cr/Cu/Au: 4s a
-   1–6 Ha sotto il valore fisico ~0.2, raggio 2–3× troppo piccolo).
-   Rimosso: l'SCF è stabile e indipendente dal damping (0.3–0.5
-   concordano). Risultati: Cr 0.95, Fe 0.90, Cu 0.96, Au 0.95 (NR).
-   Pd (Z=46) resta una limitazione documentata del modello (contrazione
-   d-shell Xα/LDA; l'autovalore 4d combacia con la NIST LDA). I raggi
-   Z≥55 sono relativistici (Dirac) mentre la tabella Clementi è
-   non-relativistica: lo scostamento sistematico ~0.7 sui blocchi 5d/6s è
-   atteso e documentato.
-3. **Porting ESP32** (obiettivo finale): formato compatto per sottoshell
-   (fit STO o griglia log ~64 punti) → PROGMEM C arrays; \src/physics/pointcloud.h   guadagna il sampler da tabella (già costruisce le inverse-CDF a runtime);
-   \src/physics/atom_cloud.h\ seleziona la sorgente radiale per (Z,n,l); benchmark
-   FPS invariato (costo per punto: un'interpolazione + un lookup).
-4. Estendere la tabella Z_eff Clementi-Raimondi oltre Z=54 se si trova la
-   fonte (il paper 1967 copre fino a Z=86) — oggi non più critico perché
-   il modello HFS non dipende più da Z_eff per Z>54.
+Visivo/interattivo (invariato dalla versione precedente):
 
-Visivo/interattivo (invariato):
+- Colorazione per fase/segno nei gruppi Hund (vedi §3) — non implementata.
+- Point-turnover/shimmer per la modalità atomo (vedi §3) — non implementato.
 
-- Colorazione per fase/segno nei gruppi Hund (vedi §3).
-- Point-turnover/shimmer per la modalità atomo (vedi §3).
-
-Ricordarsi di rieseguire \python3 pc/validate_atoms.py --strict\ dopo
-qualunque modifica alla matematica radiale o a \slater.py\ (e
-\python3 pc/validate_atoms.py --model hfs --strict\ per il nuovo modello).
+Ricordarsi di rieseguire `python3 pc/validate_atoms.py --strict` dopo
+qualunque modifica alla matematica radiale o a `slater.py` (e
+`python3 pc/validate_atoms.py --model hfs --strict --all` per il modello a
+tabelle §5). Per il dettaglio fisico/numerico completo del modello a
+tabelle, vedi `pc/screened_potential_model.md` e `pc/RUN_HFS.md` — questo
+file resta la nota di orientamento in italiano, non la fonte primaria per
+quella parte.

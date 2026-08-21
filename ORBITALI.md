@@ -1,8 +1,17 @@
 # ORBITALI.md — Note sul calcolo delle distribuzioni di probabilità
 
 Riferimento tecnico per generare i punti della nuvola a partire dagli
-orbitali dell'idrogeno. Riguarda sia lo script offline in Python sia
-l'eventuale generazione diretta on-device in C++.
+orbitali dell'idrogeno. Riguarda tutti e tre i porting che condividono
+questa matematica: lo script offline PC (`pc/orbital_view_pc.py`), il
+firmware C++/ESP-IDF (`src/physics/orbitals.h/.cpp` +
+`src/physics/pointcloud.h/.cpp`) e MicroPython
+(`micropython/orbitals.py` + `micropython/pointcloud.py`).
+
+**Aggiornamento (agosto 2026):** le §3 "trappola scipy" e §4 "rejection
+sampling" sotto descrivono l'implementazione **originale**, ormai superata
+su entrambi i fronti (motore angolare/radiale e algoritmo di
+campionamento) — vedi §3bis e §4bis per lo stato attuale. §0/§1/§2/§6/§7
+restano matematica di base, invariata.
 
 ## 0. Correzione terminologica
 
@@ -115,7 +124,54 @@ docstring e si passano gli argomenti "a intuito", si ottengono orbitali
 ruotati di 90° senza nessun errore o warning. Commentare esplicitamente
 quale convenzione si sta usando nel codice.
 
-## 4. Algoritmo: rejection sampling
+**Nota (obsoleta ma tenuta come promemoria):** questa trappola riguardava
+un uso diretto di `scipy.special.sph_harm` che non esiste più in nessuno
+dei tre porting attuali — vedi §3bis. `scipy`/`numpy` restano in uso altrove
+nel progetto (es. `pc/hfs_solver.py`, risolutori agli autovalori per il
+modello multi-elettronico, `ATOMS.md`), ma non per la parte angolare degli
+orbitali dell'idrogeno.
+
+### 3bis. Motore attuale: coefficienti Legendre/Laguerre generali, non formule hardcoded
+
+L'implementazione reale in `orbitals.h`/`orbitals.py` **non** hardcoda le
+forme chiuse del §2/§3 per n basso come raccomandato più sotto (§5): è un
+motore generale, porting funzione-per-funzione di
+[quantum-physics.js](https://www.quantum-physics.polytechnique.fr/) di
+Manuel Joffre (École Polytechnique) — codice non ridistribuito in questo
+repo, vedi `examples/js-calculations/README.md` per dove recuperarlo e
+`tools/orbitals_host/` per l'harness di validazione incrociata che lo usa
+come riferimento.
+
+- **Parte angolare**: `legendreCoeffs()`/`legendre_coeffs()` calcola i
+  coefficienti del polinomio di Legendre associato P_l^m(cos θ) per
+  QUALSIASI (l, m) supportato (non solo i casi p/d cablati a mano del §3);
+  `computePLM()`/`compute_plm()` li valuta a runtime via `sin`/`cos`/`pow`
+  standard — **non** la scorciatoia cartesiana x/y/z/r del §3, che nel
+  codice attuale non è usata.
+- **Parte radiale**: `laguerreCoeffs()`/`laguerre_coeffs()` calcola i
+  coefficienti del polinomio di Laguerre associato generale (non le forme
+  chiuse §2 per n=1..3), valutati da `computeRadialR()`/analoga.
+- **Range supportato**: `kOrbitalNMax = 16` (`ell` fino a 15) — non solo il
+  "catalogo da manuale" fino a n=3 che il §5 sotto raccomandava di
+  hardcodare.
+- **Header-only e `constexpr` in C++** (`orbitals.h`): con un toolchain che
+  supporta `<cmath>` constexpr (C++23/26, questo progetto compila con
+  `-std=gnu++26`), l'intero calcolo di un orbitale può essere fatto
+  eseguire dal compilatore ed essere incorporato come `.rodata` a tempo di
+  compilazione invece che ricalcolato ogni boot — vedi `orbital_library.h`
+  per il catalogo di orbitali "cablati" in questo modo.
+- **Validazione incrociata a tre vie** (`tools/orbitals_host/`): C++
+  (double e float32), MicroPython (unix port) e la libreria JS di
+  riferimento vengono confrontati su 11 casi di test condivisi
+  (`test_cases.csv`), sia per la funzione d'onda (coefficienti, tabella di
+  Legendre, tabella radiale, campioni di ψ) sia per la nuvola di punti
+  (§4bis) — tolleranza stretta (rtol=1e-9) tra le coppie in doppia
+  precisione, informativa (rtol=2e-3) contro il float32. Eseguibile anche
+  **su un ESP32-S3 reale** (`run_on_device.sh`): confermato float32 single
+  precision sul dispositivo, 43/44 file funzione d'onda e 11/11 nuvola di
+  punti entro tolleranza informativa.
+
+## 4. Algoritmo: rejection sampling (versione originale, superata — vedi §4bis)
 
 Indipendente da dove gira (Python offline o C on-device):
 
@@ -135,33 +191,81 @@ Indipendente da dove gira (Python offline o C on-device):
 Tasso di accettazione tipico per orbitali con nodi: 5-10%, quindi contare
 ~10-20 candidati generati per punto accettato.
 
-## 5. Dove farlo girare: offline (Python) vs on-device (C++)
+### 4bis. Algoritmo attuale: campionamento esatto per CDF inversa (quantile), non rigetto
 
-**Offline (Python, script separato, non fa parte del firmware)**: obbligato
-per qualunque P(x,y,z) arbitraria senza formula chiusa comoda, o per
-orbitali con n alto dove i polinomi di Laguerre generali (fattoriali,
-normalizzazione) sono più comodi da scrivere con `scipy.special`. Output:
-array esportato come C/PROGMEM o file su TF card.
+Il rejection sampling sopra è stato **sostituito** (due iterazioni
+intermedie — rigetto 3D congiunto, poi rigetto separabile per asse — sono
+conservate nella cronologia git, non nel codice attuale) da un
+campionamento **esatto**, non un'approssimazione più veloce:
 
-**On-device (C++, in `setup()` o al cambio orbitale)**: fattibile e
-conveniente per il catalogo di orbitali "da manuale" (1s...3d) con le
-formule chiuse del §2/§3 hardcoded. Vantaggi:
-- nessun passaggio di export/flash per ogni nuovo orbitale, selezione a
-  runtime
-- costo stimato (Xtensa LX7 @ 240MHz, FPU, ~1-2 µs per punto candidato
-  valutato, tasso di accettazione ~5-10%): per 10.000 punti accettati,
-  10.000 × ~15 candidati × ~1.5 µs ≈ **200-250 ms**, una tantum
-  all'avvio o al cambio orbitale — non tocca il budget del loop di
-  rendering (che è un budget di tempo separato, vedi CLAUDE.md §6)
+```
+|ψ|²·r²·sin(θ) = [r·R(r)]² × [P_l^m(θ)²·sin(θ)] × azimutale(φ)²
+                    solo r          solo θ            solo φ
+```
 
-Usare `esp_random()` (RNG hardware) per i candidati uniformi e la soglia di
-accettazione, non `rand()`.
+la densità bersaglio si fattorizza in tre funzioni di una sola variabile
+ciascuna (stessa fattorizzazione sfruttata anche dalla vecchia versione a
+rigetto separabile) — campionare ogni fattore marginale indipendentemente
+e comporre i risultati riproduce esattamente la densità congiunta. La
+differenza: invece di tabulare solo il *bound* di ciascun fattore e poi
+accettare/scartare candidati uno per uno, `initOrbitalSampler()`/
+`init_orbital_sampler()` precalcola, per ciascun asse, l'intera **CDF
+inversa** (la funzione "quantile → valore") con un'unica scansione in
+avanti (`buildInverseCdf()`/`_build_inverse_cdf()`: la CDF è monotona, e
+così il quantile bersaglio, quindi nessuna ricerca né in costruzione né
+per campione). Campionare un punto costa poi esattamente **tre letture di
+tabella interpolate** (`getValueFromLookupTable()`) più la trigonometria
+per la conversione cartesiana — **zero rigetti, costo per punto costante
+indipendentemente da (n,ℓ,m) e da quanto l'orbitale ha nodi**. Tecnica
+generalizzata dal sampler GPU di
+[stef1949/Electron-Orbital-Simulator](https://github.com/stef1949/Electron-Orbital-Simulator)
+(che usa una tabella 2D congiunta θ×φ; qui, con poca RAM su ESP32 e la
+fattorizzazione già sfruttata, tre tabelle 1D separate sono più economiche
+ed equivalenti).
 
-Raccomandazione pratica: hardcodare on-device solo gli orbitali con formula
-chiusa semplice (§2/§3, fino a n=3 circa). Per n più alti o casi meno comuni,
-tornare al percorso offline Python + Laguerre generale via scipy — evita di
-dover implementare fattoriali/ricorrenze di Laguerre generali in C per un
-caso limite.
+**Costo misurato su ESP32-S3 reale** (Waveshare ESP32-S3-LCD-1.3,
+MicroPython 1.28.0, `tools/orbitals_host/run_on_device.sh`, caso
+(n,ℓ,m)=(9,7,3), il più difficile del catalogo di test): rigetto congiunto
+62.8 ms/punto → rigetto separabile 4.0 ms/punto → CDF inversa 0.5-0.7
+ms/punto → CDF inversa + ottimizzazioni MicroPython (alias di modulo,
+`array.array('d', ...)` invece di `list`, `@micropython.native`) 0.38
+ms/punto — **~165× più veloce del rigetto congiunto originale**. La CDF
+inversa aggiunge però un costo di inizializzazione per orbitale che il
+rigetto non aveva in questa forma (costruire tre tabelle invertite):
+~255-300ms per orbitale dopo le ottimizzazioni — comunque un costo fisso
+per (n,ℓ,m), non per punto/frame, quindi compatibile con un cambio
+orbitale a runtime scelto dall'utente (non serve rigenerare tutto
+all'avvio). Numeri completi, metodologia dei sei confronti e note sulla
+precisione float32 vs double in `tools/orbitals_host/README.md`.
+
+Stesso PRNG portabile (`XorShift32`, xorshift a 32 bit, tripla di Marsaglia
+(13,17,5)) mirrorato bit-per-bit in C++/MicroPython/JS: con lo stesso seme
+le tre implementazioni producono la **stessa identica sequenza di punti**
+(non solo la stessa statistica), il che rende la validazione incrociata un
+confronto molto più severo di un istogramma — cattura anche un fattore
+mancante nella densità che una forma complessiva simile potrebbe non
+rivelare.
+
+## 5. Dove gira: offline (Python) vs on-device (C++/MicroPython) — superato da §3bis/§4bis
+
+Questa sezione descriveva la scelta originale: hardcodare a mano solo un
+catalogo "da manuale" (1s...3d) on-device e delegare tutto il resto a uno
+script Python offline con `scipy.special`. **Non è più così**: §3bis
+(motore Legendre/Laguerre generale, `kOrbitalNMax = 16`) e §4bis
+(campionamento a CDF inversa) girano **entrambi on-device**, in C++ e in
+MicroPython, per l'intero catalogo n=1..16 supportato — nessuna
+generazione offline necessaria per gli orbitali dell'idrogeno, nessun
+export PROGMEM per-orbitale. I numeri di costo per punto e di
+inizializzazione per orbitale sono in §4bis (misurati su ESP32-S3 reale).
+La divisione offline/on-device resta corretta solo per il modello
+**multi-elettronico** (Z>1, tabelle radiali tabulate da un risolutore
+esterno, generazione offline obbligata) — vedi `ATOMS.md` §5, un problema
+diverso da quello di questo documento.
+
+Nota RNG (ancora valida): la generazione dei candidati usa `XorShift32`
+(§4bis), non `esp_random()`/`rand()` — scelto deliberatamente per essere
+portabile bit-per-bit tra C++/MicroPython/JS e quindi verificabile in
+`tools/orbitals_host/`, non per qualità crittografica.
 
 ## 6. Precisione numerica
 
@@ -176,3 +280,14 @@ Formule standard, reperibili su qualsiasi testo di meccanica quantistica
 idrogeno) o sintetizzate su risorse come Wikipedia
 ("Hydrogen atom", "Table of spherical harmonics",
 "Atomic orbital" per le forme reali p/d).
+
+**Riferimento diretto dell'implementazione attuale (§3bis/§4bis):**
+[Quantum Physics Online](https://www.quantum-physics.polytechnique.fr/)
+(Manuel Joffre, École Polytechnique) — `orbitals.h`/`orbitals.py` sono un
+porting funzione-per-funzione del suo `quantum-physics.js`; vedi
+`examples/js-calculations/README.md` per dove recuperare l'originale (non
+ridistribuito qui) e `tools/orbitals_host/README.md` per l'harness di
+validazione incrociata C++/MicroPython/JS che lo usa come riferimento di
+verità. La tecnica di campionamento per CDF inversa (§4bis) generalizza
+quella del sampler GPU di
+[stef1949/Electron-Orbital-Simulator](https://github.com/stef1949/Electron-Orbital-Simulator).
