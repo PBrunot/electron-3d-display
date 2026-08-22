@@ -29,12 +29,18 @@ that file's header comment for the full rationale.
 The sweep takes ~16-18 seconds total (5 point-count steps x 60 frames each x 2 sweeps, plus
 point-cloud build time per step) and needs no IMU/tilt setup or user interaction.
 
-## Expected results (baseline: 2026-08-20, ESP32-S3 @ 240MHz, SPI 40MHz, this hardware unit)
+## Expected results (baseline: 2026-08-22, ESP32-S3 @ 240MHz, SPI 80MHz, this hardware unit)
 
-Captured after the atom/orbital split and the `iram_free` column were added -- this is the
-first baseline with both sweeps. `avg_wait_ms` isn't printed by the summary table below (see
-the raw `BENCH,STEP` line for it) but stayed flat at ~12-14ms across every row of both sweeps,
-as expected for a fixed-size SPI DMA transfer.
+Re-captured after merging CYD (ESP32-2432S028R) hardware support (`CYD-test` branch): the
+`Display` frame buffer went from a single flat array + per-frame software Y-flip to a
+block-based allocator with per-pixel `writePx()`/`readPx()` accessors (needed for the CYD's
+fragmented, non-PSRAM heap), and every render/font/overlay call site was converted from raw
+`uint16_t* frameBuf` to `Display&`. That touches the S3's hot render path too, so this rerun
+is also the regression check for that refactor against the previous (2026-08-20) baseline below
+-- verdict: **no regression**, every row is flat-to-slightly-faster than 2026-08-20, and
+`iram_free`/the physical-correctness tables below are unchanged. `avg_wait_ms` isn't printed by
+the summary table below (see the raw `BENCH,STEP` line for it) but stayed flat at ~11-13ms
+across every row of both sweeps, as expected for a fixed-size SPI DMA transfer.
 
 ### Performance (`BENCH,STEP`)
 
@@ -42,26 +48,34 @@ as expected for a fixed-size SPI DMA transfer.
 
 | points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps  | iram_free |
 |-------:|---------:|---------------:|---------------:|---------------:|-----:|----------:|
-|    500 |      265 |          10.159 |          10.152 |          10.243 | 42.09 |    216687 |
-|   1000 |       20 |          10.617 |          10.610 |          10.689 | 42.04 |    216687 |
-|   2000 |       24 |          11.539 |          11.530 |          11.622 | 41.97 |    216687 |
-|   4000 |       33 |          13.943 |          13.936 |          14.012 | 36.00 |    216687 |
-|   8000 |       50 |          18.149 |          18.141 |          18.215 | 31.48 |    216687 |
+|    500 |      265 |           9.484 |           9.476 |           9.573 | 45.89 |    216687 |
+|   1000 |       20 |           9.963 |           9.955 |          10.050 | 45.88 |    216687 |
+|   2000 |       24 |          10.926 |          10.914 |          11.031 | 42.08 |    216687 |
+|   4000 |       33 |          13.420 |          13.410 |          13.507 | 38.79 |    216687 |
+|   8000 |       50 |          17.806 |          17.794 |          17.886 | 33.56 |    216687 |
 
 **Orbital sweep (2pz, `kOrbitalDefaultPresetIndex`):**
 
 | points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps  | iram_free |
 |-------:|---------:|---------------:|---------------:|---------------:|-----:|----------:|
-|    500 |      105 |          10.476 |          10.470 |          10.581 | 42.06 |    216387 |
-|   1000 |       99 |          10.967 |          10.959 |          11.099 | 42.02 |    216387 |
-|   2000 |      114 |          11.980 |          11.969 |          12.101 | 38.80 |    216387 |
-|   4000 |      145 |          14.580 |          14.573 |          14.666 | 35.97 |    216387 |
-|   8000 |      214 |          19.139 |          19.130 |          19.234 | 31.44 |    216387 |
+|    500 |      105 |           9.850 |           9.844 |           9.972 | 45.87 |    216387 |
+|   1000 |       99 |          10.403 |          10.397 |          10.532 | 45.79 |    216387 |
+|   2000 |      114 |          11.520 |          11.506 |          11.652 | 42.00 |    216387 |
+|   4000 |      145 |          14.342 |          14.335 |          14.431 | 38.75 |    216387 |
+|   8000 |      214 |          19.328 |          19.319 |          19.441 | 31.47 |    216387 |
 
 (500-point atom `build_ms` of 265 is a one-off: the very first sweep step, before Fe's
 subshell rejection-sampling has "warmed up" any branch prediction/caches -- every later atom
 step, and the whole orbital sweep, doesn't show it. Not a regression signal by itself; watch
-whether it recurs at 500 points specifically across runs.)
+whether it recurs at 500 points specifically across runs. Unchanged from the prior baseline,
+as expected -- this is startup-order noise, not something the `Display` refactor touches.)
+
+Previous baseline (2026-08-20, same SPI 80MHz -- superseded by the table above, kept for delta
+reference): atom @8000pts 18.149ms/31.48fps, orbital @8000pts 19.139ms/31.44fps; see git
+history of this file for the full prior tables. (That 2026-08-20 entry's header mislabeled
+this as "SPI 40MHz" -- `display.cpp`'s `LCD_PIXEL_CLOCK_HZ` for the S3 target has been
+80MHz all along, unchanged by the CYD port; the CYD's own ILI9341 path runs at 40MHz, a
+separate `#define` block -- see that file.)
 
 Notes:
 - **8000 points is the production count** (`kAtomNumPoints` == `kOrbitalNumPoints`, what
