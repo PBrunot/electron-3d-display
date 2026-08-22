@@ -5,7 +5,7 @@
  *
  * Both sides touch state that isn't safe to access from two tasks at once:
  *  - The live Display (frame buffer + present semaphore) -- the single-shot 's'/SS_CAP
- *    capture reads display.getFrameBuf() directly (see screenshot_console.h).
+ *    capture reads it directly via display.readAllPixels() (see screenshot_console.h).
  *  - Point-cloud-building scratch: OrbitalPresetState::load()/AtomPresetState::load() (via
  *    computeOrbitalLevels()/scaleFromRadii() in orbital_presets.cpp and outerSubshellRRef()
  *    in atom_cloud.cpp) write into `static` scratch arrays (order[]/radii[]/

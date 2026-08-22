@@ -200,10 +200,10 @@ TiltEvent TiltGestureDetector::poll()
     return TiltEvent{best, raw.phase, raw.holdMs};
 }
 
-// Edge-function fill (standard barycentric-sign rasterization), bounds-checked against
-// the frame buffer like every other direct-pixel draw in this project (see overlay.cpp's
+// Edge-function fill (standard barycentric-sign rasterization); writePx() bounds-checks
+// every pixel like every other direct-pixel draw in this project (see overlay.cpp's
 // drawScaleBar()).
-static void fillTriangle(uint16_t *frameBuf, int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color)
+static void fillTriangle(Display &display, int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color)
 {
     int minX = std::min({x0, x1, x2}), maxX = std::max({x0, x1, x2});
     int minY = std::min({y0, y1, y2}), maxY = std::max({y0, y1, y2});
@@ -223,12 +223,12 @@ static void fillTriangle(uint16_t *frameBuf, int x0, int y0, int x1, int y1, int
             int w1 = edge(x2, y2, x0, y0, px, py);
             int w2 = edge(x0, y0, x1, y1, px, py);
             if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0))
-                frameBuf[py * Display::kDisplayWidth + px] = color;
+                display.writePx(px, py, color);
         }
     }
 }
 
-void drawTiltArrow(uint16_t *frameBuf, TiltDirection dir, uint16_t color)
+void drawTiltArrow(Display &display, TiltDirection dir, uint16_t color)
 {
     constexpr int kCx = Display::kDisplayWidth / 2, kCy = Display::kDisplayHeight / 2;
     constexpr int kW = Display::kDisplayWidth, kH = Display::kDisplayHeight;
@@ -237,16 +237,16 @@ void drawTiltArrow(uint16_t *frameBuf, TiltDirection dir, uint16_t color)
     switch (dir)
     {
     case TiltDirection::kRight:
-        fillTriangle(frameBuf, kW - kM, kCy, kW - kM - kL, kCy - kHw, kW - kM - kL, kCy + kHw, color);
+        fillTriangle(display, kW - kM, kCy, kW - kM - kL, kCy - kHw, kW - kM - kL, kCy + kHw, color);
         break;
     case TiltDirection::kLeft:
-        fillTriangle(frameBuf, kM, kCy, kM + kL, kCy - kHw, kM + kL, kCy + kHw, color);
+        fillTriangle(display, kM, kCy, kM + kL, kCy - kHw, kM + kL, kCy + kHw, color);
         break;
     case TiltDirection::kUp:
-        fillTriangle(frameBuf, kCx, kM, kCx - kHw, kM + kL, kCx + kHw, kM + kL, color);
+        fillTriangle(display, kCx, kM, kCx - kHw, kM + kL, kCx + kHw, kM + kL, color);
         break;
     case TiltDirection::kDown:
-        fillTriangle(frameBuf, kCx, kH - kM, kCx - kHw, kH - kM - kL, kCx + kHw, kH - kM - kL, color);
+        fillTriangle(display, kCx, kH - kM, kCx - kHw, kH - kM - kL, kCx + kHw, kH - kM - kL, color);
         break;
     case TiltDirection::kNone:
         break;

@@ -32,6 +32,8 @@
 
 #include <cstdint>
 
+class Display;
+
 #include "ux/imu.h"
 #include "physics/orbitals.h" // orb_real_t
 #include "config/visual_constants.h" // kTiltArrowMarginPx/LengthPx/HalfWidthPx
@@ -176,4 +178,4 @@ private:
 /// Draw a single filled triangle arrow at the center of the screen edge `dir` points toward
 /// (kNone draws nothing). Plain/static -- no animation or text; kTiltArrow*Px above are the
 /// only tuning knobs needed to add either later without touching the rasterizer.
-void drawTiltArrow(uint16_t *frameBuf, TiltDirection dir, uint16_t color);
+void drawTiltArrow(Display &display, TiltDirection dir, uint16_t color);

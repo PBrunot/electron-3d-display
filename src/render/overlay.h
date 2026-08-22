@@ -9,6 +9,8 @@
 
 #include <cstdint>
 
+class Display;
+
 #include "physics/orbitals.h" // orb_real_t
 #include "config/visual_constants.h" // kTitleTextX/Y, kLoadingTextX/Y
 
@@ -25,7 +27,7 @@ inline constexpr orb_real_t kPmPerBohr = orb_real_t(52.9177210903);
  * Picks the largest "nice round length" (1/2/5 x a power of ten, see overlay.cpp's
  * kScaleBarCandidates) that still fits under the bar's max on-screen length.
  */
-void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unitLabel, uint16_t barColor,
+void drawScaleBar(Display &display, orb_real_t pixelsPerUnit, const char *unitLabel, uint16_t barColor,
                   uint16_t textColor);
 
 /**
@@ -35,6 +37,6 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
  * draw_bounding_circle() / web/py/web_common.py's draw_bounding_circle_canvas(); rRef <= 0
  * draws nothing.
  */
-void drawBoundingCircle(uint16_t *frameBuf, orb_real_t rRef, orb_real_t scale, uint16_t color);
+void drawBoundingCircle(Display &display, orb_real_t rRef, orb_real_t scale, uint16_t color);
 
 inline constexpr const char *kLoadingText = "Loading...";

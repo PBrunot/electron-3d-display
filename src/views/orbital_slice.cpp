@@ -16,7 +16,12 @@ namespace
     // the index order for nth_element -- see buildSliceTable()) -- static PSRAM, not stack,
     // same rationale as orbital_presets.cpp's own computeOrbitalLevels() scratch (order[]):
     // this project avoids large stack arrays after a real task stack overflow with a much
-    // smaller one (see pointcloud.h's buildRadialSamplerRuntime()).
+    // smaller one (see pointcloud.h's buildRadialSamplerRuntime()). PSRAM-only (EXT_RAM_BSS_ATTR):
+    // this whole file is excluded from the CYD build (see platformio.ini's [env:CYD]
+    // build_src_filter and CYD-branch.md) precisely because these two arrays alone (~450KB at
+    // the current 240x240 grid) would overflow that board's much smaller, PSRAM-less internal
+    // RAM regardless of any point-cloud-count tuning -- not worth reworking into heap scratch
+    // for a feature that's unreachable there anyway (Right-tilt-hold needs the IMU).
     EXT_RAM_BSS_ATTR orb_real_t sliceMag[kSliceCellCount];
     EXT_RAM_BSS_ATTR int sliceOrder[kSliceCellCount];
 } // namespace
@@ -120,7 +125,7 @@ void buildSliceTable(int n, int ell, int m, const orb_real_t *radialCoeff, const
     }
 }
 
-void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade)
+void renderSliceFrame(Display &display, const SliceTable &t, orb_real_t fade)
 {
     // Full-resolution grid (kSliceGridSize == kDisplayWidth): one cell per pixel, so no 2x2
     // block writes and no interpolation -- each pixel is its own |psi|^2 sample, the
@@ -144,6 +149,6 @@ void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade)
         uint8_t r = uint8_t(orb_real_t(a.r) + (orb_real_t(b.r) - orb_real_t(a.r)) * f + orb_real_t(0.5));
         uint8_t g = uint8_t(orb_real_t(a.g) + (orb_real_t(b.g) - orb_real_t(a.g)) * f + orb_real_t(0.5));
         uint8_t bl = uint8_t(orb_real_t(a.b) + (orb_real_t(b.b) - orb_real_t(a.b)) * f + orb_real_t(0.5));
-        frameBuf[i] = Display::packColor565(r, g, bl);
+        display.writePx(i % kSliceGridSize, i / kSliceGridSize, Display::packColor565(r, g, bl));
     }
 }

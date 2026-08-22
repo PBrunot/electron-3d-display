@@ -1,0 +1,14 @@
+# CYD (ESP32-2432S028R): plain ESP32-D0WD-V3, 4MB flash, no PSRAM.
+# Intentionally NOT layered on top of sdkconfig.defaults -- that file's 16MB flash size and
+# PSRAM speed settings are specific to the Waveshare S3 board and would misconfigure this one.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+CONFIG_PARTITION_TABLE_CUSTOM=y
+# Literal "partitions.csv", NOT "partitions_cyd.csv" -- PlatformIO's espidf integration copies
+# whatever `board_build.partitions` (platformio.ini) points to into the build tree under this
+# exact name regardless of the source file's own name (see sdkconfig.defaults's identical
+# "partitions.csv" for board_build.partitions=partitions_16M.csv on the S3 env).
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240

@@ -62,13 +62,13 @@ struct OrbitalPresetState
 
 /**
  * @brief Draws one fully-composited frame of `preset` (point cloud, enlarged opaque nucleus
- *        marker, title + quantum-number readout, scale bar) onto `frameBuf` at `scale`/
+ *        marker, title + quantum-number readout, scale bar) onto `display` at `scale`/
  *        `camera` -- the exact per-frame content runOrbitalView()'s fly-overs and
  *        steady-state loop draw every frame. Exposed so screenshot_batch.cpp's still-image
  *        capture calls this directly instead of re-implementing a partial copy, keeping
  *        on-device screenshots pixel-identical to what's actually on screen.
  */
-void renderOrbitalFrame(uint16_t *frameBuf, const OrbitalPresetState &preset, const CameraState &camera,
+void renderOrbitalFrame(Display &display, const OrbitalPresetState &preset, const CameraState &camera,
                         orb_real_t scale, uint32_t frameSalt, uint32_t buzzThreshold);
 
 /**

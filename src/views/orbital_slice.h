@@ -10,6 +10,8 @@
 
 #include <cstdint>
 
+class Display;
+
 #include "physics/orbitals.h"        // orb_real_t
 #include "config/visual_constants.h" // kSliceGridSize
 
@@ -94,4 +96,4 @@ void buildSliceTable(int n, int ell, int m, const orb_real_t *radialCoeff, const
  *        reference repo's plots), colored through kSliceColormapStops. Plain overwrite of
  *        every pixel (no blend, no persistence) -- the heatmap is a still image.
  */
-void renderSliceFrame(uint16_t *frameBuf, const SliceTable &t, orb_real_t fade);
+void renderSliceFrame(Display &display, const SliceTable &t, orb_real_t fade);

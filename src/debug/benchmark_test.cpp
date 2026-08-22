@@ -111,10 +111,10 @@ namespace
             display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
             int64_t tAfterWait = esp_timer_get_time();
 
-            renderSceneGrouped(display.getFrameBuf(), points, groups, groupCount, kProtonColor, camera,
-                               stats.baseScale, uint32_t(f), kHiddenPointsThreshold);
-            drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, titleText, kTextColor, kFontLarge);
-            drawScaleBar(display.getFrameBuf(), stats.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+            renderSceneGrouped(display, points, groups, groupCount, kProtonColor, camera, stats.baseScale,
+                               uint32_t(f), kHiddenPointsThreshold);
+            drawText(display, kTitleTextX, kTitleTextY, titleText, kTextColor, kFontLarge);
+            drawScaleBar(display, stats.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
             display.presentFrame();
             int64_t tAfterPresent = esp_timer_get_time();
@@ -182,14 +182,14 @@ namespace
             display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
             int64_t tAfterWait = esp_timer_get_time();
 
-            renderScene(display.getFrameBuf(), points, colors, count, kProtonColor, camera, scale.baseScale,
-                       uint32_t(f), kHiddenPointsThreshold);
-            drawProtonMarker(display.getFrameBuf(), kProtonColor, kOrbitalProtonMarkerSize);
-            drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, d.label, kTextColor, kFontHuge);
+            renderScene(display, points, colors, count, kProtonColor, camera, scale.baseScale, uint32_t(f),
+                       kHiddenPointsThreshold);
+            drawProtonMarker(display, kProtonColor, kOrbitalProtonMarkerSize);
+            drawText(display, kTitleTextX, kTitleTextY, d.label, kTextColor, kFontHuge);
             int width = textWidth(orbitalNumbers, kFontLarge);
-            drawText(display.getFrameBuf(), Display::kDisplayWidth - width,
+            drawText(display, Display::kDisplayWidth - width,
                     Display::kDisplayHeight - kFontLarge.height - 15, orbitalNumbers, kTextColor, kFontLarge);
-            drawScaleBar(display.getFrameBuf(), scale.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+            drawScaleBar(display, scale.baseScale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 
             display.presentFrame();
             int64_t tAfterPresent = esp_timer_get_time();

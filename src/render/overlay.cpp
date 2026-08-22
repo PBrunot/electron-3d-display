@@ -1,6 +1,5 @@
 #include "render/overlay.h"
 
-#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -65,7 +64,7 @@ static ScaleBarLength pickScaleBarLength(orb_real_t pixelsPerUnit, orb_real_t ma
     return best;
 }
 
-void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unitLabel, uint16_t barColor,
+void drawScaleBar(Display &display, orb_real_t pixelsPerUnit, const char *unitLabel, uint16_t barColor,
                   uint16_t textColor)
 {
     if (pixelsPerUnit <= orb_real_t(0))
@@ -79,23 +78,15 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
     int y = Display::kDisplayHeight - kScaleBarMarginY;
     int x1 = x0 + barPx;
 
-    // Row-major (not column-major) so each row's span is one contiguous fill_n instead of
-    // kDisplayWidth-strided single-pixel writes.
-    int xLo = x0 > 0 ? x0 : 0;
-    int xHi = x1 < Display::kDisplayWidth - 1 ? x1 : Display::kDisplayWidth - 1;
-    if (xHi >= xLo)
-        for (int ly = y; ly < y + kScaleBarLineThicknessPx && ly < Display::kDisplayHeight; ly++)
-            std::fill_n(frameBuf + ly * Display::kDisplayWidth + xLo, xHi - xLo + 1, barColor);
+    for (int ly = y; ly < y + kScaleBarLineThicknessPx; ly++)
+        for (int lx = x0; lx <= x1; lx++)
+            display.writePx(lx, ly, barColor);
     for (int ty = y - kScaleBarTickPx; ty <= y + kScaleBarTickPx; ty++)
     {
-        if (ty < 0 || ty >= Display::kDisplayHeight)
-            continue;
         for (int lx = 0; lx < kScaleBarLineThicknessPx; lx++)
         {
-            if (x0 + lx >= 0 && x0 + lx < Display::kDisplayWidth)
-                frameBuf[ty * Display::kDisplayWidth + x0 + lx] = barColor;
-            if (x1 + lx >= 0 && x1 + lx < Display::kDisplayWidth)
-                frameBuf[ty * Display::kDisplayWidth + x1 + lx] = barColor;
+            display.writePx(x0 + lx, ty, barColor);
+            display.writePx(x1 + lx, ty, barColor);
         }
     }
 
@@ -110,30 +101,23 @@ void drawScaleBar(uint16_t *frameBuf, orb_real_t pixelsPerUnit, const char *unit
     // kFontLarge at its own true size, not kFontSmall integer-upscaled -- the doubled
     // pixels read as blocky on-device (same issue kFontHuge exists to avoid for the
     // element-symbol title, see font.h).
-    drawText(frameBuf, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontLarge.height, text, textColor, kFontLarge);
+    drawText(display, x0, y - kScaleBarTickPx - kScaleBarLabelGapPx - kFontLarge.height, text, textColor, kFontLarge);
 }
 
-/// Set (x, y) if it lands on-screen.
-static void plotCirclePixel(uint16_t *frameBuf, int x, int y, uint16_t color)
+/// Set (cx+dx, cy+dy) and its 8-way mirror around (cx, cy), each clipped individually by writePx().
+static void plotCircleOctants(Display &display, int cx, int cy, int dx, int dy, uint16_t color)
 {
-    if (x >= 0 && x < Display::kDisplayWidth && y >= 0 && y < Display::kDisplayHeight)
-        frameBuf[y * Display::kDisplayWidth + x] = color;
+    display.writePx(cx + dx, cy + dy, color);
+    display.writePx(cx - dx, cy + dy, color);
+    display.writePx(cx + dx, cy - dy, color);
+    display.writePx(cx - dx, cy - dy, color);
+    display.writePx(cx + dy, cy + dx, color);
+    display.writePx(cx - dy, cy + dx, color);
+    display.writePx(cx + dy, cy - dx, color);
+    display.writePx(cx - dy, cy - dx, color);
 }
 
-/// Set (cx+dx, cy+dy) and its 8-way mirror around (cx, cy), each clipped individually.
-static void plotCircleOctants(uint16_t *frameBuf, int cx, int cy, int dx, int dy, uint16_t color)
-{
-    plotCirclePixel(frameBuf, cx + dx, cy + dy, color);
-    plotCirclePixel(frameBuf, cx - dx, cy + dy, color);
-    plotCirclePixel(frameBuf, cx + dx, cy - dy, color);
-    plotCirclePixel(frameBuf, cx - dx, cy - dy, color);
-    plotCirclePixel(frameBuf, cx + dy, cy + dx, color);
-    plotCirclePixel(frameBuf, cx - dy, cy + dx, color);
-    plotCirclePixel(frameBuf, cx + dy, cy - dx, color);
-    plotCirclePixel(frameBuf, cx - dy, cy - dx, color);
-}
-
-void drawBoundingCircle(uint16_t *frameBuf, orb_real_t rRef, orb_real_t scale, uint16_t color)
+void drawBoundingCircle(Display &display, orb_real_t rRef, orb_real_t scale, uint16_t color)
 {
     int r = int(rRef * scale + orb_real_t(0.5));
     if (r <= 0)
@@ -146,7 +130,7 @@ void drawBoundingCircle(uint16_t *frameBuf, orb_real_t rRef, orb_real_t scale, u
     // spends its float budget on.
     int x = 0, y = r;
     int d = 1 - r;
-    plotCircleOctants(frameBuf, cx, cy, x, y, color);
+    plotCircleOctants(display, cx, cy, x, y, color);
     while (x < y)
     {
         x++;
@@ -157,6 +141,6 @@ void drawBoundingCircle(uint16_t *frameBuf, orb_real_t rRef, orb_real_t scale, u
             y--;
             d += 2 * (x - y) + 1;
         }
-        plotCircleOctants(frameBuf, cx, cy, x, y, color);
+        plotCircleOctants(display, cx, cy, x, y, color);
     }
 }

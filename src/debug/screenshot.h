@@ -22,7 +22,7 @@ namespace screenshot
     void init();
 
     /// Captures `frameBuf` (Display::kDisplayWidth x Display::kDisplayHeight RGB565, row-
-    /// major, same layout as Display::getFrameBuf()) as a new PNG file (auto-numbered
+    /// major, same layout Display::readAllPixels() fills) as a new PNG file (auto-numbered
     /// shot_0001.png, shot_0002.png, ...). On success, fills outName (bare filename, no
     /// "/storage/" prefix) and outSize and returns true.
     bool capture(const uint16_t *frameBuf, char *outName, size_t outNameCapacity, size_t *outSize);
