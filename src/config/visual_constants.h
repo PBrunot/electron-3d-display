@@ -16,6 +16,7 @@
 #include "physics/orbitals.h"       // orb_real_t
 #include "render/display.h"         // Display, packColor565
 #include "render/equation_bitmap.h" // kEquationBitmapWidth/Height, for the orbital intro layout below
+#include "sdkconfig.h"              // CONFIG_IDF_TARGET_ESP32
 
 // ============================================================================================
 // Shared across both viewers (dedup of what used to be near-identical per-file copies)
@@ -149,7 +150,21 @@ inline constexpr uint32_t kSplashHoldMs = 2000;
 // Orbital point-cloud size: sizes OrbitalPresetState's point/color arrays (orbital_view.h)
 // and the scratch arrays orbital_presets.cpp's computeOrbitalLevels()/scaleFromRadii() use
 // (order[], radii[]), plus OrbitalResampleState::psi2Sorted -- matches cloud_common.N_POINTS.
+//
+// CYD (plain ESP32, no PSRAM) needs a much smaller count than the S3: every array sized off
+// this constant (here, atom_cloud.h's kAtomNumPoints below, and every EXT_RAM_BSS_ATTR buffer
+// derived from either -- orbital_view.cpp, atom_view.cpp, orbital_slice.cpp, benchmark_test.cpp,
+// screenshot_batch.cpp, orbital_slice_test.cpp, orbital_library.cpp, atom_cloud.cpp,
+// orbital_presets.cpp) falls back from PSRAM to internal DRAM with no PSRAM to fall back to,
+// and ESP-IDF/PlatformIO link the "main" component whole-archive, so even code never called at
+// runtime (e.g. benchmark_test.cpp when BENCHMARK_TEST isn't defined) still reserves its own
+// static buffers in that same budget. See CYD-branch.md for the measured link-time headroom
+// this value was tuned against.
+#if CONFIG_IDF_TARGET_ESP32
+inline constexpr int kOrbitalNumPoints = 3400;
+#else
 inline constexpr int kOrbitalNumPoints = 12000;
+#endif
 
 // Point-turnover: fraction of the cloud resampled every kOrbitalCullRefreshFrames frames.
 inline constexpr orb_real_t kOrbitalCullFraction = orb_real_t(0.01);
@@ -220,8 +235,13 @@ inline constexpr orb_real_t kSliceMinGamma = orb_real_t(0.10);
 // ============================================================================================
 
 // Atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and
-// outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp).
+// outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp). CYD value: see
+// kOrbitalNumPoints's comment above -- same no-PSRAM constraint.
+#if CONFIG_IDF_TARGET_ESP32
+inline constexpr int kAtomNumPoints = 1000;
+#else
 inline constexpr int kAtomNumPoints = 12000;
+#endif
 
 // atom_cloud.py's own OUTER_SHELL_BRIGHTEN=0.92 pushes almost to pure white, tuned for a
 // renderer that either draws the point outright with no discount (its "device path"

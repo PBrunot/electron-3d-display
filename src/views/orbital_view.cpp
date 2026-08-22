@@ -14,7 +14,10 @@
 #include "freertos/task.h"
 #include "physics/orbital_library.h"
 #include "render/overlay.h"
+#include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
+#if !CONFIG_IDF_TARGET_ESP32
 #include "views/orbital_slice.h"
+#endif
 #include "debug/frame_stats.h"
 #include "debug/screenshot_pause.h"
 #include "config/visual_constants.h" // kViewIdleJumpUs, kOrbitalIntro*, kOrbitalProtonMarkerSize, etc.
@@ -27,12 +30,11 @@ namespace
     void renderOrbitalIntroStage(Display &display, const char *text)
     {
         display.waitForFlushDone();
-        uint16_t *frameBuf = display.getFrameBuf();
         display.clearScreen();
-        drawEquationBackdrop(frameBuf, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
+        drawEquationBackdrop(display, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
         int width = textWidthScaled(text, kFontLarge, kOrbitalIntroNumberScale);
         int x = (Display::kDisplayWidth - width) / 2;
-        drawTextScaled(frameBuf, x, kOrbitalIntroNumberY, text, Display::kColorWhite, kFontLarge,
+        drawTextScaled(display, x, kOrbitalIntroNumberY, text, Display::kColorWhite, kFontLarge,
                        kOrbitalIntroNumberScale);
         display.presentFrame();
     }
@@ -63,7 +65,15 @@ namespace
 // SLICE.md for the full design -- mirrors atom_view.cpp's runDissectionSequence() split: this
 // file orchestrates the gesture sequence, orbital_slice.h/.cpp owns the physics table build
 // and per-frame draw.
-
+//
+// Excluded on CYD (see platformio.ini's [env:CYD] build_src_filter, which drops
+// views/orbital_slice.cpp/debug/orbital_slice_test.cpp from that build entirely): its
+// per-build scratch (orbital_slice.cpp's sliceMag/sliceOrder, ~450KB at the current 240x240
+// grid) alone overflowed the CYD's much smaller, PSRAM-less internal-RAM link budget,
+// independent of any point-cloud-count tuning -- and the gesture that reaches this sequence
+// (Right tilt-hold) is unreachable on that board anyway (no IMU, see ux/imu.cpp). See
+// CYD-branch.md.
+#if !CONFIG_IDF_TARGET_ESP32
 namespace
 {
     /// Static "Sezione" title card (D4, SLICE.md) over the same dim equation backdrop
@@ -73,18 +83,17 @@ namespace
         constexpr const char *kSliceLabel = "Sezione";
 
         display.waitForFlushDone();
-        uint16_t *frameBuf = display.getFrameBuf();
         display.clearScreen();
-        drawEquationBackdrop(frameBuf, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
+        drawEquationBackdrop(display, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
         // kOrbitalIntroNumberY is tuned for scrollOrbitalIntro()'s single scaled kFontLarge
         // line -- this card stacks a full kFontHuge line above a kFontLarge one, so it needs
         // its own, taller layout to stay clear of the panel's bottom edge (240px).
         int labelY = kOrbitalIntroEqY + kEquationBitmapHeight + 10;
         int numbersY = labelY + kFontHuge.height + 4;
         int labelWidth = textWidth(kSliceLabel, kFontHuge);
-        drawText(frameBuf, (Display::kDisplayWidth - labelWidth) / 2, labelY, kSliceLabel, kAccentColor, kFontHuge);
+        drawText(display, (Display::kDisplayWidth - labelWidth) / 2, labelY, kSliceLabel, kAccentColor, kFontHuge);
         int numbersWidth = textWidth(preset.orbital_numbers, kFontLarge);
-        drawText(frameBuf, (Display::kDisplayWidth - numbersWidth) / 2, numbersY, preset.orbital_numbers, kTextColor,
+        drawText(display, (Display::kDisplayWidth - numbersWidth) / 2, numbersY, preset.orbital_numbers, kTextColor,
                  kFontLarge);
         display.presentFrame();
 
@@ -97,18 +106,18 @@ namespace
     /// probabilita" legend sits right under the title: since D1's revision the heatmap is a
     /// pure density plot (no phase/sign color, unlike the 3D cloud), so it's worth naming what
     /// the color ramp actually encodes.
-    void drawSliceOverlay(uint16_t *frameBuf, const OrbitalPresetState &preset, orb_real_t extentPm)
+    void drawSliceOverlay(Display &display, const OrbitalPresetState &preset, orb_real_t extentPm)
     {
-        drawText(frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
+        drawText(display, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
         constexpr const char *kSliceLegend = "densita di probabilita";
-        drawText(frameBuf, kTitleTextX, kTitleTextY + kFontHuge.height + 2, kSliceLegend, kScaleBarColor, kFontSmall);
+        drawText(display, kTitleTextX, kTitleTextY + kFontHuge.height + 2, kSliceLegend, kScaleBarColor, kFontSmall);
         int width = textWidth(preset.orbital_numbers, kFontLarge);
         int height = kFontLarge.height;
-        drawText(frameBuf, Display::kDisplayWidth - width, Display::kDisplayHeight - height - 15,
+        drawText(display, Display::kDisplayWidth - width, Display::kDisplayHeight - height - 15,
                  preset.orbital_numbers, kTextColor, kFontLarge);
         // Half the panel width spans extentPm (SliceTable's own framing, see buildSliceTable()).
         orb_real_t pixelsPerPm = orb_real_t(Display::kDisplayWidth) / (orb_real_t(2) * extentPm);
-        drawScaleBar(frameBuf, pixelsPerPm, "pm", kScaleBarColor, kTextColor);
+        drawScaleBar(display, pixelsPerPm, "pm", kScaleBarColor, kTextColor);
     }
 
     /**
@@ -139,11 +148,10 @@ namespace
         auto drawFrame = [&](orb_real_t fade, TiltEvent ev)
         {
             display.waitForFlushDone();
-            uint16_t *frameBuf = display.getFrameBuf();
-            renderSliceFrame(frameBuf, table, fade);
-            drawSliceOverlay(frameBuf, preset, table.extentPm);
+            renderSliceFrame(display, table, fade);
+            drawSliceOverlay(display, preset, table.extentPm);
             if (ev.phase != TiltPhase::kIdle)
-                drawTiltArrow(frameBuf, ev.direction, kAccentColor);
+                drawTiltArrow(display, ev.direction, kAccentColor);
             display.presentFrame();
         };
 
@@ -191,25 +199,26 @@ namespace
         ESP_LOGI(kOrbitalViewTag, "slice sequence %s", aborted ? "aborted -- movement detected" : "complete");
     }
 } // namespace
+#endif // !CONFIG_IDF_TARGET_ESP32
 
-void renderOrbitalFrame(uint16_t *frameBuf, const OrbitalPresetState &preset, const CameraState &camera,
+void renderOrbitalFrame(Display &display, const OrbitalPresetState &preset, const CameraState &camera,
                         orb_real_t scale, uint32_t frameSalt, uint32_t buzzThreshold)
 {
     // Nucleus drawn BEFORE the cloud (matching pc/viewer_common.py's blend order on purpose,
     // see camera.h's renderScene()), so a point landing on the same pixel can alpha-blend
     // over it and dim/hide it near the origin -- the drawProtonMarker() call below redraws it
     // opaque and larger on top, after the cloud, so it's always visible.
-    renderScene(frameBuf, preset.points, preset.colors, kOrbitalNumPoints, kProtonColor, camera, scale, frameSalt,
+    renderScene(display, preset.points, preset.colors, kOrbitalNumPoints, kProtonColor, camera, scale, frameSalt,
                 buzzThreshold);
-    drawProtonMarker(frameBuf, kProtonColor, kOrbitalProtonMarkerSize);
-    drawText(frameBuf, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
+    drawProtonMarker(display, kProtonColor, kOrbitalProtonMarkerSize);
+    drawText(display, kTitleTextX, kTitleTextY, preset.title, kTextColor, kFontHuge);
     // The "n=... l=... m=..." numbers below the title, in a smaller font, so the user can see
     // the quantum numbers without having to remember which preset index is which.
     int width = textWidth(preset.orbital_numbers, kFontLarge);
     int height = kFontLarge.height;
-    drawText(frameBuf, Display::kDisplayWidth - width, Display::kDisplayHeight - height - 15, preset.orbital_numbers,
+    drawText(display, Display::kDisplayWidth - width, Display::kDisplayHeight - height - 15, preset.orbital_numbers,
              kTextColor, kFontLarge);
-    drawScaleBar(frameBuf, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
+    drawScaleBar(display, scale / kPmPerBohr, "pm", kScaleBarColor, kTextColor);
 }
 
 namespace
@@ -230,7 +239,7 @@ namespace
             orb_real_t scale = startScale + (endScale - startScale) * t;
 
             display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-            renderOrbitalFrame(display.getFrameBuf(), preset, *camera, scale, uint32_t(i), buzzThreshold);
+            renderOrbitalFrame(display, preset, *camera, scale, uint32_t(i), buzzThreshold);
             display.presentFrame();
 
             stepCamera(camera);
@@ -379,8 +388,12 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
             }
             if (tiltEv.direction == TiltDirection::kRight)
             {
+#if CONFIG_IDF_TARGET_ESP32
+                ESP_LOGI(kOrbitalViewTag, "tilt RIGHT confirmed -- slice sequence unavailable on this target");
+#else
                 ESP_LOGI(kOrbitalViewTag, "tilt RIGHT confirmed -- starting slice sequence");
                 runSliceSequence(display, preset, tilt);
+#endif
                 zoomAngle = orb_real_t(0);
                 zoomExcursionCountdown = nextZoomExcursionCountdown();
                 stats.reset(); // see switchToPreset()'s FPS-window comment above
@@ -394,6 +407,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         // idle-dissection. kViewIdleJumpUs is shared with atom_view.cpp.
         if (esp_timer_get_time() - lastActivityUs > kViewIdleJumpUs)
         {
+#if !CONFIG_IDF_TARGET_ESP32
             if (!idleSlicedThisPreset && randomUnit() < orb_real_t(0.5))
             {
                 ESP_LOGI(kOrbitalViewTag, "idle 60s+ -- slicing current preset (%s)", preset.title);
@@ -404,6 +418,7 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
                 stats.reset(); // see switchToPreset()'s FPS-window comment above
             }
             else
+#endif
             {
                 int newIndex = randomIndexExcluding(presetIndex, kOrbitalLibraryCount);
                 ESP_LOGI(kOrbitalViewTag, "idle 60s+ -- jumping to random preset %d", newIndex);
@@ -441,10 +456,10 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         int64_t tBeforeWait = esp_timer_get_time();
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
         int64_t tAfterWait = esp_timer_get_time();
-        renderOrbitalFrame(display.getFrameBuf(), preset, camera, scale, buzzFrame, kBuzzThreshold);
+        renderOrbitalFrame(display, preset, camera, scale, buzzFrame, kBuzzThreshold);
         buzzFrame = buzzFrame < 1000000u ? buzzFrame + 1 : 0;
         if (tiltEv.phase != TiltPhase::kIdle)
-            drawTiltArrow(display.getFrameBuf(), tiltEv.direction, kAccentColor);
+            drawTiltArrow(display, tiltEv.direction, kAccentColor);
         display.presentFrame();
         int64_t tAfterPresent = esp_timer_get_time();
 

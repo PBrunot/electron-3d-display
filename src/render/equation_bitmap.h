@@ -5,14 +5,16 @@
 
 #include <cstdint>
 
+class Display;
+
 inline constexpr int kEquationBitmapWidth = 231;
 inline constexpr int kEquationBitmapHeight = 80;
 inline constexpr int kEquationBitmapRowBytes = 29;
 extern const uint8_t kEquationBitmapData[];
 
-/** Blit the equation backdrop, top-left at (x, y), OR'ing `color` into frameBuf
- * wherever a bit is set and leaving every other pixel untouched (so it composites
- * under other text/points already drawn, and under whatever's drawn after it,
- * matching this project's usual "caller clears first" draw-function contract).
- * Bounds-checked like every other direct-pixel draw in this project. */
-void drawEquationBackdrop(uint16_t *frameBuf, int x, int y, uint16_t color);
+/** Blit the equation backdrop, top-left at (x, y), writing `color` wherever a bit is set
+ * and leaving every other pixel untouched (so it composites under other text/points
+ * already drawn, and under whatever's drawn after it, matching this project's usual
+ * "caller clears first" draw-function contract). Bounds-checked like every other
+ * direct-pixel draw in this project. */
+void drawEquationBackdrop(Display &display, int x, int y, uint16_t color);

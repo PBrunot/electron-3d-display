@@ -1,6 +1,5 @@
 #include "render/camera.h"
 
-#include <algorithm>
 #include <cmath>
 
 #include "esp_random.h"
@@ -48,7 +47,7 @@ bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig &
     return true;
 }
 
-void drawProtonMarker(uint16_t *frameBuf, uint16_t color, int diameterPx)
+void drawProtonMarker(Display &display, uint16_t color, int diameterPx)
 {
     int cx = Display::kDisplayWidth / 2;
     int cy = Display::kDisplayHeight / 2;
@@ -57,15 +56,9 @@ void drawProtonMarker(uint16_t *frameBuf, uint16_t color, int diameterPx)
     for (int y = -radius; y <= radius; y++)
     {
         int halfSpan = int(std::lround(std::sqrt(double(radiusSq - y * y))));
-        std::fill_n(frameBuf + (cy + y) * Display::kDisplayWidth + (cx - halfSpan), 2 * halfSpan + 1, color);
+        for (int x = cx - halfSpan; x <= cx + halfSpan; x++)
+            display.writePx(x, cy + y, color);
     }
-}
-
-void fadeFrameBuffer(uint16_t *frameBuf)
-{
-    int total = Display::kDisplayWidth * Display::kDisplayHeight;
-    for (int i = 0; i < total; i++)
-        frameBuf[i] = Display::fadeColor565(frameBuf[i], kPersistenceKeepQ8);
 }
 
 orb_real_t randomUnit()

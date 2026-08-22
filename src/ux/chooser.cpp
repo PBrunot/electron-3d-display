@@ -1,8 +1,6 @@
 #include "ux/chooser.h"
 
-#include <algorithm>
 #include <cstdio>
-#include <cstring>
 
 #include "views/atom_view.h"
 #include "render/camera.h"
@@ -54,20 +52,19 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
         while (raw.phase != TiltPhase::kConfirmed)
         {
             display.waitForFlushDone();
-            uint16_t *frameBuf = display.getFrameBuf();
             display.clearScreen();
-            drawTextCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
-            drawTextCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kTextColor, kFontLarge);
+            drawTextCentered(display, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
+            drawTextCentered(display, kCalibLineY0 + kCalibLineSpacing, target.label, kTextColor, kFontLarge);
             if (raw.phase == TiltPhase::kHolding)
             {
                 char progress[24];
                 std::snprintf(progress, sizeof(progress), "%.1fs / 1.0s", double(raw.holdMs) / 1000.0);
-                drawTextCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, progress, kAccentColor,
+                drawTextCentered(display, kCalibLineY0 + 2 * kCalibLineSpacing, progress, kAccentColor,
                                  kFontLarge);
             }
             else
             {
-                drawTextCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, "and hold", kTextColor,
+                drawTextCentered(display, kCalibLineY0 + 2 * kCalibLineSpacing, "and hold", kTextColor,
                                  kFontLarge);
             }
             display.presentFrame();
@@ -82,11 +79,10 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
         while (release.phase != TiltPhase::kIdle)
         {
             display.waitForFlushDone();
-            uint16_t *frameBuf = display.getFrameBuf();
             display.clearScreen();
-            drawTextCentered(frameBuf, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
-            drawTextCentered(frameBuf, kCalibLineY0 + kCalibLineSpacing, target.label, kAccentColor, kFontLarge);
-            drawTextCentered(frameBuf, kCalibLineY0 + 2 * kCalibLineSpacing, "OK - RELEASE", kAccentColor,
+            drawTextCentered(display, kCalibLineY0, "Calibration", kTextColor, kFontLarge);
+            drawTextCentered(display, kCalibLineY0 + kCalibLineSpacing, target.label, kAccentColor, kFontLarge);
+            drawTextCentered(display, kCalibLineY0 + 2 * kCalibLineSpacing, "OK - RELEASE", kAccentColor,
                              kFontLarge);
             display.presentFrame();
 
@@ -98,20 +94,20 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
     ESP_LOGI(kChooserTag, "direction calibration complete");
 }
 
-static void drawChooserScreen(uint16_t *frameBuf)
+static void drawChooserScreen(Display &display)
 {
-    // Static splash image (same one main.cpp shows at boot), copied in first at full
+    // Static splash image (same one main.cpp shows at boot), blitted in first at full
     // brightness so the menu text composites on top of it (plain overwrite, no blending,
     // matching every other draw function in this project). No per-frame animation, so this
-    // is just a memcpy straight out of the generated array every frame.
-    std::memcpy(frameBuf, kSplashBitmapData, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
+    // is just a blit straight out of the generated array every frame.
+    display.blit(0, 0, kSplashBitmapData, kSplashBitmapWidth, kSplashBitmapHeight);
 
     // Alternate between two colors each half-period (rather than blinking on/off) so the
     // text stays put and flashy the whole time instead of periodically vanishing.
     bool colorA = (esp_timer_get_time() / (int64_t(kChooserBlinkHalfPeriodMs) * 1000)) % 2 == 0;
     uint16_t color = colorA ? kChooserOptionColorA : kChooserOptionColorB;
-    drawTextCentered(frameBuf, kChooserOption1Y, "UP: Orbitals", color, kFontLarge, kChooserOptionScale);
-    drawTextCentered(frameBuf, kChooserOption2Y, "DOWN: Elements", color, kFontLarge, kChooserOptionScale);
+    drawTextCentered(display, kChooserOption1Y, "UP: Orbitals", color, kFontLarge, kChooserOptionScale);
+    drawTextCentered(display, kChooserOption2Y, "DOWN: Elements", color, kFontLarge, kChooserOptionScale);
 }
 
 /**
@@ -131,11 +127,11 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
     {
         screenshot_pause::checkpoint(); // see screenshot_pause.h -- lets a screenshot capture happen safely
         display.waitForFlushDone();
-        drawChooserScreen(display.getFrameBuf());
+        drawChooserScreen(display);
 
         TiltEvent ev = tilt.poll();
         if (ev.phase != TiltPhase::kIdle)
-            drawTiltArrow(display.getFrameBuf(), ev.direction, kAccentColor);
+            drawTiltArrow(display, ev.direction, kAccentColor);
         display.presentFrame();
 
         if (ev.phase == TiltPhase::kConfirmed)

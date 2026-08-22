@@ -1,0 +1,8 @@
+dependencies:
+  # Only needed by render/display.cpp's CYD branch (esp_lcd_new_panel_ili9341()) -- the target
+  # rule below skips fetching this entirely when building the S3 env (esp32s3), so it adds
+  # no network dependency or extra flash to that build.
+  espressif/esp_lcd_ili9341:
+    version: "^2.0.0" # 1.x's esp_lcd_panel_dev_config_t.rgb_endian field predates this IDF's rgb_ele_order/data_endian split
+    rules:
+      - if: "target == esp32"

@@ -46,12 +46,32 @@ uint16_t orbitalLevelToColor565(int level, int sign, const uint16_t posRgb565, c
     return Display::packColor565(r << 3, g << 2, b << 3);
 }
 
+namespace
+{
+    // Shared scratch for computeOrbitalLevels()'s order[]/scaleFromRadii()'s radii[] below:
+    // both are called sequentially within a single OrbitalPresetState::load() call (never
+    // concurrently -- screenshot_pause.h's checkpoint() protocol serializes every load()
+    // against any other reader/writer of this module's static scratch), and each function's
+    // own use is fully self-contained (write, read, discard) within that one call -- so one
+    // buffer, reinterpreted as whichever type is needed, safely replaces two separate
+    // kOrbitalNumPoints-sized static arrays. Saves 4 bytes/point of internal SRAM on boards
+    // with no PSRAM (CYD), where every such array falls back from EXT_RAM_BSS_ATTR's intended
+    // PSRAM placement into that same tight budget -- see config/visual_constants.h's
+    // kOrbitalNumPoints comment.
+    union OrderRadiiScratch
+    {
+        int order[kOrbitalNumPoints];
+        orb_real_t radii[kOrbitalNumPoints];
+    };
+    EXT_RAM_BSS_ATTR OrderRadiiScratch sOrderRadiiScratch;
+} // namespace
+
 void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels, orb_real_t *outPsi2Sorted)
 {
     // Static, not stack-local: this project avoids large stack arrays after
     // pointcloud.h's buildRadialSamplerRuntime() already hit a real task stack overflow
     // with a much smaller (~4KB) local array.
-    static EXT_RAM_BSS_ATTR int order[kOrbitalNumPoints];
+    int *order = sOrderRadiiScratch.order;
     for (int i = 0; i < count; i++)
         order[i] = i;
     std::sort(order, order + count, [psi2](int a, int b)

@@ -27,6 +27,12 @@ public:
      * @note Aborts via ESP_ERROR_CHECK/abort() on failure, matching Display's boot-time error
      *       handling -- this project has no code path that runs meaningfully without the IMU
      *       once this constructor is reached.
+     * @note On CYD (CONFIG_IDF_TARGET_ESP32) this is a no-op: the board has no QMI8658, and
+     *       the S3's SDA=47/SCL=48 aren't even valid GPIOs on plain ESP32. readAccelG()
+     *       always returns false on this target -- see main.cpp's CYD branch, which skips
+     *       tilt calibration accordingly instead of relying on read failures alone (an
+     *       unbounded calibration loop waiting for a gesture that can never arrive is worse
+     *       than skipping it outright).
      */
     Qmi8658();
     ~Qmi8658();

@@ -15,9 +15,8 @@ void scrollTextOnce(Display &display, const char *text, const Font &font, int sc
     while (x > endX)
     {
         display.waitForFlushDone();
-        uint16_t *frameBuf = display.getFrameBuf();
         display.clearScreen();
-        drawTextScaled(frameBuf, x, y, text, color, font, scale);
+        drawTextScaled(display, x, y, text, color, font, scale);
         display.presentFrame();
 
         x -= pxPerFrame;
@@ -34,8 +33,7 @@ void scrollTextPauseOnce(Display &display, const char *text, const Font &font, i
     {
         display.waitForFlushDone();
         display.clearScreen();
-        uint16_t *frameBuf = display.getFrameBuf();
-        drawTextScaled(frameBuf, x, y, text, color, font, scale);
+        drawTextScaled(display, x, y, text, color, font, scale);
         display.presentFrame();
     };
 

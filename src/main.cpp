@@ -16,6 +16,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
 
 #include "ux/imu.h"
 #include "debug/screenshot_console.h"
@@ -23,6 +24,7 @@
 #include "config/hardware_constants.h"
 #include "config/visual_constants.h" // kSplashHoldMs
 #include "ux/tilt_gesture.h"
+#include "views/orbital_view.h" // CYD boot fallback -- see the CONFIG_IDF_TARGET_ESP32 branch below
 #include "debug/benchmark_test.h"
 
 #ifdef ATOM_VALIDATION_TEST
@@ -58,21 +60,52 @@ extern "C" void app_main(void)
                        "reflash without BENCHMARK_TEST to return to normal boot");
     while (1)
         vTaskDelay(pdMS_TO_TICKS(1000));
-#elif defined(SLICE_TEST)
+#elif defined(SLICE_TEST) && !CONFIG_IDF_TARGET_ESP32
     Display display{};
     runOrbitalSliceTest(display); // never returns -- see orbital_slice_test.h
 #else
     Display display{};
+#if !CONFIG_IDF_TARGET_ESP32
     startScreenshotConsole(display); // 's'/'l'/SS_GET/SS_DEL over the console -- see screenshot_console.h
+#endif
+    // CYD: screenshot console skipped entirely (not just its batch command) -- no reachable
+    // call site left into screenshot_console.cpp/screenshot.cpp/screenshot_batch.cpp, so the
+    // linker's --gc-sections drops all three translation units, same mechanism as
+    // views/orbital_slice.cpp (CYD-branch.md). Recovers the ~53KB of internal SRAM that
+    // screenshot_batch.cpp's captureOrbitals()/captureAllPresets() static scratch (tens of KB
+    // of OrbitalPresetState/AtomPresetState duplicates of the live view's own) reserved for a
+    // batch-capture feature that was already a no-op here (it heap_caps_mallocs with
+    // MALLOC_CAP_SPIRAM, which always fails with no PSRAM) -- see config/visual_constants.h's
+    // kOrbitalNumPoints comment. That RAM instead goes toward restoring full 240x320 resolution
+    // (Display::kDisplayWidth/Height) and a higher point count.
 
     display.waitForFlushDone();
-    drawSplashScreen(display.getFrameBuf());
+    drawSplashScreen(display);
     display.presentFrame();
     vTaskDelay(pdMS_TO_TICKS(kSplashHoldMs));
 
     Qmi8658 imu{};
     TiltGestureDetector tilt{imu};
 
+#if CONFIG_IDF_TARGET_ESP32
+    // CYD has no IMU (Qmi8658 is a no-op shim here, see ux/imu.cpp) -- skip planar
+    // check/calibration entirely rather than falling into the "not planar" branch below:
+    // checkPlanarAtBoot() would always read zero samples and report "not planar", and
+    // calibrateDirections() (ux/chooser.cpp) waits in an unbounded loop for a tilt gesture
+    // that can never arrive on this board, hanging boot forever instead of just failing to
+    // navigate. Tilt-based menu navigation is a known non-functional gap on CYD until a
+    // replacement input (touch/BOOT button) is decided -- see CYD-branch.md.
+    ESP_LOGW(kMainTag, "CYD build: no IMU, skipping tilt calibration -- chooser will not respond to tilt");
+    logMemory("startup: chooser");
+    // TEMPORARY testing convenience while CYD has no working input (see the tilt-skip note
+    // above): the real chooser menu is inert here (nothing can ever confirm a tilt gesture),
+    // so jump straight into the orbital viewer after a short delay instead of sitting on an
+    // unusable menu screen. Remove once a real input method (touch/BOOT button) replaces
+    // tilt navigation on this board -- see CYD-branch.md.
+    ESP_LOGW(kMainTag, "CYD build: chooser has no working input -- auto-launching orbital viewer in 5s");
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    runOrbitalView(display, tilt);
+#else
     if (imu.checkPlanarAtBoot())
     {
         ESP_LOGI(kMainTag, "boot: planar check OK, using hardcoded calibration");
@@ -92,5 +125,6 @@ extern "C" void app_main(void)
     }
     logMemory("startup: chooser");
     runChooser(display, tilt);
+#endif
 #endif
 }

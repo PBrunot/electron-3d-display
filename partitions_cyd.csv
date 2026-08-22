@@ -1,0 +1,14 @@
+# CYD (ESP32-2432S028R) has 4MB flash, unlike the Waveshare S3 board's 16MB (partitions_16M.csv).
+# Single factory app, no OTA slot -- but DOES need its own "storage" SPIFFS partition (same
+# partition_label="storage" src/util/storage_mount.cpp mounts on the S3): hfs_radial.cpp/
+# orbital_library.cpp load hfs_tables.bin/orbital_samplers.bin from it on demand, falling back
+# to a degraded model (hydrogenic atoms / single-point orbitals) if the mount or the files are
+# missing -- not a boot failure, but a visibly broken default view on this board's tilt-less
+# auto-launch (see CYD-branch.md). 1MB comfortably covers the current data/ payload (~902KiB:
+# atomic_cube.jpg + hfs_tables.bin + orbital_samplers.bin) with headroom for growth; deploy it
+# with `pio run -e CYD -t uploadfs` (see platformio.ini's extra_scripts comment).
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x6000,
+phy_init,   data, phy,      0xf000,   0x1000,
+factory,    app,  factory,  0x10000,  0x2F0000,
+storage,    data, spiffs,   0x300000, 0x100000,

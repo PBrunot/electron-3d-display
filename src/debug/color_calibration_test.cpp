@@ -1,6 +1,5 @@
 #include "debug/color_calibration_test.h"
 
-#include <algorithm>
 #include <cstdio>
 
 #include "esp_log.h"
@@ -55,16 +54,17 @@ void runColorCalibrationTest(Display &display)
                  s.label, s.r, s.g, s.b, raw565);
 
         display.waitForFlushDone();
-        uint16_t *frameBuf = display.getFrameBuf();
-        std::fill(frameBuf, frameBuf + Display::kDisplayWidth * Display::kDisplayHeight, raw565);
+        for (int y = 0; y < Display::kDisplayHeight; y++)
+            for (int x = 0; x < Display::kDisplayWidth; x++)
+                display.writePx(x, y, raw565);
 
         // Label in the opposite of the swatch's own color (readable against any fill) --
         // black text would vanish against a dark swatch, white against a bright one.
         uint16_t textColor = (int(s.r) + int(s.g) + int(s.b)) > 380 ? Display::kColorBlack : Display::kColorWhite;
         char hexLabel[16];
         std::snprintf(hexLabel, sizeof(hexLabel), "0x%04X", raw565);
-        drawText(frameBuf, 10, 10, s.label, textColor, kFontLarge);
-        drawText(frameBuf, 10, 10 + kFontLarge.height + 4, hexLabel, textColor, kFontLarge);
+        drawText(display, 10, 10, s.label, textColor, kFontLarge);
+        drawText(display, 10, 10 + kFontLarge.height + 4, hexLabel, textColor, kFontLarge);
         display.presentFrame();
 
         vTaskDelay(pdMS_TO_TICKS(kSwatchHoldMs));

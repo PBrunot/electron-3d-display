@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
 #include "config/hardware_constants.h"
 
 static const char *kImuTag = "imu";
@@ -12,10 +13,12 @@ static const char *kImuTag = "imu";
 #define PIN_SDA gpio_num_t(47)
 #define PIN_SCL gpio_num_t(48)
 
+#if !CONFIG_IDF_TARGET_ESP32
 static int16_t signed16(uint8_t lo, uint8_t hi)
 {
     return int16_t(uint16_t(lo) | (uint16_t(hi) << 8));
 }
+#endif
 
 bool Qmi8658::writeReg(uint8_t reg, uint8_t value)
 {
@@ -30,6 +33,13 @@ bool Qmi8658::readRegs(uint8_t reg, uint8_t *buf, size_t len)
 
 Qmi8658::Qmi8658()
 {
+#if CONFIG_IDF_TARGET_ESP32
+    // CYD has no QMI8658 and no wiring for one -- see imu.h's note. Deliberately skip I2C
+    // bus bring-up entirely rather than attempting it with the S3's pins (47/48 aren't even
+    // valid GPIO numbers on plain ESP32, which only goes up to 39).
+    ESP_LOGI(kImuTag, "no IMU on this target (CYD) -- Qmi8658 is a no-op, readAccelG() always fails");
+    return;
+#else
     i2c_master_bus_config_t busCfg = {};
     busCfg.i2c_port = I2C_NUM_0;
     busCfg.sda_io_num = PIN_SDA;
@@ -59,6 +69,7 @@ Qmi8658::Qmi8658()
         ESP_LOGE(kImuTag, "failed to configure accelerometer (CTRL1/CTRL2/CTRL7 write)");
         abort();
     }
+#endif
 }
 
 Qmi8658::~Qmi8658()
@@ -71,6 +82,12 @@ Qmi8658::~Qmi8658()
 
 bool Qmi8658::readAccelG(orb_real_t *outX, orb_real_t *outY, orb_real_t *outZ)
 {
+#if CONFIG_IDF_TARGET_ESP32
+    (void)outX;
+    (void)outY;
+    (void)outZ;
+    return false;
+#else
     uint8_t d[6];
     if (!readRegs(kRegAccelOut, d, sizeof(d)))
         return false;
@@ -78,6 +95,7 @@ bool Qmi8658::readAccelG(orb_real_t *outX, orb_real_t *outY, orb_real_t *outZ)
     *outY = orb_real_t(signed16(d[2], d[3])) / kRange4gScale;
     *outZ = orb_real_t(signed16(d[4], d[5])) / kRange4gScale;
     return true;
+#endif
 }
 
 bool Qmi8658::checkPlanarAtBoot()

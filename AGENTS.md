@@ -196,3 +196,17 @@ Regole:
 
 I backtick nelle docstring Python vere sono validi caratteri normali — il
 vincolo è solo sul trasporto JS, non "correggere" le docstring togliendoli.
+
+## 8. Secondo target — CYD (Cheap Yellow Display, ESP32-2432S028R)
+
+Esiste un secondo `platformio.ini` environment, `[env:CYD]`, per la scheda
+"Cheap Yellow Display" (ESP32-2432S028R), pensato per eseguire lo **stesso
+codice sorgente** in `src/` della S3 (branch a compile-time su
+`CONFIG_IDF_TARGET_ESP32`, non un fork). Lavoro in corso sul branch git
+**`CYD-test`** (non su `master`).
+
+Per pinout verificato, stato dettagliato (cosa funziona/cosa manca, con le
+cause misurate su hardware reale) e le decisioni prese finora, vedi
+**`CYD-branch.md`** in root — tenuto separato da questo file perché è
+lavoro/scoperte specifiche del branch, non architettura stabile del
+progetto principale.

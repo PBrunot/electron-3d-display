@@ -17,6 +17,13 @@ namespace
 {
     Display *g_display = nullptr;
 
+    /// Scratch for one flat, row-major snapshot of the frame buffer (see Display::
+    /// readAllPixels()) -- allocated once (startScreenshotConsole()) from the regular heap,
+    /// not a static reservation: this is a debug feature exercised rarely, and on a
+    /// no-PSRAM board (CYD) a static kDisplayWidth*kDisplayHeight array would otherwise
+    /// permanently reserve real budget from an already tight internal-RAM link.
+    uint16_t *g_pixelBuf = nullptr;
+
     // Generous: the active render loop only reaches a checkpoint() between frames/bounded
     // transitions (see screenshot_pause.h) -- a boot fly-over or preset-switch transition can
     // take a couple of seconds, so this needs real margin above that, not just one frame.
@@ -69,7 +76,7 @@ namespace
 
     void handleCap()
     {
-        if (g_display == nullptr)
+        if (g_display == nullptr || g_pixelBuf == nullptr)
         {
             printf("SS_ERR no display\n");
             return;
@@ -81,14 +88,15 @@ namespace
         }
         // The paused render loop may have queued its last presentFrame() DMA transfer
         // without yet reaching its own waitForFlushDone() (that only happens at the top of
-        // its NEXT iteration, after this checkpoint) -- frameBuf can still be mid-flip or
-        // still Y-flipped from that transfer. syncForExternalRead() is safe to call here
-        // specifically because the render loop task is guaranteed quiesced by the pause
-        // above, so nothing else can be waiting on the same completion signal right now.
+        // its NEXT iteration, after this checkpoint) -- some blocks' DMA may still be in
+        // flight. syncForExternalRead() is safe to call here specifically because the render
+        // loop task is guaranteed quiesced by the pause above, so nothing else can be waiting
+        // on the same completion signal right now.
         g_display->syncForExternalRead();
+        g_display->readAllPixels(g_pixelBuf);
         char name[screenshot::kMaxNameLen];
         size_t size = 0;
-        bool ok = screenshot::capture(g_display->getFrameBuf(), name, sizeof(name), &size);
+        bool ok = screenshot::capture(g_pixelBuf, name, sizeof(name), &size);
         screenshot_pause::releasePause();
 
         if (ok)
@@ -129,10 +137,10 @@ namespace
     void handleCapAll()
     {
         printf("SS_CAP_ALL_START\n");
-        // Batch capture renders into its own private buffer (never touches Display), but
-        // OrbitalPresetState::load()/AtomPresetState::load() still write through shared
+        // Batch capture renders into its own offscreen Display (never touches the live one),
+        // but OrbitalPresetState::load()/AtomPresetState::load() still write through shared
         // static scratch (see screenshot_pause.h) -- pausing is required even though this
-        // command never calls display.getFrameBuf().
+        // command never reads the live display's pixels.
         if (!screenshot_pause::requestPause(kPauseTimeoutMs))
         {
             printf("SS_ERR pause timeout\n");
@@ -197,6 +205,10 @@ namespace
 void startScreenshotConsole(Display &display)
 {
     g_display = &display;
+    g_pixelBuf = (uint16_t *)heap_caps_malloc(
+        size_t(Display::kDisplayWidth) * Display::kDisplayHeight * sizeof(uint16_t), MALLOC_CAP_8BIT);
+    if (g_pixelBuf == nullptr)
+        printf("SS_ERR failed to allocate screenshot scratch buffer -- capture disabled\n");
     screenshot::init();
     screenshot_pause::init();
     // 8192, matching CONFIG_ESP_MAIN_TASK_STACK_SIZE (sdkconfig.defaults): since the
