@@ -215,24 +215,18 @@ public:
 
     /// Panel resolution in pixels; drives frame buffer size and SPI transfer size.
 #if CONFIG_IDF_TARGET_ESP32
-    // CYD (ESP32-2432S028R): ILI9341, 240x320 native/portrait. Logical canvas is SMALLER than
-    // the physical panel (kCydPanelWidth/Height below) and centered in a black letterbox --
-    // hardware-measured on this exact unit (see CYD-branch.md's boot log): total DMA-capable
-    // internal SRAM free by the time Display() allocates cannot cover a full 240x320 buffer
-    // (153600 bytes) even split across every fragmented region down to 1 row/block -- the
-    // block-splitting allocator in the constructor aborts. 192x192 (73728 bytes) fits inside
-    // this unit's single largest free DMA block (~108KB) with margin to spare for the rest of
-    // the app. TEMPORARY: revisit once the real fix (freeing up more DMA-capable SRAM
-    // elsewhere, or a smaller pixel format) lets the full panel resolution actually boot.
-    static constexpr int kDisplayWidth = 192;
-    static constexpr int kDisplayHeight = 192;
-
-    /// Physical ILI9341 panel resolution -- always bigger than the logical canvas above on
-    /// this target. presentFrame() centers the logical canvas inside this via kCydOffsetX/Y.
-    static constexpr int kCydPanelWidth = 240;
-    static constexpr int kCydPanelHeight = 320;
-    static constexpr int kCydOffsetX = (kCydPanelWidth - kDisplayWidth) / 2;
-    static constexpr int kCydOffsetY = (kCydPanelHeight - kDisplayHeight) / 2;
+    // CYD (ESP32-2432S028R): ILI9341, 240x320 native/portrait, full physical resolution -- no
+    // letterbox. This board has no PSRAM, so the block-splitting allocator below (internal
+    // SRAM is fragmented into several non-contiguous free regions at boot, see CYD-branch.md)
+    // needs the whole 153600-byte buffer to fit, in pieces, across whatever's free. That
+    // previously didn't fit at this resolution (192x192 letterbox was the workaround); it fits
+    // now because config/visual_constants.h's kOrbitalNumPoints comment and
+    // physics/orbital_presets.cpp's OrderRadiiScratch freed up the internal-SRAM budget this
+    // was competing against -- chiefly dropping screenshot_batch.cpp's captureOrbitals()/
+    // captureAllPresets() static scratch (~53KB, a documented no-op on this board anyway, see
+    // main.cpp's CYD boot branch) entirely from the CYD build.
+    static constexpr int kDisplayWidth = 240;
+    static constexpr int kDisplayHeight = 320;
 #else
     static constexpr int kDisplayWidth = 240;
     static constexpr int kDisplayHeight = 240;

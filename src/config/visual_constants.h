@@ -161,7 +161,7 @@ inline constexpr uint32_t kSplashHoldMs = 2000;
 // static buffers in that same budget. See CYD-branch.md for the measured link-time headroom
 // this value was tuned against.
 #if CONFIG_IDF_TARGET_ESP32
-inline constexpr int kOrbitalNumPoints = 2000;
+inline constexpr int kOrbitalNumPoints = 3400;
 #else
 inline constexpr int kOrbitalNumPoints = 12000;
 #endif
