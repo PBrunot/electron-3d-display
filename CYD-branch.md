@@ -29,6 +29,21 @@ ridotta a 192×192 in letterbox); quel dettaglio è storico, non riflette più
 il codice attuale — vedi §"Framebuffer" sotto per l'architettura finale
 effettivamente in uso.
 
+**Aggiornamento (2026-08-22, stesso giorno): risoluzione piena 240×320
+verificata su hardware reale**, non solo a compile-time. Al primo re-port il
+buffer 240×320 falliva davvero all'allocazione (misurato: `abort()` a boot,
+vedi log sotto) — la nota sopra descriveva l'architettura a blocchi come
+"finale" ma la board non aveva ancora abbastanza SRAM interna libera perché
+quell'architettura raggiungesse la risoluzione piena. La causa e il fix sono
+in §"Budget RAM interna" sotto: liberati ~76 KB statici (soprattutto
+escludendo del tutto la console screenshot su questo target, un percorso che
+era comunque già un no-op qui), poi verificato via log seriale reale che il
+buffer 240×320 si alloca con margine e che la vista orbitale carica un
+preset senza crash. Questo è il primo punto in cui qualcosa in questo
+documento è stato confermato su hardware fisico invece che solo dedotto dal
+build log — vedi anche §"Cosa NON è ancora fatto" per cosa resta comunque
+non verificato (colori/mirror).
+
 ## Cosa è già fatto (branch a compile-time su `CONFIG_IDF_TARGET_ESP32`)
 
 ### Display (`src/render/display.h`/`.cpp`)
@@ -109,12 +124,126 @@ effettivamente in uso.
 ### Punti nuvola (`src/config/visual_constants.h`)
 
 - `kOrbitalNumPoints`/`kAtomNumPoints` branchati per target: 12000/12000
-  sulla S3 (invariato), **2000/1000 sulla CYD**. Questi array sono
+  sulla S3 (invariato), **3400/1000 sulla CYD** (era 2000/1000 al primo
+  re-port; vedi §"Budget RAM interna" sotto per come si è arrivati a 3400 e
+  perché `kAtomNumPoints` non è stato toccato). Questi array sono
   `EXT_RAM_BSS_ATTR` (pensati per vivere in PSRAM): sulla S3 finiscono in
   PSRAM gratis, sulla CYD (niente PSRAM) ricadono in SRAM interna — e dato
   che ESP-IDF/PlatformIO linkano il componente `main` whole-archive, anche
   il codice mai chiamato a runtime (es. `benchmark_test.cpp` quando
-  `BENCHMARK_TEST` non è definita) pesa comunque sul budget statico.
+  `BENCHMARK_TEST` non è definita) pesa comunque sul budget statico, a meno
+  che non resti anche staticamente irraggiungibile (nessun call site vivo
+  da nessuna parte) e venga quindi scartato da `--gc-sections`.
+
+### Budget RAM interna: commonalizzazione, esclusioni CYD-specifiche, verifica su hardware (2026-08-22)
+
+Con la risoluzione piena 240×320 il framebuffer da solo richiede 153600
+byte contigui-a-blocchi di SRAM DMA-capace. Al primo re-port (`kOrbitalNumPoints
+= 2000`, console screenshot attiva) questo falliva su hardware reale:
+
+```
+I (483) display: frame buffer: 240x320 logical (153600 bytes needed), largest
+free DMA block=110592 bytes, total free DMA=146900 bytes -> starting at 213
+rows/block
+[...retry a granularità decrescente...]
+E (538) display: failed to allocate frame buffer (even at 1 row/block)
+abort() was called at PC 0x400d3549 on core 0
+```
+
+Due fix hanno liberato abbastanza SRAM interna perché lo stesso identico
+allocatore a blocchi (nessuna modifica alla logica di `Display::Display()`,
+solo più byte liberi da cui attingere) riuscisse:
+
+1. **Console screenshot esclusa del tutto sulla build CYD** — non solo il
+   comando batch, l'intera `startScreenshotConsole(display)` (`main.cpp`,
+   dietro `#if !CONFIG_IDF_TARGET_ESP32`). Motivazione: `debug/
+   screenshot_batch.cpp`'s `captureOrbitals()`/`captureAllPresets()`
+   dichiaravano ciascuna una propria copia statica `EXT_RAM_BSS_ATTR` di
+   `OrbitalPresetState`/`AtomPresetState` (tens of KB ciascuna, duplicati
+   di quella già usata dalla vista live) **puramente per supportare il
+   comando `'a'`/`SS_CAP_ALL`** — un comando che quella stessa funzione
+   documenta essere già un no-op su CYD (`heap_caps_malloc(...,
+   MALLOC_CAP_SPIRAM)` fallisce sempre senza PSRAM, la funzione logga e
+   ritorna). Il commento originale della funzione affermava "no static
+   reservation left behind" su una board senza PSRAM: **falso** — un
+   array `static EXT_RAM_BSS_ATTR` dentro una funzione mai raggiunta a
+   runtime pesa comunque sul link se la funzione resta raggiungibile
+   *staticamente* (ESP-IDF/PlatformIO linkano `main` whole-archive), e con
+   `esp_lcd`/questo componente niente PSRAM significa fallback in SRAM
+   interna, non "nessuna riserva". Verificato via `nm`/`readelf` sul
+   `firmware.elf` collegato: i simboli `captureOrbitals()::preset`
+   (36232 byte) e `captureAllPresets()::atomPreset` (12920 byte) erano
+   presenti in `.dram0.bss`, non ottimizzati via. Escludere l'intera
+   console (stesso meccanismo di esclusione di `orbital_slice.cpp`: nessun
+   call site vivo → `--gc-sections` scarta l'intera unità di traduzione,
+   incluso `screenshot.cpp`/`screenshot_batch.cpp`/`png_writer.cpp`) ha
+   liberato **76952 byte** di RAM statica (167176→90224 byte, misurato,
+   più della somma dei soli due simboli sopra: la console portava con sé
+   anche i propri buffer di riga/protocollo).
+2. **`order[]`/`radii[]` (physics/orbital_presets.cpp) unificati in un solo
+   scratch condiviso** (`OrderRadiiScratch`, union `int[kOrbitalNumPoints]`/
+   `orb_real_t[kOrbitalNumPoints]`): `computeOrbitalLevels()` e
+   `scaleFromRadii()` li usavano ciascuna come proprio array statico
+   privato a funzione, ma sono sempre chiamate in sequenza dentro un unico
+   `OrbitalPresetState::load()` (mai concorrenti — `screenshot_pause.h`
+   serializza comunque ogni `load()` contro qualunque altro lettore/
+   scrittore di questo scratch), e ciascun uso è auto-contenuto (scrive,
+   legge, scarta) entro la propria chiamata. Un solo buffer, reinterpretato
+   come serve, sostituisce due array separati da `kOrbitalNumPoints`
+   elementi — 4 byte/punto risparmiati (a 3400 punti: 13600 byte). Questa è
+   l'unica vera "commonalizzazione tra moduli" trovata che valesse lo
+   sforzo: gli altri array a grandezza `kOrbitalNumPoints`/`kAtomNumPoints`
+   sparsi nel codice erano già singleton condivisi (static locali a
+   funzione, un'unica istanza indipendentemente da quante volte/da dove la
+   funzione viene chiamata) — non c'era altra duplicazione reale da
+   rimuovere.
+
+Con entrambi i fix, a `kOrbitalNumPoints = 3400`: **RAM 41.2% (135024/327680
+byte)**, Flash invariata (12.7%, 392339/3080192 byte). Verificato via log
+seriale reale (`/dev/ttyUSB0`, non solo build):
+
+```
+I (483) display: frame buffer: 240x320 logical (153600 bytes needed), largest
+free DMA block=110592 bytes, total free DMA=166100 bytes -> starting at 213
+rows/block
+[...retry, come sempre su questa unità: la stima iniziale basata sul blocco
+singolo più grande è ottimistica, il backoff a grana più fine è il
+comportamento atteso, non un problema...]
+I (509) display: frame buffer: allocated 13 block(s), 26 rows each (12480
+bytes) + last block 8 rows (3840 bytes), 153600 bytes total
+[...]
+I (7593) orbital_view: display ready, 36 presets available
+I (7593) orbital_view: loading preset 4 (2pz, n=2 l=1 m=0)...
+I (7667) orbital: orbital sampler table ready: 36 presets, 1001 pts/table
+I (7765) orbital_view: 2pz loaded in 172ms, scale=12.5
+```
+
+166100 byte liberi contro 153600 richiesti: **12500 byte di margine**
+verificato, non solo stimato — il numero `total free DMA` (nuova riga di
+log in `Display::Display()`, `heap_caps_get_free_size(MALLOC_CAP_DMA)`,
+lasciata nel codice apposta) è lo strumento più veloce per ri-controllare
+questo margine dopo qualunque futuro cambio a `kOrbitalNumPoints`/
+`kAtomNumPoints`/`Display::kDisplayWidth/Height`. `kAtomNumPoints` non è
+stato toccato/non pesa oggi su questo budget: `AtomPresetState`/
+`atom_cloud.cpp`'s scratch sono raggiungibili solo dalla catena chooser→
+`runAtomView()`, e su CYD `main.cpp` salta `runChooser()` del tutto (vedi
+sotto) — quel codice è staticamente irraggiungibile e `--gc-sections` lo
+scarta. Se in futuro la CYD guadagna un input reale e la vista atomo
+diventa raggiungibile, questo budget va ricalcolato (il costo non è più
+zero).
+
+Perché non si è arrivati esattamente a 5000 punti (obiettivo iniziale):
+al primo tentativo (`kOrbitalNumPoints = 4000`, stessi due fix) il
+framebuffer falliva ancora — `total free DMA=146900` contro 153600
+richiesti, insufficiente nonostante ~76 KB liberati dai due fix sopra.
+Causa: la memoria libera DMA-capace è un **sottoinsieme** della RAM libera
+totale (`internal_free` nel log `benchmark: BENCH,MEM` include anche SRAM
+non DMA-capace, es. la regione IRAM-only da 76 KiB elencata da
+`heap_init`) — il modello lineare "byte statico liberato = byte libero per
+il framebuffer" è vero in prima approssimazione ma va ri-verificato via
+`total free DMA` reale, non assunto dal solo delta di RAM statica. 3400 è
+il punto scelto dopo aver ri-misurato su hardware reale con questo numero,
+non da un calcolo puramente teorico.
 
 ### Vista plane-slice heatmap: **esclusa dalla build CYD**
 
@@ -158,14 +287,24 @@ effettivamente in uso.
   punto nell'origine) — non un crash, ma un default visibile rotto proprio
   sulla vista in cui la CYD atterra automaticamente dopo il boot (vedi sopra,
   auto-avvio orbitali). 1 MB copre comodamente il payload attuale di `data/`
-  (~900 KiB). Deploy con `pio run -e CYD -t uploadfs` (manuale, stesso
-  workflow della S3 — non incatenato a ogni `upload`, vedi il commento in
-  `platformio.ini`).
+  (~900 KiB). Deploy con `pio run -e CYD -t uploadfs_cyd` (non `uploadfs`
+  come sulla S3 — quel target shella fuori a `mkspiffs`, il cui binario
+  precompilato per questa piattaforma è armhf-only e non gira su un host
+  di build aarch64; `uploadfs_cyd` costruisce la stessa `data/` via lo
+  `spiffsgen.py` puro-Python di ESP-IDF e la scrive via `esptool`, vedi il
+  commento in `platformio.ini`). Manuale, non incatenato a ogni `upload` —
+  **verificato funzionante su hardware reale (2026-08-22)**, vedi
+  §"Cosa NON è ancora fatto" sotto.
 
-**Build CYD verificata con `pio run -e CYD`: compila E linka** — RAM 51.0%
-(167176/327680 byte), Flash 18.4% (567987/3080192 byte). Build S3
+**Build CYD verificata con `pio run -e CYD`: compila, linka, E flasha/boota
+su hardware reale** (2026-08-22, vedi §"Budget RAM interna" sopra per il
+log seriale) — RAM 41.2% (135024/327680 byte), Flash 12.7% (392339/3080192
+byte), a piena risoluzione 240×320 e `kOrbitalNumPoints = 3400`. Build S3
 riverificata in parallelo: nessuna regressione (RAM 12.3%/40364 byte, Flash
-15.3%/640463 byte — identica a prima del re-port).
+15.3%/640479 byte — identica a prima di questo giro di modifiche; le uniche
+righe condivise toccate, l'unione `order`/`radii` in
+`orbital_presets.cpp`, sono compilate su entrambi i target ma non
+cambiano il comportamento sulla S3).
 
 ## Cosa NON è ancora fatto (bloccanti reali, non solo "todo")
 
@@ -189,10 +328,13 @@ riverificata in parallelo: nessuna regressione (RAM 12.3%/40364 byte, Flash
   heap temporanea invece di array statici, e verificare che ~460 KiB di
   picco heap siano davvero disponibili a runtime sulla CYD (non ovvio: è
   quasi metà della RAM interna totale del chip).
-- **`data/hfs_tables.bin`/`orbital_samplers.bin` non ancora deployati su
-  hardware CYD reale** — la partizione `storage` esiste nella tabella, ma va
-  effettivamente flashata con `pio run -e CYD -t uploadfs` prima che gli
-  atomi/orbitali smettano di usare il modello degradato.
+- ~~`data/hfs_tables.bin`/`orbital_samplers.bin` non ancora deployati su
+  hardware CYD reale~~ **Risolto/verificato (2026-08-22)**: la partizione
+  `storage` è flashata (con `pio run -e CYD -t uploadfs_cyd` — non
+  `uploadfs`, vedi il commento in `platformio.ini` sul perché) e le tabelle
+  si caricano correttamente a runtime, confermato dal log seriale reale
+  (`orbital: orbital sampler table ready: 36 presets, 1001 pts/table`,
+  nessun fallback al modello degradato) — vedi §"Budget RAM interna" sopra.
 
 ## Pin verificati (fonte: PINS.md del repo CYD ufficiale)
 

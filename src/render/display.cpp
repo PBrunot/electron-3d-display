@@ -186,14 +186,23 @@ Display::Display()
         constexpr size_t kSafetyMarginBytes = 8 * 1024;
 
         size_t largestFree = heap_caps_get_largest_free_block(MALLOC_CAP_DMA);
+        // Total, not just largest-block: on a fragmented heap (CYD) the largest single block
+        // understates what block-splitting can actually reach, and logging both is what let
+        // CYD-branch.md's RAM budget be tuned against real hardware instead of guesswork --
+        // keep this line, it's the fastest way to re-check headroom after any future change to
+        // kOrbitalNumPoints/kAtomNumPoints or Display::kDisplayWidth/Height.
+        size_t totalDmaFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
         size_t budget = largestFree > kSafetyMarginBytes ? largestFree - kSafetyMarginBytes : 0;
         int candidateRows = int(budget / kRowBytes);
         if (candidateRows > kDisplayHeight)
             candidateRows = kDisplayHeight;
         if (candidateRows < 1)
             candidateRows = 1;
-        ESP_LOGI(kDisplayTag, "frame buffer: %dx%d logical, largest free DMA block=%u bytes -> starting at %d rows/block",
-                 kDisplayWidth, kDisplayHeight, unsigned(largestFree), candidateRows);
+        ESP_LOGI(kDisplayTag,
+                 "frame buffer: %dx%d logical (%u bytes needed), largest free DMA block=%u bytes, "
+                 "total free DMA=%u bytes -> starting at %d rows/block",
+                 kDisplayWidth, kDisplayHeight, unsigned(size_t(kDisplayWidth) * kDisplayHeight * sizeof(uint16_t)),
+                 unsigned(largestFree), unsigned(totalDmaFree), candidateRows);
 
         for (;;)
         {
@@ -247,42 +256,9 @@ Display::Display()
         }
     }
 
-#if CONFIG_IDF_TARGET_ESP32
-    // One-time letterbox border clear: the logical canvas (kDisplayWidth x kDisplayHeight) is
-    // smaller than the physical panel (kCydPanelWidth x kCydPanelHeight) and centered in it
-    // (see kCydOffsetX/Y) -- everything outside that centered window is never touched by
-    // presentFrame() again after this, so whatever was in the ILI9341's GRAM at power-on (often
-    // noise) would otherwise show as a permanent border. A full physical-panel-sized buffer
-    // can't be allocated here any more than the logical one could (same fragmented-SRAM
-    // constraint that forced the letterbox in the first place) -- so this clears the panel a
-    // few rows at a time with one small reusable band instead, waiting out each band's DMA via
-    // the normal s_flushDone/pendingFlushCount path before reusing/freeing it (both to avoid
-    // freeing memory the DMA engine is still reading, and to leave pendingFlushCount at its
-    // expected 0 for the first real presentFrame()/waitForFlushDone() pair below).
-    {
-        constexpr int kClearBandRows = 16;
-        constexpr size_t kClearBandBytes = size_t(kCydPanelWidth) * kClearBandRows * sizeof(uint16_t);
-        uint16_t *band = (uint16_t *)heap_caps_malloc(kClearBandBytes, MALLOC_CAP_DMA);
-        if (band != nullptr)
-        {
-            std::memset(band, 0, kClearBandBytes);
-            for (int y = 0; y < kCydPanelHeight; y += kClearBandRows)
-            {
-                int rows = std::min(kClearBandRows, kCydPanelHeight - y);
-                ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, y, kCydPanelWidth, y + rows, band));
-                this->pendingFlushCount = 1;
-                waitForFlushDone();
-            }
-            heap_caps_free(band);
-        }
-        else
-        {
-            ESP_LOGW(kDisplayTag, "letterbox border clear: could not allocate %u-byte band, panel border may show boot noise",
-                     unsigned(kClearBandBytes));
-        }
-    }
-#endif
-
+    // No letterbox on either target: the logical canvas above is always the full physical
+    // panel now, so there's no border area for presentFrame() to leave untouched -- the very
+    // first presentFrame() (main.cpp, after drawSplashScreen()) covers the whole GRAM itself.
     this->panel = panel_handle;
 }
 
@@ -369,15 +345,9 @@ void Display::presentFrame()
     // block's completion (via onColorTransDone(), the ISR callback) gives s_flushDone once;
     // waitForFlushDone() is what actually waits them out, on whichever call touches the frame
     // buffer next.
-#if CONFIG_IDF_TARGET_ESP32
-    // Logical canvas is letterboxed inside the physical panel on this target -- see
-    // kCydOffsetX/Y's docstring in display.h. Zero on the S3, where logical == physical.
-    constexpr int kOffsetX = kCydOffsetX;
-    constexpr int kOffsetY = kCydOffsetY;
-#else
+    // Logical canvas == physical panel on both targets now (no letterbox).
     constexpr int kOffsetX = 0;
     constexpr int kOffsetY = 0;
-#endif
     for (int b = 0; b < blockCount; b++)
     {
         int blockRows = std::min(rowsPerBlock, kDisplayHeight - b * rowsPerBlock);

@@ -65,7 +65,19 @@ extern "C" void app_main(void)
     runOrbitalSliceTest(display); // never returns -- see orbital_slice_test.h
 #else
     Display display{};
+#if !CONFIG_IDF_TARGET_ESP32
     startScreenshotConsole(display); // 's'/'l'/SS_GET/SS_DEL over the console -- see screenshot_console.h
+#endif
+    // CYD: screenshot console skipped entirely (not just its batch command) -- no reachable
+    // call site left into screenshot_console.cpp/screenshot.cpp/screenshot_batch.cpp, so the
+    // linker's --gc-sections drops all three translation units, same mechanism as
+    // views/orbital_slice.cpp (CYD-branch.md). Recovers the ~53KB of internal SRAM that
+    // screenshot_batch.cpp's captureOrbitals()/captureAllPresets() static scratch (tens of KB
+    // of OrbitalPresetState/AtomPresetState duplicates of the live view's own) reserved for a
+    // batch-capture feature that was already a no-op here (it heap_caps_mallocs with
+    // MALLOC_CAP_SPIRAM, which always fails with no PSRAM) -- see config/visual_constants.h's
+    // kOrbitalNumPoints comment. That RAM instead goes toward restoring full 240x320 resolution
+    // (Display::kDisplayWidth/Height) and a higher point count.
 
     display.waitForFlushDone();
     drawSplashScreen(display);
