@@ -86,18 +86,14 @@ const uint8_t kEquationBitmapData[] = {
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 
-void drawEquationBackdrop(uint16_t *frameBuf, int x, int y, uint16_t color) {
+void drawEquationBackdrop(Display &display, int x, int y, uint16_t color) {
     for (int row = 0; row < kEquationBitmapHeight; row++) {
         int py = y + row;
-        if (py < 0 || py >= Display::kDisplayHeight)
-            continue;
         for (int col = 0; col < kEquationBitmapWidth; col++) {
             int px = x + col;
-            if (px < 0 || px >= Display::kDisplayWidth)
-                continue;
             uint8_t byte = kEquationBitmapData[row * kEquationBitmapRowBytes + col / 8];
             if (byte & (0x80 >> (col % 8)))
-                frameBuf[py * Display::kDisplayWidth + px] = color;
+                display.writePx(px, py, color);
         }
     }
 }

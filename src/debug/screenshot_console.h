@@ -25,8 +25,8 @@
 #include "render/display.h"
 
 /// Mounts /storage (via screenshot::init()) and starts the console task. Call once at boot,
-/// after `Display display{};` -- the task reads display.getFrameBuf() directly (not thread-
-/// safe against the render loop, but a screenshot is a rare, human-triggered debug action:
-/// worst case is a single frame with visible tearing between the two halves of the buffer,
-/// which is a non-issue for a debug snapshot).
+/// after `Display display{};` -- the task reads the frame buffer via display.readAllPixels()
+/// (not thread-safe against the render loop, but a screenshot is a rare, human-triggered debug
+/// action: worst case is a single frame with visible tearing between the two halves of the
+/// buffer, which is a non-issue for a debug snapshot).
 void startScreenshotConsole(Display &display);

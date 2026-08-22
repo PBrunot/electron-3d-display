@@ -5,6 +5,8 @@
 
 #include <cstdint>
 
+class Display;
+
 inline constexpr int kSplashBitmapWidth = 240;
 inline constexpr int kSplashBitmapHeight = 240;
 // Already packed via Display::packColor565()'s exact bit formula (plain
@@ -12,7 +14,8 @@ inline constexpr int kSplashBitmapHeight = 240;
 extern const uint16_t kSplashBitmapData[];
 
 /** Blit the splash image at (0, 0), opaque (no blending) -- caller presents the
- * frame afterward. Bounds-checked against Display::kDisplayWidth/Height like
- * every other draw function in this project, though the emitted size always
- * matches the display exactly (see WIDTH_PX/HEIGHT_PX in the generator). */
-void drawSplashScreen(uint16_t *frameBuf);
+ * frame afterward. Clipped against Display::kDisplayWidth/Height like every
+ * other draw function in this project (see Display::blit()); on a panel taller
+ * than kSplashBitmapHeight (e.g. the CYD's 320px) the rest of the screen is left
+ * whatever it already held -- caller clears first if that matters. */
+void drawSplashScreen(Display &display);

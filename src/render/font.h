@@ -10,6 +10,8 @@
 
 #include <cstdint>
 
+class Display;
+
 /**
  * One rasterized font: a flat glyph table indexed by (char - firstChar), each glyph
  * keeping its own proportional width (the source font's own advance, not a fixed cell).
@@ -90,9 +92,9 @@ extern const FontHuge kFontHuge;
  * (all three) -- per-glyph drawChar() stays a font.cpp-internal implementation detail,
  * nothing outside it calls a single glyph directly.
  */
-int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontSmall &font);
-int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font);
-int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontHuge &font);
+int drawText(Display &display, int x, int y, const char *text, uint16_t color, const FontSmall &font);
+int drawText(Display &display, int x, int y, const char *text, uint16_t color, const Font &font);
+int drawText(Display &display, int x, int y, const char *text, uint16_t color, const FontHuge &font);
 
 /** Pixel width of `text` if drawn with drawText() in `font` -- for right-aligned/centered layout. */
 int textWidth(const char *text, const FontSmall &font);
@@ -105,10 +107,10 @@ int textWidth(const char *text, const FontHuge &font);
  * dissection shell label, ticker.h's scrolling banners, overlay.cpp's scale-bar label)
  * without a dedicated baked size. scale <= 1 behaves exactly like drawText().
  */
-int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontSmall &font,
+int drawTextScaled(Display &display, int x, int y, const char *text, uint16_t color, const FontSmall &font,
                     int scale);
-int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font, int scale);
-int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontHuge &font,
+int drawTextScaled(Display &display, int x, int y, const char *text, uint16_t color, const Font &font, int scale);
+int drawTextScaled(Display &display, int x, int y, const char *text, uint16_t color, const FontHuge &font,
                     int scale);
 
 /** Like textWidth(), scaled -- see drawTextScaled(). */
@@ -121,8 +123,8 @@ int textWidthScaled(const char *text, const FontHuge &font, int scale);
  * textWidthScaled() so it's centered at whatever scale is drawn at -- see drawTextScaled(),
  * scale <= 1 behaves like plain drawText()).
  */
-void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontSmall &font,
+void drawTextCentered(Display &display, int y, const char *text, uint16_t color, const FontSmall &font,
                        int scale = 1);
-void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font, int scale = 1);
-void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontHuge &font,
+void drawTextCentered(Display &display, int y, const char *text, uint16_t color, const Font &font, int scale = 1);
+void drawTextCentered(Display &display, int y, const char *text, uint16_t color, const FontHuge &font,
                        int scale = 1);

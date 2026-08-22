@@ -1,7 +1,6 @@
 #include "debug/atom_view_test.h"
 
 #include <cstdio>
-#include <cstring>
 
 #include "physics/atom_cloud.h"
 #include "render/camera.h"
@@ -79,14 +78,14 @@ void runAtomViewTest(Display &display)
         display.waitForFlushDone(); // wait for the previous frame's DMA to finish before overwriting the buffer
         int64_t tAfterWait = esp_timer_get_time();
 
-        std::memset(display.getFrameBuf(), 0, Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t));
+        display.clearScreen();
 
         RotationTrig trig = computeRotationTrig(camera);
-        renderPointsUniform(display.getFrameBuf(), points, kNumPoints, Display::kColorWhite, trig, kScale);
-        drawProtonMarker(display.getFrameBuf(), kProtonColor);
+        renderPointsUniform(display, points, kNumPoints, Display::kColorWhite, trig, kScale);
+        drawProtonMarker(display, kProtonColor);
 
-        drawText(display.getFrameBuf(), kTitleTextX, kTitleTextY, titleText, kTextColor, kFontLarge);
-        drawScaleBar(display.getFrameBuf(), kScale / kPmPerBohr, "pm", kTestScaleBarColor, kTextColor);
+        drawText(display, kTitleTextX, kTitleTextY, titleText, kTextColor, kFontLarge);
+        drawScaleBar(display, kScale / kPmPerBohr, "pm", kTestScaleBarColor, kTextColor);
 
         display.presentFrame();
         int64_t tAfterPresent = esp_timer_get_time();

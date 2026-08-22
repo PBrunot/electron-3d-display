@@ -72,33 +72,26 @@ bool projectPoint(orb_real_t x, orb_real_t y, orb_real_t z, const RotationTrig &
  *       kOrbitalProtonMarkerSize/kAtomProtonMarkerSize) -- one shape/routine for every proton
  *       marker in the project instead of each view hand-rolling its own filled square.
  */
-void drawProtonMarker(uint16_t *frameBuf, uint16_t color, int diameterPx = kProtonMarkerSize);
-
-/// Fade every pixel of `frameBuf` toward black by kPersistenceKeepQ8. Not a template (doesn't
-/// depend on PointT), so its body lives in camera.cpp.
-void fadeFrameBuffer(uint16_t *frameBuf);
+void drawProtonMarker(Display &display, uint16_t color, int diameterPx = kProtonMarkerSize);
 
 /**
  * @brief Render `count` points, all alpha-blended toward a single `color` (see
  *        kElectronAlphaQ8).
  *
  * `points` may be any type with public x/y/z orb_real_t members (both AtomPoint and
- * OrbitalPoint qualify). `frameBuf` is NOT cleared by this function -- caller clears/fades
- * first. Convenience wrapper for a still-uncolored cloud; per-point coloring (phase for
- * orbitals, shell for atoms) uses renderPointsColored()/renderScene() below.
+ * OrbitalPoint qualify). The frame buffer is NOT cleared by this function -- caller
+ * clears/fades first. Convenience wrapper for a still-uncolored cloud; per-point coloring
+ * (phase for orbitals, shell for atoms) uses renderPointsColored()/renderScene() below.
  */
 template <typename PointT>
-void renderPointsUniform(uint16_t *frameBuf, const PointT *points, int count, uint16_t color, const RotationTrig &t,
+void renderPointsUniform(Display &display, const PointT *points, int count, uint16_t color, const RotationTrig &t,
                          orb_real_t scale)
 {
     for (int i = 0; i < count; i++)
     {
         int sx, sy;
         if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
-        {
-            int idx = sy * Display::kDisplayWidth + sx;
-            frameBuf[idx] = Display::blendColor565(frameBuf[idx], color, kElectronAlphaQ8);
-        }
+            display.writePx(sx, sy, Display::blendColor565(display.readPx(sx, sy), color, kElectronAlphaQ8));
     }
 }
 
@@ -112,7 +105,7 @@ void renderPointsUniform(uint16_t *frameBuf, const PointT *points, int count, ui
  * 374761393, Bob Jenkins'/xxHash's) on the point index and a per-frame salt.
  */
 template <typename PointT>
-void renderPointsColored(uint16_t *frameBuf, const PointT *points, const uint16_t *colors, int count,
+void renderPointsColored(Display &display, const PointT *points, const uint16_t *colors, int count,
                          const RotationTrig &t, orb_real_t scale, uint32_t frameSalt = 0,
                          uint32_t buzzThreshold = 0)
 {
@@ -123,10 +116,7 @@ void renderPointsColored(uint16_t *frameBuf, const PointT *points, const uint16_
             continue;
         int sx, sy;
         if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
-        {
-            int idx = sy * Display::kDisplayWidth + sx;
-            frameBuf[idx] = Display::blendColor565(frameBuf[idx], colors[i], kElectronAlphaQ8);
-        }
+            display.writePx(sx, sy, Display::blendColor565(display.readPx(sx, sy), colors[i], kElectronAlphaQ8));
     }
 }
 
@@ -138,13 +128,13 @@ void renderPointsColored(uint16_t *frameBuf, const PointT *points, const uint16_
  * present the frame -- caller does both.
  */
 template <typename PointT>
-void renderScene(uint16_t *frameBuf, const PointT *points, const uint16_t *colors, int count, uint16_t protonColor,
+void renderScene(Display &display, const PointT *points, const uint16_t *colors, int count, uint16_t protonColor,
                  const CameraState &camera, orb_real_t scale, uint32_t frameSalt = 0, uint32_t buzzThreshold = 0)
 {
-    fadeFrameBuffer(frameBuf);
-    drawProtonMarker(frameBuf, protonColor);
+    display.fade(kPersistenceKeepQ8);
+    drawProtonMarker(display, protonColor);
     RotationTrig trig = computeRotationTrig(camera);
-    renderPointsColored(frameBuf, points, colors, count, trig, scale, frameSalt, buzzThreshold);
+    renderPointsColored(display, points, colors, count, trig, scale, frameSalt, buzzThreshold);
 }
 
 /**
@@ -172,7 +162,7 @@ struct PointGroup
  *        which uses this to skip peeled-away outer shells without moving any point data).
  */
 template <typename PointT>
-void renderPointsGrouped(uint16_t *frameBuf, const PointT *points, const PointGroup *groups, int groupCount,
+void renderPointsGrouped(Display &display, const PointT *points, const PointGroup *groups, int groupCount,
                          const RotationTrig &t, orb_real_t scale, uint32_t frameSalt = 0, uint32_t buzzThreshold = 0)
 {
     for (int g = 0; g < groupCount; g++)
@@ -186,24 +176,21 @@ void renderPointsGrouped(uint16_t *frameBuf, const PointT *points, const PointGr
                 continue;
             int sx, sy;
             if (projectPoint(points[i].x, points[i].y, points[i].z, t, scale, &sx, &sy))
-            {
-                int idx = sy * Display::kDisplayWidth + sx;
-                frameBuf[idx] = Display::blendColor565(frameBuf[idx], grp.color, kElectronAlphaQ8);
-            }
+                display.writePx(sx, sy, Display::blendColor565(display.readPx(sx, sy), grp.color, kElectronAlphaQ8));
         }
     }
 }
 
 /** Like renderScene(), but grouped-color (see renderPointsGrouped()) instead of per-point. */
 template <typename PointT>
-void renderSceneGrouped(uint16_t *frameBuf, const PointT *points, const PointGroup *groups, int groupCount,
+void renderSceneGrouped(Display &display, const PointT *points, const PointGroup *groups, int groupCount,
                         uint16_t protonColor, const CameraState &camera, orb_real_t scale, uint32_t frameSalt = 0,
                         uint32_t buzzThreshold = 0)
 {
-    fadeFrameBuffer(frameBuf);
-    drawProtonMarker(frameBuf, protonColor);
+    display.fade(kPersistenceKeepQ8);
+    drawProtonMarker(display, protonColor);
     RotationTrig trig = computeRotationTrig(camera);
-    renderPointsGrouped(frameBuf, points, groups, groupCount, trig, scale, frameSalt, buzzThreshold);
+    renderPointsGrouped(display, points, groups, groupCount, trig, scale, frameSalt, buzzThreshold);
 }
 
 /// Uniform random float in [0, 1), via the hardware RNG (esp_random()) -- used only for
@@ -230,7 +217,7 @@ int randomIndexExcluding(int current, int count);
  *        and presenting each one, advancing `camera` by one step every frame.
  *
  * Shared by the boot intro, nudge-triggered switches, and random zoom excursions. `drawTitle`
- * is a callable `(uint16_t* frameBuf, int x, int y, uint16_t color) -> void` -- a plain
+ * is a callable `(Display &display, int x, int y, uint16_t color) -> void` -- a plain
  * single-color title for orbital_view, a per-shell-colored multi-segment one for atom_view;
  * templated instead of a fixed function pointer so both fit without an indirection cost on
  * this per-point-cheap-but-still-hot path. `buzzThreshold` (see renderPointsColored())
@@ -249,10 +236,9 @@ void flyOver(Display &display, const PointT *points, const uint16_t *colors, int
         orb_real_t scale = startScale + (endScale - startScale) * t;
 
         display.waitForFlushDone(); // previous frame's DMA must finish before frameBuf is overwritten
-        renderScene(display.getFrameBuf(), points, colors, count, protonColor, *camera, scale, uint32_t(i),
-                    buzzThreshold);
-        drawTitle(display.getFrameBuf(), kTitleTextX, kTitleTextY, textColor);
-        drawScaleBar(display.getFrameBuf(), scale / kPmPerBohr, "pm", scaleBarColor, textColor);
+        renderScene(display, points, colors, count, protonColor, *camera, scale, uint32_t(i), buzzThreshold);
+        drawTitle(display, kTitleTextX, kTitleTextY, textColor);
+        drawScaleBar(display, scale / kPmPerBohr, "pm", scaleBarColor, textColor);
         display.presentFrame();
 
         stepCamera(camera);

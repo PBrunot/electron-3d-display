@@ -28,7 +28,7 @@ namespace png_writer
 
     /**
      * @brief Encode a width x height RGB565 pixel buffer (row-major, no row padding, same
-     *        layout as Display::getFrameBuf()) into `out` as an 8-bit RGB PNG.
+     *        layout Display::readAllPixels() fills) into `out` as an 8-bit RGB PNG.
      * @return Bytes written, or 0 on failure (pixels/out null, width/height <= 0,
      *         outCapacity < requiredBufferSize(), or an internal allocation failed).
      */

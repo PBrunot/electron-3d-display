@@ -19,7 +19,7 @@
 namespace
 {
     template <typename RowT>
-    void drawCharImpl(uint16_t *frameBuf, int x, int y, char c, uint16_t color, const FontBase<RowT> &font)
+    void drawCharImpl(Display &display, int x, int y, char c, uint16_t color, const FontBase<RowT> &font)
     {
         int index = int(uint8_t(c)) - int(uint8_t(font.firstChar));
         if (index < 0 || index >= font.glyphCount)
@@ -29,17 +29,12 @@ namespace
         for (int row = 0; row < font.height; row++)
         {
             int py = y + row;
-            if (py < 0 || py >= Display::kDisplayHeight)
-                continue;
             RowT bits = rows[row];
             for (int col = 0; col < width; col++)
             {
                 if (!(bits & (RowT(1) << (width - 1 - col))))
                     continue;
-                int px = x + col;
-                if (px < 0 || px >= Display::kDisplayWidth)
-                    continue;
-                frameBuf[py * Display::kDisplayWidth + px] = color;
+                display.writePx(x + col, py, color);
             }
         }
     }
@@ -53,12 +48,12 @@ namespace
     }
 
     template <typename RowT>
-    int drawTextImpl(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontBase<RowT> &font)
+    int drawTextImpl(Display &display, int x, int y, const char *text, uint16_t color, const FontBase<RowT> &font)
     {
         int cursorX = x;
         for (const char *p = text; *p; p++)
         {
-            drawCharImpl(frameBuf, cursorX, y, *p, color, font);
+            drawCharImpl(display, cursorX, y, *p, color, font);
             cursorX += glyphAdvanceImpl(font, *p);
         }
         return cursorX;
@@ -74,12 +69,12 @@ namespace
     }
 
     template <typename RowT>
-    void drawCharScaledImpl(uint16_t *frameBuf, int x, int y, char c, uint16_t color, const FontBase<RowT> &font,
+    void drawCharScaledImpl(Display &display, int x, int y, char c, uint16_t color, const FontBase<RowT> &font,
                              int scale)
     {
         if (scale <= 1)
         {
-            drawCharImpl(frameBuf, x, y, c, color, font);
+            drawCharImpl(display, x, y, c, color, font);
             return;
         }
         int index = int(uint8_t(c)) - int(uint8_t(font.firstChar));
@@ -91,70 +86,56 @@ namespace
         {
             RowT bits = rows[row];
             int by = y + row * scale;
-            if (by + scale <= 0 || by >= Display::kDisplayHeight)
-                continue;
             for (int col = 0; col < width; col++)
             {
                 if (!(bits & (RowT(1) << (width - 1 - col))))
                     continue;
                 int bx = x + col * scale;
-                if (bx + scale <= 0 || bx >= Display::kDisplayWidth)
-                    continue;
                 for (int sy = 0; sy < scale; sy++)
-                {
-                    int py = by + sy;
-                    if (py < 0 || py >= Display::kDisplayHeight)
-                        continue;
                     for (int sx = 0; sx < scale; sx++)
-                    {
-                        int px = bx + sx;
-                        if (px < 0 || px >= Display::kDisplayWidth)
-                            continue;
-                        frameBuf[py * Display::kDisplayWidth + px] = color;
-                    }
-                }
+                        display.writePx(bx + sx, by + sy, color);
             }
         }
     }
 
     template <typename RowT>
-    int drawTextScaledImpl(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color,
+    int drawTextScaledImpl(Display &display, int x, int y, const char *text, uint16_t color,
                             const FontBase<RowT> &font, int scale)
     {
         if (scale <= 1)
-            return drawTextImpl(frameBuf, x, y, text, color, font);
+            return drawTextImpl(display, x, y, text, color, font);
         int cursorX = x;
         for (const char *p = text; *p; p++)
         {
-            drawCharScaledImpl(frameBuf, cursorX, y, *p, color, font, scale);
+            drawCharScaledImpl(display, cursorX, y, *p, color, font, scale);
             cursorX += glyphAdvanceImpl(font, *p) * scale;
         }
         return cursorX;
     }
 
     template <typename RowT>
-    void drawTextCenteredImpl(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontBase<RowT> &font,
+    void drawTextCenteredImpl(Display &display, int y, const char *text, uint16_t color, const FontBase<RowT> &font,
                                int scale)
     {
         int width = scale <= 1 ? textWidthImpl(text, font) : textWidthImpl(text, font) * scale;
         int x = (Display::kDisplayWidth - width) / 2;
-        drawTextScaledImpl(frameBuf, x, y, text, color, font, scale);
+        drawTextScaledImpl(display, x, y, text, color, font, scale);
     }
 } // namespace
 
-int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontSmall &font)
+int drawText(Display &display, int x, int y, const char *text, uint16_t color, const FontSmall &font)
 {
-    return drawTextImpl(frameBuf, x, y, text, color, font);
+    return drawTextImpl(display, x, y, text, color, font);
 }
 
-int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font)
+int drawText(Display &display, int x, int y, const char *text, uint16_t color, const Font &font)
 {
-    return drawTextImpl(frameBuf, x, y, text, color, font);
+    return drawTextImpl(display, x, y, text, color, font);
 }
 
-int drawText(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontHuge &font)
+int drawText(Display &display, int x, int y, const char *text, uint16_t color, const FontHuge &font)
 {
-    return drawTextImpl(frameBuf, x, y, text, color, font);
+    return drawTextImpl(display, x, y, text, color, font);
 }
 
 int textWidth(const char *text, const FontSmall &font)
@@ -172,21 +153,21 @@ int textWidth(const char *text, const FontHuge &font)
     return textWidthImpl(text, font);
 }
 
-int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontSmall &font,
+int drawTextScaled(Display &display, int x, int y, const char *text, uint16_t color, const FontSmall &font,
                     int scale)
 {
-    return drawTextScaledImpl(frameBuf, x, y, text, color, font, scale);
+    return drawTextScaledImpl(display, x, y, text, color, font, scale);
 }
 
-int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const Font &font, int scale)
+int drawTextScaled(Display &display, int x, int y, const char *text, uint16_t color, const Font &font, int scale)
 {
-    return drawTextScaledImpl(frameBuf, x, y, text, color, font, scale);
+    return drawTextScaledImpl(display, x, y, text, color, font, scale);
 }
 
-int drawTextScaled(uint16_t *frameBuf, int x, int y, const char *text, uint16_t color, const FontHuge &font,
+int drawTextScaled(Display &display, int x, int y, const char *text, uint16_t color, const FontHuge &font,
                     int scale)
 {
-    return drawTextScaledImpl(frameBuf, x, y, text, color, font, scale);
+    return drawTextScaledImpl(display, x, y, text, color, font, scale);
 }
 
 int textWidthScaled(const char *text, const FontSmall &font, int scale)
@@ -204,17 +185,17 @@ int textWidthScaled(const char *text, const FontHuge &font, int scale)
     return scale <= 1 ? textWidthImpl(text, font) : textWidthImpl(text, font) * scale;
 }
 
-void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontSmall &font, int scale)
+void drawTextCentered(Display &display, int y, const char *text, uint16_t color, const FontSmall &font, int scale)
 {
-    drawTextCenteredImpl(frameBuf, y, text, color, font, scale);
+    drawTextCenteredImpl(display, y, text, color, font, scale);
 }
 
-void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const Font &font, int scale)
+void drawTextCentered(Display &display, int y, const char *text, uint16_t color, const Font &font, int scale)
 {
-    drawTextCenteredImpl(frameBuf, y, text, color, font, scale);
+    drawTextCenteredImpl(display, y, text, color, font, scale);
 }
 
-void drawTextCentered(uint16_t *frameBuf, int y, const char *text, uint16_t color, const FontHuge &font, int scale)
+void drawTextCentered(Display &display, int y, const char *text, uint16_t color, const FontHuge &font, int scale)
 {
-    drawTextCenteredImpl(frameBuf, y, text, color, font, scale);
+    drawTextCenteredImpl(display, y, text, color, font, scale);
 }
