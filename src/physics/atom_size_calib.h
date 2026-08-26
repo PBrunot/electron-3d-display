@@ -4,7 +4,7 @@
 // valence subshell mode radius land on the Clementi-Raimondi literature value
 // (pc/clementi_radii.py), keeping the model's own internal shell structure.
 // HFS-table factors (compute_table_factors()): f = CR_lit / HFS-table valence
-// mode (pc/hfs_tables_reduced.npz, the same tables src/hfs_radial.h renders
+// mode (pc/hfs_tables_reduced.npz, the same tables src/physics/hfs_radial.h renders
 // through) -- elements without a CR value (Fr, Ra) are 1.0. See pc/RUN_HFS.md
 // and pc/atom_view_pc.py's clementi_size_factor for the PC sibling.
 //
