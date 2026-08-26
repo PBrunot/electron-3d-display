@@ -106,9 +106,7 @@ class PresetState:
         # This preset's bright phase-color pair (see cloud_common.ORBITAL_PHASE_COLORS) --
         # kept so resample() re-encodes turned-over points in the same colors.
         self.phase_pair = cloud_common.ORBITAL_PHASE_COLORS[index]
-        self.colors = array.array('H', bytes(2 * len(levels)))
-        for i in range(len(levels)):
-            self.colors[i] = _encode_color(levels[i], signs[i], self.phase_pair)
+        self.colors = drc.encode_orbital_colors(levels, signs, self.phase_pair)
 
         self.title = cloud_common.title_for_preset(cloud_common.ORBITAL_PRESETS[index])
         self.base_scale, self.zoom_amplitude, _r_ref = cloud_common.scale_from_radii(xs, ys, zs)

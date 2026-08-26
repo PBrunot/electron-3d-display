@@ -6,15 +6,20 @@ board, C++ port):
     SPI:       SCLK=40  MOSI=41  CS=39  DC=38  RST=42
     Backlight: GPIO20, active HIGH
 
-Uses machine.SPI (hardware SPI peripheral, not SoftSPI/bit-bang) at 40 MHz,
-the same frequency verified stable for this panel in the C++ port.
+Uses machine.SPI (hardware SPI peripheral, not SoftSPI/bit-bang) at 80 MHz,
+matching the C++ port's LCD_PIXEL_CLOCK_HZ for this same target
+(src/render/display.cpp's non-CYD branch) -- keeping both builds at the
+same SPI clock is what makes micropython/benchmark_test.py's FPS numbers
+comparable to src/debug/benchmark_test.cpp's. Drop back to 40_000_000 if
+this proves unstable on this driver (SPI(1) below, not SPI(2), see next
+paragraph).
 
 machine.SPI(2, ...) hangs this specific board on init (watchdog reset,
 verified empirically against the real device -- v1.28.0,
-ESP32_GENERIC_S3-SPIRAM_OCT firmware); SPI(1) works fine at 40 MHz, so that
-is used here instead. No MISO pin is wired (the display is write-only), so
-it is left unset -- machine.SPI defaults it to an unused GPIO internally
-without driving the actual display wiring.
+ESP32_GENERIC_S3-SPIRAM_OCT firmware); SPI(1) works fine, so that is used
+here instead. No MISO pin is wired (the display is write-only), so it is
+left unset -- machine.SPI defaults it to an unused GPIO internally without
+driving the actual display wiring.
 
 Panel-mirror + color-order fix: this exact panel is horizontally mirrored in
 a way tft.setRotation()'s four proper rotations cannot undo (see CLAUDE.md
@@ -59,7 +64,7 @@ PIN_DC = 38
 PIN_RST = 42
 PIN_BACKLIGHT = 20
 
-SPI_BAUDRATE = 40_000_000
+SPI_BAUDRATE = 80_000_000
 
 _MADCTL_MX = 0x40
 _MADCTL_MY = 0x80

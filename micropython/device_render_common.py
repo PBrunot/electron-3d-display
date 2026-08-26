@@ -82,6 +82,18 @@ ZOOM_EXCURSION_EASE_FRAMES = 30
 
 PROTON_SIZE = 3
 
+# Persistence-fade / alpha-blend constants -- MUST match src/config/visual_constants.h's
+# kPersistenceKeepQ8/kElectronAlphaQ8 exactly (both /256 fixed-point): src/render/camera.h's
+# renderScene()/renderSceneGrouped() fade the WHOLE frame buffer toward black every frame
+# (not a hard clear) and alpha-blend every point write against whatever's already there (not
+# an opaque overwrite) -- see fade_buffer()/render_points() below for the MicroPython port of
+# both. Keeping the two in sync matters for benchmark comparability
+# (micropython/benchmark_test.py vs src/debug/benchmark_test.cpp): a plain fb.fill(0) +
+# opaque point write does less per-frame work than this fade+blend, so FPS is only comparable
+# between the two builds when both do the same amount of work per frame.
+PERSISTENCE_KEEP_Q8 = 160  # kept fraction per frame, /256 (~0.625) -- kPersistenceKeepQ8
+ELECTRON_ALPHA_Q8 = 240    # blend-toward-target fraction per point write, /256 -- kElectronAlphaQ8
+
 # Overlays are drawn in panel-native (non-prism-corrected) orientation --
 # to_physical() is a coordinate remap, not a glyph-rotation, so framebuf
 # text can't be made readable through the prism offset anyway; these are
@@ -126,11 +138,61 @@ def encode_color565(r, g, b):
     return swap16(st7789.color565(r, g, b))
 
 
+@micropython.native
 def to_fixed(values):
     out = array.array('i', bytes(4 * len(values)))
     for i in range(len(values)):
         out[i] = int(values[i] * FX_SCALE)
     return out
+
+
+@micropython.native
+def encode_orbital_colors(levels, signs, phase_pair):
+    """Per-point levels/signs -> encoded RGB565 array, for
+    orbital_view.py's PresetState (and micropython/benchmark_test.py).
+
+    cloud_common.level_to_rgb()'s per-channel scale and
+    encode_color565()'s color565()+swap16() are inlined here rather than
+    called, even though this function is itself @micropython.native --
+    calling a NON-native function from native-compiled code still pays the
+    interpreter's full bytecode call overhead for that call (native
+    compilation only speeds up the caller's OWN body), so leaving those as
+    real calls would have left most of the per-point cost unaffected.
+    Inlining lets the whole per-point body run as native-compiled integer
+    arithmetic with no bytecode call-outs at all.
+    """
+    n = len(levels)
+    colors = array.array('H', bytes(2 * n))
+    pos_r, pos_g, pos_b = phase_pair[0]
+    neg_r, neg_g, neg_b = phase_pair[1]
+    for i in range(n):
+        level = levels[i]
+        if signs[i] >= 0:
+            r = pos_r * level // 255
+            g = pos_g * level // 255
+            b = pos_b * level // 255
+        else:
+            r = neg_r * level // 255
+            g = neg_g * level // 255
+            b = neg_b * level // 255
+        native565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+        colors[i] = ((native565 & 0xFF) << 8) | (native565 >> 8)
+    return colors
+
+
+@micropython.native
+def encode_rgb_colors(rgb_list):
+    """Per-point (r, g, b) tuples -> encoded RGB565 array, for
+    atom_view.py's AtomPresetState (and benchmark_test.py) -- same
+    inlined-color565()+swap16() reasoning as encode_orbital_colors() above.
+    """
+    n = len(rgb_list)
+    colors = array.array('H', bytes(2 * n))
+    for i in range(n):
+        r, g, b = rgb_list[i]
+        native565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+        colors[i] = ((native565 & 0xFF) << 8) | (native565 >> 8)
+    return colors
 
 
 def draw_scale_bar(fb, pixels_per_unit, unit_label, bar_color, text_color, max_bar_px=SCALE_BAR_MAX_PX):
@@ -160,10 +222,43 @@ def draw_scale_bar(fb, pixels_per_unit, unit_label, bar_color, text_color, max_b
 
 
 @micropython.viper
+def fade_buffer(buf, w: int, h: int, keep_q8: int):
+    """Full-frame persistence fade -- MicroPython port of Display::fade()
+    (src/render/display.cpp), which src/render/camera.h's renderScene()/
+    renderSceneGrouped() call every frame INSTEAD of a hard clear. Each
+    pixel's RGB565 is expanded to 8-bit-per-channel (same `(v5<<3)|(v5>>2)`/
+    `(v6<<2)|(v6>>4)` bit-replication Display::unpackColor565() uses -- not
+    a plain left-shift, which would leave the low bits always zero and bias
+    the faded color darker than the C++ side's), scaled by keep_q8/256,
+    then truncated back to 5/6/5 (Display::packColor565()'s plain `>>3`/
+    `>>2`/`>>3`, no rounding, matching that function exactly). `buf` holds
+    byte-swapped RGB565 (see module docstring's "Byte-order gotcha") so
+    each value is un-swapped before this and re-swapped after -- same
+    convention render_points() below already uses per point.
+    """
+    pbuf = ptr16(buf)
+    n = w * h
+    i = 0
+    while i < n:
+        v = pbuf[i]
+        native = ((v & 0xFF) << 8) | (v >> 8)
+        r5 = (native >> 11) & 0x1F
+        g6 = (native >> 5) & 0x3F
+        b5 = native & 0x1F
+        r8 = ((r5 << 3) | (r5 >> 2)) * keep_q8 >> 8
+        g8 = ((g6 << 2) | (g6 >> 4)) * keep_q8 >> 8
+        b8 = ((b5 << 3) | (b5 >> 2)) * keep_q8 >> 8
+        native2 = ((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3)
+        pbuf[i] = ((native2 & 0xFF) << 8) | (native2 >> 8)
+        i += 1
+
+
+@micropython.viper
 def render_points(buf, xs, ys, zs, colors, n: int,
                    cos_y_fx: int, sin_y_fx: int, cos_x_fx: int, sin_x_fx: int,
                    cos_z_fx: int, sin_z_fx: int, scale_fx: int,
-                   cx: int, cy: int, w: int, h: int, frame_salt: int, buzz_threshold: int):
+                   cx: int, cy: int, w: int, h: int, frame_salt: int, buzz_threshold: int,
+                   alpha_q8: int):
     """Rotate (yaw about Y, tilt about X, roll about Z -- all three needed,
     see orbital_view.py's module docstring), project, and draw every point
     directly into `buf` -- Q8 fixed-point only (viper can't do float->int
@@ -193,6 +288,15 @@ def render_points(buf, xs, ys, zs, colors, n: int,
     multiplicative hash distribute poorly). buzz_threshold=0 disables it
     (atom_view.py passes 0 -- no per-frame flicker for the static atom
     cloud).
+
+    Each written pixel is alpha-blended toward its target color (read the
+    existing pixel, blend at alpha_q8/256, write back) rather than an
+    opaque overwrite -- MicroPython port of Display::blendColor565()
+    (src/render/display.cpp), same bit-replication expand/truncate as
+    fade_buffer() above. This is real per-point work C++'s
+    renderPointsColored()/renderPointsGrouped() also do every point, not
+    optional polish: skipping it (a plain overwrite) makes overlapping
+    points fully replace each other instead of visually accumulating.
     """
     pxs = ptr32(xs)
     pys = ptr32(ys)
@@ -214,22 +318,48 @@ def render_points(buf, xs, ys, zs, colors, n: int,
             sx = cx + ((rx3 * scale_fx + 32768) >> 16)
             sy = cy - ((ry3 * scale_fx + 32768) >> 16)
             if sx >= 0 and sx < w and sy >= 0 and sy < h:
-                pbuf[(h - 1 - sy) * w + (w - 1 - sx)] = pcolors[i]
+                idx = (h - 1 - sy) * w + (w - 1 - sx)
+
+                old = pbuf[idx]
+                old_native = ((old & 0xFF) << 8) | (old >> 8)
+                or5 = (old_native >> 11) & 0x1F
+                og6 = (old_native >> 5) & 0x3F
+                ob5 = old_native & 0x1F
+                or8 = (or5 << 3) | (or5 >> 2)
+                og8 = (og6 << 2) | (og6 >> 4)
+                ob8 = (ob5 << 3) | (ob5 >> 2)
+
+                tgt = pcolors[i]
+                tgt_native = ((tgt & 0xFF) << 8) | (tgt >> 8)
+                tr5 = (tgt_native >> 11) & 0x1F
+                tg6 = (tgt_native >> 5) & 0x3F
+                tb5 = tgt_native & 0x1F
+                tr8 = (tr5 << 3) | (tr5 >> 2)
+                tg8 = (tg6 << 2) | (tg6 >> 4)
+                tb8 = (tb5 << 3) | (tb5 >> 2)
+
+                r8 = or8 + (((tr8 - or8) * alpha_q8) >> 8)
+                g8 = og8 + (((tg8 - og8) * alpha_q8) >> 8)
+                b8 = ob8 + (((tb8 - ob8) * alpha_q8) >> 8)
+
+                native2 = ((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3)
+                pbuf[idx] = ((native2 & 0xFF) << 8) | (native2 >> 8)
         i += 1
 
 
 def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, frame_salt=0,
                   buzz_threshold=0):
-    """Clear, draw the proton marker (via framebuf -- cheap, not
-    once-per-point), then every point in `preset` at `angle`/`tilt_angle`/
-    `roll_angle`/`scale`. `preset` need only expose xs_fx/ys_fx/zs_fx/colors
-    (PresetState and AtomPresetState both do). Shared by fly_over() and each
-    app's steady-state loop.
+    """Fade (NOT clear -- see PERSISTENCE_KEEP_Q8/fade_buffer() above), draw
+    the proton marker (via framebuf -- cheap, not once-per-point), then
+    every point in `preset` at `angle`/`tilt_angle`/`roll_angle`/`scale`,
+    alpha-blended (ELECTRON_ALPHA_Q8, see render_points()). `preset` need
+    only expose xs_fx/ys_fx/zs_fx/colors (PresetState and AtomPresetState
+    both do). Shared by fly_over() and each app's steady-state loop.
     """
     w1 = WIDTH - 1
     h1 = HEIGHT - 1
 
-    fb.fill(0)
+    fade_buffer(buf, WIDTH, HEIGHT, PERSISTENCE_KEEP_Q8)
     proton_x = CENTER - PROTON_SIZE // 2
     proton_y = CENTER - PROTON_SIZE // 2
     proton_radius = PROTON_SIZE // 2
@@ -245,7 +375,7 @@ def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, s
     scale_fx = int(scale * FX_SCALE)
     render_points(buf, preset.xs_fx, preset.ys_fx, preset.zs_fx, preset.colors, len(preset.xs_fx),
                   cos_y_fx, sin_y_fx, cos_x_fx, sin_x_fx, cos_z_fx, sin_z_fx, scale_fx,
-                  CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold)
+                  CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold, ELECTRON_ALPHA_Q8)
 
 
 def fly_over(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,

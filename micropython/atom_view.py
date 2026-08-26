@@ -146,10 +146,7 @@ class AtomPresetState:
         self.xs_fx = drc.to_fixed(xs)
         self.ys_fx = drc.to_fixed(ys)
         self.zs_fx = drc.to_fixed(zs)
-        self.colors = array.array('H', bytes(2 * len(colors_rgb)))
-        for i in range(len(colors_rgb)):
-            r, g, b = colors_rgb[i]
-            self.colors[i] = drc.encode_color565(r, g, b)
+        self.colors = drc.encode_rgb_colors(colors_rgb)
 
         self.z = z
         self.config = config
