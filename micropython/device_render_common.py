@@ -25,6 +25,7 @@ import time
 
 import cloud_common
 import display as display_mod
+import framebuf
 import st7789py as st7789
 
 try:
@@ -96,11 +97,40 @@ ELECTRON_ALPHA_Q8 = 240    # blend-toward-target fraction per point write, /256 
 
 # Overlays are drawn in panel-native (non-prism-corrected) orientation --
 # to_physical() is a coordinate remap, not a glyph-rotation, so framebuf
-# text can't be made readable through the prism offset anyway; these are
-# dev/debug text, not worth the effort.
-TITLE_TEXT_POS = (2, 12)
+# text can't be made readable through the prism offset anyway.
+#
+# (1, 1), not the old (2, 12) -- matches src/config/visual_constants.h's
+# kTitleTextX/kTitleTextY exactly, now that titles are drawn at FONT_SCALE_HUGE
+# (see below) instead of framebuf's bare 8px font, so the old offset (tuned
+# for that smaller size) left too much dead margin above/left of the title.
+TITLE_TEXT_POS = (1, 1)
 LOADING_TEXT = "Loading..."
 LOADING_TEXT_POS = (2, 22)
+
+# framebuf's built-in font is a fixed 8x8 bitmap with no size parameter on
+# this MicroPython build (confirmed on-device: FrameBuffer.text() rejects a
+# 6th positional arg) -- draw_text_scaled() below fakes a scaled font by
+# rendering each glyph into an 8x8 scratch buffer, then nearest-neighbor
+# blitting it into the destination at scale*8 px per glyph (see
+# _blit_glyph_scaled()). These three integer scales approximate the C++
+# side's three baked font sizes (kFontSmall=9px/kFontLarge=17px/
+# kFontHuge=42px, src/render/font_data.h) closely enough to read as "small/
+# large/huge" on this same 240x240 panel without chasing an exact pixel
+# match to a completely different (proportional, hand-rasterized) font
+# system -- kFontHuge's true 42px would eat a big fraction of this panel's
+# height for even a 2-character title; 32px (scale 4) leaves more headroom
+# while still reading clearly larger than "large".
+FONT_SCALE_SMALL = 1  # 8px -- unchanged from framebuf's native size
+FONT_SCALE_LARGE = 2  # 16px -- ~kFontLarge
+FONT_SCALE_HUGE = 4   # 32px -- ~kFontHuge (scaled down from its true 42px, see above)
+
+# Idle-timeout auto-cycling, MicroPython counterpart of
+# src/config/visual_constants.h's kChooserIdleJumpUs (chooser.py)/
+# kViewIdleJumpUs (orbital_view.py/atom_view.py) -- milliseconds, not
+# microseconds, since time.ticks_ms() (not esp_timer_get_time()) is this
+# platform's monotonic clock.
+CHOOSER_IDLE_JUMP_MS = 30_000
+VIEW_IDLE_JUMP_MS = 60_000
 
 # Bottom-left physical-size reference bar -- device (framebuf) counterpart
 # of pc/viewer_common.draw_scale_bar(), same geometry/margins (panel is the
@@ -130,12 +160,98 @@ _NUDGE_DIRECTION_STEP = {'R': 1, 'L': -1}
 NUDGE_BACK_DIRECTION = 'U'
 
 
+def random_index_excluding(current, count):
+    """Random int in [0, count), guaranteed != current -- MicroPython port
+    of src/render/camera.cpp's randomIndexExcluding(), same offset trick
+    (pick a random step in [1, count-1] and wrap) so it can never land back
+    on `current`. `count` must be >= 2.
+    """
+    offset = 1 + random.randrange(count - 1)
+    return (current + offset) % count
+
+
 def swap16(color565):
     return ((color565 & 0xFF) << 8) | (color565 >> 8)
 
 
 def encode_color565(r, g, b):
     return swap16(st7789.color565(r, g, b))
+
+
+# Scratch 8x8 glyph buffer, reused across every draw_text_scaled() call --
+# framebuf's built-in font has no size parameter on this build (see
+# FONT_SCALE_* above), so each character is rendered at its native 8x8 size
+# into this tiny scratch buffer first, then _blit_glyph_scaled() below
+# nearest-neighbor-replicates it into the destination at scale*8 px. One
+# shared buffer, not one per call: text is drawn every frame (title/scale
+# bar/labels), so allocating a fresh bytearray+FrameBuffer per glyph per
+# frame would be needless per-frame GC pressure.
+_GLYPH_BUF = bytearray(8 * 8 * 2)
+_GLYPH_FB = framebuf.FrameBuffer(_GLYPH_BUF, 8, 8, framebuf.RGB565)
+
+
+@micropython.viper
+def _blit_glyph_scaled(dst_buf, glyph_buf, dst_x: int, dst_y: int, scale: int, dst_w: int, dst_h: int):
+    """Nearest-neighbor-replicate the 8x8 glyph in `glyph_buf` into
+    `dst_buf` (dst_w x dst_h RGB565) at (dst_x, dst_y), each source pixel
+    becoming a scale x scale block. Background (0 -- _GLYPH_FB.fill(0)
+    before each glyph) is treated as transparent, so only the glyph's own
+    "on" pixels are written -- letting scaled text composite over whatever
+    was already drawn, same as framebuf.text()'s own transparent-background
+    behavior at scale 1.
+    """
+    pdst = ptr16(dst_buf)
+    pglyph = ptr16(glyph_buf)
+    row = 0
+    while row < 8:
+        col = 0
+        while col < 8:
+            c = pglyph[row * 8 + col]
+            if c != 0:
+                base_x = dst_x + col * scale
+                base_y = dst_y + row * scale
+                by = 0
+                while by < scale:
+                    py = base_y + by
+                    if 0 <= py < dst_h:
+                        row_off = py * dst_w
+                        bx = 0
+                        while bx < scale:
+                            px = base_x + bx
+                            if 0 <= px < dst_w:
+                                pdst[row_off + px] = c
+                            bx += 1
+                    by += 1
+            col += 1
+        row += 1
+
+
+def text_width_scaled(s, scale):
+    """Pixel width of `s` drawn via draw_text_scaled() at `scale` --
+    framebuf's font is monospace 8px/glyph, so unlike C++'s proportional
+    font (textWidth()/textWidthScaled(), font.cpp) this needs no per-glyph
+    width table, just len(s)*8*scale.
+    """
+    return len(s) * 8 * scale
+
+
+def draw_text_scaled(fb, buf, x, y, s, color, scale):
+    """Draw `s` at `scale`x framebuf's native 8x8 font (see FONT_SCALE_*
+    above), left-to-right from (x, y), by rendering each glyph into the
+    shared 8x8 scratch buffer (_GLYPH_FB) and nearest-neighbor-blitting it
+    into `buf` (the raw bytearray backing `fb`) at scale*8 px --
+    draw_text_scaled(..., scale=1) is NOT the same call as fb.text(...)
+    directly (an extra glyph-buffer round-trip per character), so callers
+    that only ever want the native 8px size (e.g. the FPS counter) should
+    keep calling fb.text() directly instead.
+    """
+    cursor_x = x
+    for ch in s:
+        _GLYPH_FB.fill(0)
+        _GLYPH_FB.text(ch, 0, 0, color)
+        _blit_glyph_scaled(buf, _GLYPH_BUF, cursor_x, y, scale, WIDTH, HEIGHT)
+        cursor_x += 8 * scale
+    return cursor_x - x
 
 
 @micropython.native
@@ -195,16 +311,17 @@ def encode_rgb_colors(rgb_list):
     return colors
 
 
-def draw_scale_bar(fb, pixels_per_unit, unit_label, bar_color, text_color, max_bar_px=SCALE_BAR_MAX_PX):
+def draw_scale_bar(fb, buf, pixels_per_unit, unit_label, bar_color, text_color, max_bar_px=SCALE_BAR_MAX_PX):
     """Device (framebuf) counterpart of pc/viewer_common.draw_scale_bar() --
     same "nice round length" ladder (cloud_common.pick_scale_bar_length(),
     which also supplies each length's precomputed display string, so this
     never needs '%g'-style float formatting), drawn with fb.hline()/
-    fb.vline()/fb.text() instead of PIL. Panel-native (non-prism-corrected)
-    coordinates, same convention as the title/FPS text it sits next to (see
-    module docstring's "Overlays are drawn..." note). pixels_per_unit <= 0
-    draws nothing (defensive only -- scale is never <= 0 in normal
-    operation).
+    fb.vline() for the bar itself and draw_text_scaled() (FONT_SCALE_LARGE,
+    matching src/render/overlay.cpp's drawScaleBar() -- kFontLarge "at its
+    own true size, not kFontSmall integer-upscaled") for the label. Panel-
+    native (non-prism-corrected) coordinates, same convention as the title/
+    corner-label text it sits next to. pixels_per_unit <= 0 draws nothing
+    (defensive only -- scale is never <= 0 in normal operation).
     """
     if pixels_per_unit <= 0:
         return
@@ -218,7 +335,9 @@ def draw_scale_bar(fb, pixels_per_unit, unit_label, bar_color, text_color, max_b
     fb.hline(x0, y, bar_px, bar_color)
     fb.vline(x0, y - SCALE_BAR_TICK_PX, 2 * SCALE_BAR_TICK_PX + 1, bar_color)
     fb.vline(x1, y - SCALE_BAR_TICK_PX, 2 * SCALE_BAR_TICK_PX + 1, bar_color)
-    fb.text("%s %s" % (label, unit_label), x0, y - SCALE_BAR_TICK_PX - 12, text_color)
+    label_height = 8 * FONT_SCALE_LARGE
+    draw_text_scaled(fb, buf, x0, y - SCALE_BAR_TICK_PX - 4 - label_height, "%s %s" % (label, unit_label),
+                     text_color, FONT_SCALE_LARGE)
 
 
 @micropython.viper
@@ -402,8 +521,9 @@ def fly_over(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angl
         t = i / (frames - 1) if frames > 1 else 1.0
         scale = start_scale + (end_scale - start_scale) * t
         render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, i, buzz_threshold)
-        preset.draw_title(fb, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
-        draw_scale_bar(fb, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
+        preset.draw_title(fb, buf, TITLE_TEXT_POS[0], TITLE_TEXT_POS[1], text_color)
+        preset.draw_corner_label(fb, buf, text_color)
+        draw_scale_bar(fb, buf, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
         angle += ANGLE_STEP
         if angle >= two_pi:

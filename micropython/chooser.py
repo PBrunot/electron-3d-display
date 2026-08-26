@@ -98,6 +98,7 @@ def run():
         roll_angle = drc._ROLL_ANGLE_START
 
         print("chooser: showing menu")
+        last_activity_ms = time.ticks_ms()
         while True:
             if detector is not None:
                 raw = detector.poll_raw()
@@ -112,6 +113,19 @@ def run():
                     if direction == 'D':
                         atom_view.run(atom_view.DEFAULT_Z, d, detector)
                         break
+                    last_activity_ms = time.ticks_ms()
+
+            # Idle auto-launch, MicroPython counterpart of src/ux/chooser.cpp's
+            # runChooser() idle branch (kChooserIdleJumpUs): after 30s with no nudge, launch a
+            # viewer automatically instead of waiting forever for one -- same 50/50 coin flip.
+            if time.ticks_diff(time.ticks_ms(), last_activity_ms) > drc.CHOOSER_IDLE_JUMP_MS:
+                if random.random() < 0.5:
+                    print("chooser: idle 30s+ -- auto-launching orbital viewer")
+                    orbital_view.run(d, detector)
+                else:
+                    print("chooser: idle 30s+ -- auto-launching element viewer")
+                    atom_view.run(atom_view.DEFAULT_Z, d, detector)
+                break  # viewer returned -- re-roll and show the menu again
 
             drc.render_frame(fb, buf, preset, PROTON_COLOR, angle, tilt_angle, roll_angle, scale)
             fb.text(TITLE_TEXT, TITLE_POS[0], TITLE_POS[1], TITLE_COLOR)

@@ -80,8 +80,13 @@ class _BenchPreset:
         self.colors = colors
         self._title_fn = title_fn
 
-    def draw_title(self, fb, x, y, text_color):
+    def draw_title(self, fb, buf, x, y, text_color):
         self._title_fn(fb, x, y, text_color)
+
+    def draw_corner_label(self, fb, buf, text_color):
+        pass  # benchmark keeps the simpler single-line title C++'s own benchmark uses
+              # (kFontLarge "Fe (Z=26)", not the live view's split symbol+corner-Z layout) --
+              # see src/debug/benchmark_test.cpp's runAtomStep()/runOrbitalStep()
 
 
 def _outer_subshell_info(xs, ys, zs, shells, ells, config):
@@ -116,8 +121,8 @@ def _time_frames(fb, buf, d, preset, angle, tilt_angle, roll_angle, scale, frame
     for f in range(frames):
         t0 = time.ticks_us()
         drc.render_frame(fb, buf, preset, PROTON_COLOR, angle, tilt_angle, roll_angle, scale, f, buzz_threshold)
-        preset.draw_title(fb, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], TEXT_COLOR)
-        drc.draw_scale_bar(fb, scale / cloud_common.PM_PER_BOHR, "pm", SCALE_BAR_COLOR, TEXT_COLOR)
+        preset.draw_title(fb, buf, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], TEXT_COLOR)
+        drc.draw_scale_bar(fb, buf, scale / cloud_common.PM_PER_BOHR, "pm", SCALE_BAR_COLOR, TEXT_COLOR)
         t1 = time.ticks_us()
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
         t2 = time.ticks_us()

@@ -108,7 +108,14 @@ class PresetState:
         self.phase_pair = cloud_common.ORBITAL_PHASE_COLORS[index]
         self.colors = drc.encode_orbital_colors(levels, signs, self.phase_pair)
 
-        self.title = cloud_common.title_for_preset(cloud_common.ORBITAL_PRESETS[index])
+        # `title` is just the short preset label (e.g. "2p_z"), drawn huge top-left;
+        # `orbital_numbers` ("n=2 l=1 m=0") is drawn separately, large, bottom-right (see
+        # draw_title()/draw_corner_label() below) -- matches src/views/orbital_view.cpp's
+        # renderOrbitalFrame() layout (preset.title / preset.orbital_numbers). NOT
+        # cloud_common.title_for_preset()'s one combined string, which stays as-is for
+        # pc/orbital_view_pc.py.
+        self.title = label
+        self.orbital_numbers = cloud_common.orbital_numbers_str(cloud_common.ORBITAL_PRESETS[index])
         self.base_scale, self.zoom_amplitude, _r_ref = cloud_common.scale_from_radii(xs, ys, zs)
         self.resample_state = cloud_common.ResampleState(
             sampler, rng, radial_coeff, legendre_coeff, n, ell, m, psi2_sorted)
@@ -116,13 +123,25 @@ class PresetState:
         print("orbital: %s loaded in %dms, scale=%.1f" % (
             label, time.ticks_diff(time.ticks_ms(), t0), self.base_scale))
 
-    def draw_title(self, fb, x, y, text_color):
+    def draw_title(self, fb, buf, x, y, text_color):
         """See device_render_common.fly_over()'s docstring for why this is a
-        method, not a plain fb.text(preset.title, ...) call at the call
-        site: a single orbital title is one uniformly-colored string, unlike
-        AtomPresetState's per-shell-colored segments.
+        method, not a plain draw call at the call site: a single orbital
+        title is one uniformly-colored string, unlike AtomPresetState's
+        per-shell-colored segments. FONT_SCALE_HUGE, top-left -- matches
+        src/views/orbital_view.cpp's kFontHuge preset.title placement.
         """
-        fb.text(self.title, x, y, text_color)
+        drc.draw_text_scaled(fb, buf, x, y, self.title, text_color, drc.FONT_SCALE_HUGE)
+
+    def draw_corner_label(self, fb, buf, text_color):
+        """Quantum numbers, bottom-right, FONT_SCALE_LARGE -- matches
+        src/views/orbital_view.cpp's renderOrbitalFrame() kFontLarge
+        preset.orbital_numbers placement (right-aligned, 15px above the
+        bottom edge).
+        """
+        width = drc.text_width_scaled(self.orbital_numbers, drc.FONT_SCALE_LARGE)
+        height = 8 * drc.FONT_SCALE_LARGE
+        drc.draw_text_scaled(fb, buf, drc.WIDTH - width, drc.HEIGHT - height - 15, self.orbital_numbers,
+                             text_color, drc.FONT_SCALE_LARGE)
 
     def resample(self, count):
         """Point turnover (see CULL_FRACTION/CULL_REFRESH_FRAMES): redraw
@@ -193,6 +212,25 @@ def run(d=None, detector=None):
     buzz_frame = 0
 
     zoom_excursion_countdown = drc.next_zoom_excursion_countdown()
+    last_activity_ms = time.ticks_ms()
+
+    def switch_to_preset(new_index):
+        # Shared by the nudge-driven switch below and the idle auto-jump --
+        # mirrors src/views/orbital_view.cpp's runOrbitalView()'s reuse of one
+        # switch path for both triggers. `nonlocal` for every variable this
+        # closure reassigns (MicroPython supports it the same as CPython).
+        nonlocal preset, preset_index, cull_count, cull_frame_count, angle, tilt_angle, roll_angle
+        preset_index = new_index
+        fb.fill(0)
+        fb.text(drc.LOADING_TEXT, drc.LOADING_TEXT_POS[0], drc.LOADING_TEXT_POS[1], text_color)
+        d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
+        preset = PresetState(preset_index)
+        cull_count = max(1, int(len(preset.xs) * cloud_common.CULL_FRACTION))
+        cull_frame_count = 0
+        angle, tilt_angle, roll_angle = drc.fly_over(
+            d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle,
+            roll_angle, preset.base_scale * drc.SWITCH_START_SCALE_FACTOR, preset.base_scale,
+            drc.SWITCH_TRANSITION_FRAMES, buzz_threshold)
 
     while True:
         # Nudge check: switches presets and re-does the fly-over on a
@@ -203,6 +241,7 @@ def run(d=None, detector=None):
         if detector is not None:
             raw = detector.poll_raw()
             if raw is not None:
+                last_activity_ms = time.ticks_ms()
                 axis, sign, mag = raw
                 direction = detector.axis_sign_to_direction.get((axis, sign))
                 print("nudge: axis=%s sign=%+d mag=%.2fg -> %s" % (
@@ -212,17 +251,17 @@ def run(d=None, detector=None):
                     return
                 step = drc._NUDGE_DIRECTION_STEP.get(direction)
                 if step is not None:
-                    preset_index = (preset_index + step) % len(cloud_common.ORBITAL_PRESETS)
-                    fb.fill(0)
-                    fb.text(drc.LOADING_TEXT, drc.LOADING_TEXT_POS[0], drc.LOADING_TEXT_POS[1], text_color)
-                    d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
-                    preset = PresetState(preset_index)
-                    cull_count = max(1, int(len(preset.xs) * cloud_common.CULL_FRACTION))
-                    cull_frame_count = 0
-                    angle, tilt_angle, roll_angle = drc.fly_over(
-                        d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle,
-                        roll_angle, preset.base_scale * drc.SWITCH_START_SCALE_FACTOR, preset.base_scale,
-                        drc.SWITCH_TRANSITION_FRAMES, buzz_threshold)
+                    switch_to_preset((preset_index + step) % len(cloud_common.ORBITAL_PRESETS))
+
+        # Idle auto-cycle, MicroPython counterpart of runOrbitalView()'s idle branch
+        # (kViewIdleJumpUs): after 60s with no nudge, jump to a random DIFFERENT preset --
+        # same random_index_excluding() trick as the C++ side's randomIndexExcluding().
+        if time.ticks_diff(time.ticks_ms(), last_activity_ms) > drc.VIEW_IDLE_JUMP_MS:
+            new_index = drc.random_index_excluding(preset_index, len(cloud_common.ORBITAL_PRESETS))
+            print("orbital: idle 60s+ -- jumping to random preset %d" % new_index)
+            switch_to_preset(new_index)
+            last_activity_ms = time.ticks_ms()
+            continue
 
         # Random zoom excursion: pause breathing, fly to a random scale and
         # back (see device_render_common.py's ZOOM_EXCURSION_*). zoom_angle
@@ -254,9 +293,10 @@ def run(d=None, detector=None):
         drc.render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, buzz_frame,
                           buzz_threshold)
         buzz_frame = buzz_frame + 1 if buzz_frame < 1_000_000 else 0
-        preset.draw_title(fb, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], text_color)
+        preset.draw_title(fb, buf, drc.TITLE_TEXT_POS[0], drc.TITLE_TEXT_POS[1], text_color)
+        preset.draw_corner_label(fb, buf, text_color)
         fb.text(fps_text, FPS_TEXT_POS[0], FPS_TEXT_POS[1], text_color)
-        drc.draw_scale_bar(fb, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
+        drc.draw_scale_bar(fb, buf, scale / cloud_common.PM_PER_BOHR, "pm", scale_bar_color, text_color)
         d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
 
         frame_count += 1

@@ -147,6 +147,19 @@ def title_for_preset(preset):
     return "%s (n=%d l=%d m=%d)" % (label, n, ell, m)
 
 
+def orbital_numbers_str(preset):
+    """Just the quantum-number part of title_for_preset(), e.g. "n=2 l=1
+    m=0" -- MicroPython counterpart of src/views/orbital_view.cpp's
+    `preset.orbital_numbers` (drawn separately, bottom-right, from the
+    short preset label itself, unlike title_for_preset()'s one combined
+    string). Kept as its own function rather than splitting
+    title_for_preset()'s return value, since pc/orbital_view_pc.py already
+    depends on that one staying a single combined string.
+    """
+    n, ell, m, _label = preset
+    return "n=%d l=%d m=%d" % (n, ell, m)
+
+
 # Orbital sampler cache, keyed by (n, ell, m) -- pure memoization of
 # init_orbital_sampler()'s three inverse-CDF tables (the expensive part of
 # build_point_cloud(), a ~1001-entry-per-axis forward sweep run in
