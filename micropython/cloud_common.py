@@ -92,7 +92,8 @@ ZOOM_AMPLITUDE_FRACTION = 0.4
 
 CULL_FRACTION = 0.01        # point-turnover: fraction of the cloud resampled...
 CULL_REFRESH_FRAMES = 3     # ...every this many frames
-BUZZ_FRACTION = 0.40        # per-frame flicker fraction (device-only effect; see orbital_view.py)
+BUZZ_FRACTION = 0.15        # per-frame flicker fraction (device-only effect), used by both
+                            # orbital_view.py and atom_view.py -- matches kHiddenPointsFraction.
 
 # 1 Bohr radius in picometers (CODATA a0 = 0.52917721090(80)e-10 m) -- lets
 # orbital_view.py (device), pc/orbital_view_pc.py (PC), and atom_cloud.py
@@ -148,35 +149,17 @@ def title_for_preset(preset):
 
 
 def orbital_numbers_str(preset):
-    """Just the quantum-number part of title_for_preset(), e.g. "n=2 l=1
-    m=0" -- MicroPython counterpart of src/views/orbital_view.cpp's
-    `preset.orbital_numbers` (drawn separately, bottom-right, from the
-    short preset label itself, unlike title_for_preset()'s one combined
-    string). Kept as its own function rather than splitting
-    title_for_preset()'s return value, since pc/orbital_view_pc.py already
-    depends on that one staying a single combined string.
+    """Just the quantum-number part, e.g. "n=2 l=1 m=0" -- separate from title_for_preset()'s
+    one combined string since pc/orbital_view_pc.py depends on that one staying combined.
     """
     n, ell, m, _label = preset
     return "n=%d l=%d m=%d" % (n, ell, m)
 
 
-# Orbital sampler cache, keyed by (n, ell, m) -- pure memoization of
-# init_orbital_sampler()'s three inverse-CDF tables (the expensive part of
-# build_point_cloud(), a ~1001-entry-per-axis forward sweep run in
-# interpreted/native MicroPython, not viper). Doesn't change WHAT gets
-# sampled: the same seed still produces the exact same point sequence on a
-# cache hit as on a miss, since the cached table is byte-identical to a
-# freshly-built one for the same (n, ell, m). Mirrors the C++ device build's
-# own amortization of the equivalent data (kOrbitalLibrary's per-orbital
-# samplers are constexpr/compile-time-embedded -- paid once, at COMPILE
-# time, never at runtime); MicroPython has no constexpr evaluation, so the
-# closest equivalent is "pay the runtime cost once per (n, ell, m), on first
-# use, then reuse for every later switch back to it" instead of every
-# switch -- speeds up orbital_view.py's nudge-cycling-back-to-a-seen-preset
-# case (and pc/orbital_view_pc.py's, which imports this same module) for
-# free, not just src/debug/benchmark_test.cpp-style sweeps. No eviction:
-# the keyspace is bounded by len(ORBITAL_PRESETS) (currently 36), and each
-# cached sampler is only a few KB.
+# Orbital sampler cache, keyed by (n, ell, m) -- memoizes init_orbital_sampler()'s three
+# inverse-CDF tables so revisiting a preset skips straight to sampling. Doesn't change what
+# gets sampled (same seed -> same points either way). Unbounded but tiny: at most
+# len(ORBITAL_PRESETS) entries.
 _ORBITAL_SAMPLER_CACHE = {}
 
 
@@ -191,10 +174,7 @@ def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
     "positive" vs "negative" is only meaningful before squaring).
     Also returns sampler/rng/radial_coeff/legendre_coeff so
     resample_levels() can keep drawing from the same distribution later.
-
-    The sampler itself is cached (see _ORBITAL_SAMPLER_CACHE above) --
-    revisiting an (n, ell, m) already seen this session skips straight to
-    the count-point sampling loop below.
+    The sampler itself is cached, see _ORBITAL_SAMPLER_CACHE above.
     """
     sampler = _ORBITAL_SAMPLER_CACHE.get((n, ell, m))
     if sampler is None:

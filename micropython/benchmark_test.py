@@ -47,12 +47,8 @@ BENCH_ATOMIC_NUMBER = 26  # Fe -- matches src/debug/benchmark_test.cpp's kBenchA
 BENCH_ORBITAL_PRESET_INDEX = cloud_common.DEFAULT_PRESET_INDEX  # 2p_z, matches kOrbitalDefaultPresetIndex
 BENCH_POINT_COUNTS = (500, 1000, 2000, 4000, 8000)  # matches kBenchPointCounts
 BENCH_SEED = cloud_common.SEED  # 12345, matches kAtomCloudSeed / atom_cloud.SEED
-BENCH_FRAMES_PER_STEP = 30  # half the C++ side's 60 -- MicroPython's per-point sampling (build,
-                            # not render -- render_points() is viper, comparable speed) is far
-                            # slower than the C++ build, so the full 5x8000pt x2-sweep x60-frame
-                            # schedule would take many extra minutes for a metric (avg fps) that
-                            # already converges well below 60 samples. build_ms itself is
-                            # unaffected by this constant.
+BENCH_FRAMES_PER_STEP = 30  # half the C++ side's 60 -- keeps total sweep time reasonable;
+                            # avg fps converges well before 60 samples anyway.
 
 PROTON_COLOR = drc.encode_color565(255, 0, 0)
 TEXT_COLOR = drc.encode_color565(255, 255, 255)
@@ -60,19 +56,13 @@ SCALE_BAR_COLOR = drc.encode_color565(210, 210, 210)
 
 
 class _BenchPreset:
-    """Minimal stand-in for AtomPresetState/orbital_view.PresetState: just
-    the fields device_render_common.render_frame() actually reads
-    (xs_fx/ys_fx/zs_fx/colors) plus a draw_title() method, built directly at
-    an explicit `count` rather than each app's own hardcoded N_POINTS --
-    neither AtomPresetState nor orbital_view.PresetState take a count
-    override, so this sweep can't reuse them as-is.
+    """Minimal stand-in for AtomPresetState/PresetState: just the fields render_frame() reads,
+    built at an explicit `count` since neither real class takes a count override.
     """
 
     def __init__(self, xs, ys, zs, colors, title_fn):
-        """`colors` is already an encoded array('H') of RGB565 values (see
-        device_render_common.encode_orbital_colors()/encode_rgb_colors()) --
-        callers do their own (native-compiled) encoding before constructing
-        this, same division of labor as AtomPresetState/PresetState.
+        """`colors` is already an encoded array('H') -- callers do their own encoding first,
+        same division of labor as AtomPresetState/PresetState.
         """
         self.xs_fx = drc.to_fixed(xs)
         self.ys_fx = drc.to_fixed(ys)
@@ -84,16 +74,12 @@ class _BenchPreset:
         self._title_fn(fb, x, y, text_color)
 
     def draw_corner_label(self, fb, buf, text_color):
-        pass  # benchmark keeps the simpler single-line title C++'s own benchmark uses
-              # (kFontLarge "Fe (Z=26)", not the live view's split symbol+corner-Z layout) --
-              # see src/debug/benchmark_test.cpp's runAtomStep()/runOrbitalStep()
+        pass  # benchmark uses one combined title line, matching src/debug/benchmark_test.cpp
 
 
 def _outer_subshell_info(xs, ys, zs, shells, ells, config):
-    """(n, ell, r_ref) of the outermost occupied subshell -- MicroPython
-    counterpart of the C++ side's OuterSubshell/outerSubshellRRef(), reusing
-    atom_cloud.subshell_dissection_plan() (already sorts by measured p90
-    radius, descending -- plan[0] is the outermost).
+    """(n, ell, r_ref) of the outermost occupied subshell, via
+    atom_cloud.subshell_dissection_plan() (sorted outermost-first).
     """
     plan = atom_cloud.subshell_dissection_plan(xs, ys, zs, shells, ells, config)
     if not plan:
@@ -103,14 +89,9 @@ def _outer_subshell_info(xs, ys, zs, shells, ells, config):
 
 
 def _time_frames(fb, buf, d, preset, angle, tilt_angle, roll_angle, scale, frames, buzz_threshold=0):
-    """Render+blit `frames` frames through the real production pipeline
-    (render_frame() -> proton marker + render_points() [viper Q8] + title +
-    scale bar, then blit_buffer()), timing compute (everything up to and
-    including drawing, excluding the blit) and blit (the SPI transfer)
-    separately -- see module docstring for why there's no separate "wait"
-    phase here. Angle/tilt/roll advance each frame the same way the real
-    viewers' steady-state loop does (device_render_common.ANGLE_STEP etc.),
-    so later frames aren't all identical (matters for buzz_threshold != 0).
+    """Render+blit `frames` frames through the real production pipeline, timing compute
+    (everything but the blit) and blit (the SPI transfer) separately -- see module docstring
+    for why there's no separate "wait" phase here.
     """
     two_pi = 2 * math.pi
     compute_accum = 0
@@ -260,14 +241,8 @@ def run(d=None):
     tilt_angle = drc._TILT_ANGLE_START
     roll_angle = drc._ROLL_ANGLE_START
 
-    # Warm atom_cloud.py's per-subshell table caches (_RADIAL_TABLE_CACHE/_ANISO_SAMPLER_CACHE)
-    # for Fe BEFORE any timed sweep step, same as pixels_per_bohr_for_canvas() above already did
-    # incidentally for Rb (a different element, so it doesn't warm Fe's own entries). This makes
-    # every timed atom step below measure ONLY point-sampling + outer-shell coloring -- the
-    # genuinely-comparable-to-C++ cost -- instead of the first step alone silently absorbing the
-    # one-time table-build cost C++ never pays at runtime (its equivalent angular tables are
-    # compile-time-embedded, see atom_cloud.py's cache comment). That one-time cost is real and
-    # reported on its own line (BENCH,TABLEBUILD) rather than hidden.
+    # Warm atom_cloud.py's per-subshell caches for Fe before any timed step, so each step
+    # measures only sampling, not the one-time table build (reported separately, BENCH,TABLEBUILD).
     print("benchmark: warming atom point-cloud caches (Fe subshells)...")
     t0 = time.ticks_ms()
     atom_cloud.build_atom_point_cloud(BENCH_ATOMIC_NUMBER, count=BENCH_POINT_COUNTS[0], seed=BENCH_SEED,

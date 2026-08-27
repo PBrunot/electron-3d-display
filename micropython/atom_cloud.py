@@ -361,25 +361,11 @@ def _drawing_groups(config):
     return groups
 
 
-# Per-subshell table caches -- pure memoization, same rationale as
-# cloud_common.py's _ORBITAL_SAMPLER_CACHE (see that comment for the full
-# reasoning): keyed by (radial-model-kind, z, n, ell[, m]) so revisiting a
-# previously-seen element (atom_view.py's nudge-steps-Z case, or
-# pc/atom_view_pc.py's) reuses the already-built table(s) instead of
-# rebuilding them, without changing the sampled point sequence for a given
-# seed. _RADIAL_TABLE_CACHE holds a FULL (isotropic) subshell's inv_r_table
-# alone; _ANISO_SAMPLER_CACHE holds a partially-filled subshell's per-orbital
-# (radial+angular combined) sampler plus the Laguerre/Legendre coefficients
-# and (for the HFS path) the raw (x_grid, u_values) needed to recompute
-# psi's sign per point -- see build_atom_point_cloud() below. Mirrors the
-# C++ device build's split: its ANGULAR tables (angular_library.h, keyed
-# only by (ell, m)) are compile-time-embedded already; its RADIAL model
-# (HFS tables, keyed by (z, n, ell)) is read from flash at runtime but only
-# once per (z, n, ell) actually selected, same as this cache achieves here.
-# No eviction: the keyspace is bounded (a handful of subshells per element x
-# up to slater.MAX_DISPLAY_Z elements), and each cached table is a few KB --
-# a full walk through every displayable element stays well within this
-# board's 8MB PSRAM.
+# Per-subshell table caches, same idea as cloud_common.py's _ORBITAL_SAMPLER_CACHE: keyed by
+# (radial-model-kind, z, n, ell[, m]) so revisiting an element reuses its already-built
+# table(s). _RADIAL_TABLE_CACHE holds a full (isotropic) subshell's inv_r_table;
+# _ANISO_SAMPLER_CACHE holds a partial subshell's sampler + coefficients + (for HFS) the raw
+# (x_grid, u_values) needed for the sign recompute in build_atom_point_cloud() below.
 _RADIAL_TABLE_CACHE = {}
 _ANISO_SAMPLER_CACHE = {}
 
@@ -433,10 +419,7 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED, radial_tables=None):
         rgb = SHELL_RGB[n] if n < len(SHELL_RGB) else SHELL_RGB[-1]
 
         if m is None:
-            # Radial model: screened-potential tables (radial_tables) or the hydrogenic Z_eff
-            # substitution (default) -- cached per (z, n, ell) (see _RADIAL_TABLE_CACHE above),
-            # so this only actually builds the table the first time this element/subshell is
-            # seen this session.
+            # Radial model: screened-potential tables or hydrogenic Z_eff, cached per (z, n, ell).
             cache_key = (source_kind, z, n, ell)
             inv_r_table = _RADIAL_TABLE_CACHE.get(cache_key)
             if inv_r_table is None:
@@ -460,11 +443,8 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED, radial_tables=None):
                 ells[idx] = ell
                 idx += 1
         else:
-            # Same caching idea as above, but for a partially-filled subshell's per-orbital
-            # sampler (radial+angular combined, see pointcloud.init_orbital_sampler()) --
-            # cached per (z, n, ell, m) in _ANISO_SAMPLER_CACHE, along with the Laguerre/
-            # Legendre coefficients and (x_grid, u_values) the sign recomputation below needs,
-            # so those aren't recomputed on a cache hit either.
+            # Same idea, but for a partial subshell's per-orbital sampler, cached per
+            # (z, n, ell, m) along with what the sign recompute below needs.
             cache_key = (source_kind, z, n, ell, m)
             cached = _ANISO_SAMPLER_CACHE.get(cache_key)
             if cached is None:

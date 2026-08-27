@@ -115,9 +115,7 @@ def run():
                         break
                     last_activity_ms = time.ticks_ms()
 
-            # Idle auto-launch, MicroPython counterpart of src/ux/chooser.cpp's
-            # runChooser() idle branch (kChooserIdleJumpUs): after 30s with no nudge, launch a
-            # viewer automatically instead of waiting forever for one -- same 50/50 coin flip.
+            # After 30s with no nudge, launch a viewer automatically (50/50 coin flip).
             if time.ticks_diff(time.ticks_ms(), last_activity_ms) > drc.CHOOSER_IDLE_JUMP_MS:
                 if random.random() < 0.5:
                     print("chooser: idle 30s+ -- auto-launching orbital viewer")
@@ -128,9 +126,11 @@ def run():
                 break  # viewer returned -- re-roll and show the menu again
 
             drc.render_frame(fb, buf, preset, PROTON_COLOR, angle, tilt_angle, roll_angle, scale)
-            fb.text(TITLE_TEXT, TITLE_POS[0], TITLE_POS[1], TITLE_COLOR)
-            fb.text(ORBITALS_LABEL, ORBITALS_LABEL_POS[0], ORBITALS_LABEL_POS[1], ORBITALS_COLOR)
-            fb.text(ATOM_LABEL, ATOM_LABEL_POS[0], ATOM_LABEL_POS[1], ATOM_COLOR)
+            drc.draw_text_scaled(fb, buf, TITLE_POS[0], TITLE_POS[1], TITLE_TEXT, TITLE_COLOR, drc.FONT_SCALE_SMALL)
+            drc.draw_text_scaled(fb, buf, ORBITALS_LABEL_POS[0], ORBITALS_LABEL_POS[1], ORBITALS_LABEL,
+                                 ORBITALS_COLOR, drc.FONT_SCALE_SMALL)
+            drc.draw_text_scaled(fb, buf, ATOM_LABEL_POS[0], ATOM_LABEL_POS[1], ATOM_LABEL, ATOM_COLOR,
+                                 drc.FONT_SCALE_SMALL)
             d.blit_buffer(buf, 0, 0, WIDTH, HEIGHT)
 
             angle += drc.ANGLE_STEP

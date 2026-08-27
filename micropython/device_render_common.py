@@ -44,115 +44,78 @@ FX_SCALE = 1 << FX_BITS  # Q8 fixed-point scale factor, see orbital_view.py's mo
 
 ANGLE_STEP = 0.030
 FRAME_DELAY_MS = 5
-ZOOM_ANGLE_STEP = 0.016  # breathing zoom's angular speed; independent phase from ANGLE_STEP
-TILT_ANGLE_STEP = 0.023   # second (X-axis) rotation's angular speed. Kept close to ANGLE_STEP
-                           # (not much slower) on purpose: with tilt=roll=0, a point's screen-Y
-                           # depends only on tilt+roll, NOT on yaw at all -- so if tilt/roll lag
-                           # far behind yaw, axis-aligned lobes (e.g. 3d_x2-y2's) sit still for
-                           # the first second or two while yaw visibly spins everything else,
-                           # reading as "a fixed axis that doesn't rotate" even though it does
-                           # eventually. Non-resonant vs. ANGLE_STEP/ROLL_ANGLE_STEP so the
-                           # tumble doesn't fall into a short repeating loop.
-ROLL_ANGLE_STEP = 0.017   # third (Z-axis) rotation's angular speed -- required, not cosmetic,
-                           # see orbital_view.py's module docstring's "why three axes, not two".
-                           # Also kept close to ANGLE_STEP for the same "don't lag behind yaw"
-                           # reason.
-_TILT_ANGLE_START = 0.9   # tilt_angle/roll_angle start away from the degenerate all-zero pose
-_ROLL_ANGLE_START = 2.1   # (where yaw alone can't move axis-aligned lobes at all), so even
-                           # the first frame after boot isn't axis-locked
+ZOOM_ANGLE_STEP = 0.016  # breathing zoom speed -- atom_view.py's value (kZoomAngleStep);
+                          # orbital_view.py uses ORBITAL_ZOOM_ANGLE_STEP instead.
+ORBITAL_ZOOM_ANGLE_STEP = ZOOM_ANGLE_STEP / 1.5  # kOrbitalZoomAngleStep
+TILT_ANGLE_STEP = 0.023   # X-axis rotation speed, kept close to ANGLE_STEP so tilt/roll don't
+                           # lag behind yaw and leave axis-aligned lobes looking frozen.
+ROLL_ANGLE_STEP = 0.017   # Z-axis rotation speed -- required (not cosmetic) so no point stays
+                           # screen-invariant; see orbital_view.py's "why three axes" note.
+_TILT_ANGLE_START = 0.9   # tilt/roll start off the degenerate all-zero pose, so frame 1
+_ROLL_ANGLE_START = 2.1   # isn't axis-locked.
 
-# Fly-over (see fly_over()): camera starts at base_scale * factor and eases
-# to base_scale over `frames` frames. Boot intro is slower/more dramatic
-# than a preset/element switch, which is more dramatic than a mid-scene zoom
-# excursion.
+# Fly-over (fly_over()): ease from base_scale*factor to base_scale over `frames` frames.
+# These are atom_view.py's own values (kIntroFrames/kSwitchTransitionFrames); orbital_view.py
+# uses its own slower ORBITAL_* counterparts instead.
 INTRO_START_SCALE_FACTOR = 12.0
 INTRO_FRAMES = 70
+ORBITAL_INTRO_FRAMES = 105  # kOrbitalIntroFrames
 SWITCH_START_SCALE_FACTOR = 10.0
-SWITCH_TRANSITION_FRAMES = 18
+SWITCH_TRANSITION_FRAMES = 35
+ORBITAL_SWITCH_TRANSITION_FRAMES = 27  # kOrbitalSwitchTransitionFrames
 
-# Random zoom excursions during the steady-state loop: at randomized
-# intervals (re-rolled after each one, so the cadence itself isn't
-# periodic), ease from the current breathing scale to a randomized target
-# and back -- layered on top of the constant sine-wave breathing so the
-# animation doesn't read as purely mechanical.
+# Random zoom excursions: at randomized intervals, ease to a random scale and back, layered
+# over the steady breathing sine wave. Bounds are shared atom/orbital; only the ease-frame
+# count differs (ZOOM_EXCURSION_EASE_FRAMES is atom_view.py's; orbital_view.py uses
+# ORBITAL_ZOOM_EXCURSION_EASE_FRAMES).
 ZOOM_EXCURSION_MIN_INTERVAL_FRAMES = 150
-ZOOM_EXCURSION_MAX_INTERVAL_FRAMES = 400
-ZOOM_EXCURSION_SCALE_MIN_FACTOR = 0.4
-ZOOM_EXCURSION_SCALE_MAX_FACTOR = 5.0
-ZOOM_EXCURSION_EASE_FRAMES = 30
+ZOOM_EXCURSION_MAX_INTERVAL_FRAMES = 500
+ZOOM_EXCURSION_SCALE_MIN_FACTOR = 0.3
+ZOOM_EXCURSION_SCALE_MAX_FACTOR = 10.0
+ZOOM_EXCURSION_EASE_FRAMES = 45
+ORBITAL_ZOOM_EXCURSION_EASE_FRAMES = 68
 
-PROTON_SIZE = 3
+PROTON_SIZE = 3            # drawn before the cloud so points can blend over it
+PROMINENT_PROTON_SIZE = 5  # redrawn opaque on top after the cloud, so it's never obscured
 
-# Persistence-fade / alpha-blend constants -- MicroPython port of src/config/visual_constants.h's
-# kPersistenceKeepQ8/kElectronAlphaQ8 (both /256 fixed-point): when non-default (see below),
-# src/render/camera.h's renderScene()/renderSceneGrouped() fade the WHOLE frame buffer toward
-# black every frame (not a hard clear) and alpha-blend every point write against whatever's
-# already there (not an opaque overwrite) -- fade_buffer()/render_points() below are the
-# MicroPython port of both, bit-identical to the C++ formulas when enabled.
-#
-# Disabled by default here (0 / 256), UNLIKE the C++ build, which keeps both on
-# (kPersistenceKeepQ8=160, kElectronAlphaQ8=240): per BENCHMARK.md's MicroPython section, the
-# full-frame fade touches WIDTH*HEIGHT pixels every frame regardless of point count and is the
-# dominant per-frame cost on this interpreted target -- with fade+blend matching C++ bit-for-bit,
-# MicroPython was consistently ~3x slower at every point count, not just build/sampling-bound.
-# render_frame() below takes the fast path when these are at their disabled values (fb.fill(0)
-# instead of fade_buffer()'s per-pixel loop; render_points_opaque()'s plain overwrite instead of
-# render_points()'s per-point read+blend) -- actual CPU saved, not just a different-looking
-# no-op. Both real implementations are left intact and still exactly match the C++ math, so
-# setting these back to 160/240 (e.g. to re-run the parity comparison against
-# src/debug/benchmark_test.cpp via micropython/benchmark_test.py) restores bit-identical,
-# apples-to-apples behavior -- these two just no longer describe the MicroPython viewers'
-# shipped default.
-PERSISTENCE_KEEP_Q8 = 0    # 0 = disabled (render_frame() does fb.fill(0)); 160 matches kPersistenceKeepQ8
-ELECTRON_ALPHA_Q8 = 256    # 256 = disabled (render_frame() does an opaque overwrite); 240 matches kElectronAlphaQ8
+# fade_buffer()/render_points() implement the real C++ fade+blend math (bit-exact when
+# enabled), but default to disabled (0/256) since the full-frame fade costs ~3x the frame time
+# here. Set to 160/240 to match C++ exactly.
+PERSISTENCE_KEEP_Q8 = 0
+ELECTRON_ALPHA_Q8 = 256
 
-# Overlays are drawn in panel-native (non-prism-corrected) orientation --
-# to_physical() is a coordinate remap, not a glyph-rotation, so framebuf
-# text can't be made readable through the prism offset anyway.
-#
-# (1, 1), not the old (2, 12) -- matches src/config/visual_constants.h's
-# kTitleTextX/kTitleTextY exactly, now that titles are drawn at FONT_SCALE_HUGE
-# (see below) instead of framebuf's bare 8px font, so the old offset (tuned
-# for that smaller size) left too much dead margin above/left of the title.
-TITLE_TEXT_POS = (1, 1)
+TITLE_TEXT_POS = (1, 1)  # matches kTitleTextX/kTitleTextY
 LOADING_TEXT = "Loading..."
 LOADING_TEXT_POS = (2, 22)
 
-# framebuf's built-in font is a fixed 8x8 bitmap with no size parameter on
-# this MicroPython build (confirmed on-device: FrameBuffer.text() rejects a
-# 6th positional arg) -- draw_text_scaled() below fakes a scaled font by
-# rendering each glyph into an 8x8 scratch buffer, then nearest-neighbor
-# blitting it into the destination at scale*8 px per glyph (see
-# _blit_glyph_scaled()). These three integer scales approximate the C++
-# side's three baked font sizes (kFontSmall=9px/kFontLarge=17px/
-# kFontHuge=42px, src/render/font_data.h) closely enough to read as "small/
-# large/huge" on this same 240x240 panel without chasing an exact pixel
-# match to a completely different (proportional, hand-rasterized) font
-# system -- kFontHuge's true 42px would eat a big fraction of this panel's
-# height for even a 2-character title; 32px (scale 4) leaves more headroom
-# while still reading clearly larger than "large".
-FONT_SCALE_SMALL = 1  # 8px -- unchanged from framebuf's native size
-FONT_SCALE_LARGE = 2  # 16px -- ~kFontLarge
-FONT_SCALE_HUGE = 4   # 32px -- ~kFontHuge (scaled down from its true 42px, see above)
+# framebuf's font is a fixed 8x8 bitmap with no size argument on this build --
+# draw_text_scaled() fakes scaling by rendering each glyph into an 8x8 scratch buffer, then
+# nearest-neighbor-blitting it at scale*8px (_blit_glyph_scaled()). These approximate C++'s
+# three font sizes (9/17/42px) -- HUGE stays below the closest integer multiple (40px, scale 5)
+# since this font is monospace (glyphs always 8px wide) where C++'s is proportional, so the
+# SAME nominal size reads visibly bulkier/heavier here at equal height; scale 4 trades a bit of
+# height-match for weight closer to C++'s actual look.
+FONT_SCALE_SMALL = 1  # 8px
+FONT_SCALE_LARGE = 2  # 16px
+FONT_SCALE_HUGE = 4   # 32px
 
-# Idle-timeout auto-cycling, MicroPython counterpart of
-# src/config/visual_constants.h's kChooserIdleJumpUs (chooser.py)/
-# kViewIdleJumpUs (orbital_view.py/atom_view.py) -- milliseconds, not
-# microseconds, since time.ticks_ms() (not esp_timer_get_time()) is this
-# platform's monotonic clock.
+# Idle-timeout auto-cycling (kChooserIdleJumpUs/kViewIdleJumpUs), in ms since
+# time.ticks_ms() is this platform's clock.
 CHOOSER_IDLE_JUMP_MS = 30_000
 VIEW_IDLE_JUMP_MS = 60_000
 
-# Bottom-left physical-size reference bar -- device (framebuf) counterpart
-# of pc/viewer_common.draw_scale_bar(), same geometry/margins (panel is the
-# same 240x240 as the PC debug window's un-upscaled buffer) so a bar reads
-# the same physical length on both renderers at a given zoom. The
-# "nice round length" ladder itself (cloud_common.pick_scale_bar_length())
-# is shared too -- see draw_scale_bar() below for the framebuf drawing.
-SCALE_BAR_MARGIN_X = 8
-SCALE_BAR_MARGIN_Y = 8
-SCALE_BAR_MAX_PX = 90
-SCALE_BAR_TICK_PX = 4
+# Bottom-left physical-size reference bar -- device (framebuf) counterpart of
+# pc/viewer_common.draw_scale_bar(), same geometry as src/render/overlay.cpp's drawScaleBar()
+# (kScaleBarMarginX/Y, kScaleBarMaxPx, kScaleBarTickPx, kScaleBarLabelGapPx,
+# kScaleBarLineThicknessPx) so a bar reads the same length/prominence on both platforms. The
+# "nice round length" ladder itself (cloud_common.pick_scale_bar_length()) is shared too.
+SCALE_BAR_MARGIN_X = 16
+SCALE_BAR_MARGIN_Y = 26  # a few px more than kScaleBarMarginY's 16 -- this panel's bottom edge
+                          # crowds the bar/ticks slightly more than on the C++ side's build
+SCALE_BAR_MAX_PX = 180
+SCALE_BAR_TICK_PX = 8
+SCALE_BAR_LABEL_GAP_PX = 4
+SCALE_BAR_LINE_THICKNESS_PX = 2
 
 # Direction -> index/Z step, within a running viewer. Only L/R cycle now --
 # U is reserved (see NUDGE_BACK_DIRECTION below) to return to chooser.py's
@@ -189,27 +152,19 @@ def encode_color565(r, g, b):
     return swap16(st7789.color565(r, g, b))
 
 
-# Scratch 8x8 glyph buffer, reused across every draw_text_scaled() call --
-# framebuf's built-in font has no size parameter on this build (see
-# FONT_SCALE_* above), so each character is rendered at its native 8x8 size
-# into this tiny scratch buffer first, then _blit_glyph_scaled() below
-# nearest-neighbor-replicates it into the destination at scale*8 px. One
-# shared buffer, not one per call: text is drawn every frame (title/scale
-# bar/labels), so allocating a fresh bytearray+FrameBuffer per glyph per
-# frame would be needless per-frame GC pressure.
+# Scratch 8x8 glyph buffer, shared across every draw_text_scaled() call (not one per call) to
+# avoid per-frame GC pressure, since text is drawn every frame.
 _GLYPH_BUF = bytearray(8 * 8 * 2)
 _GLYPH_FB = framebuf.FrameBuffer(_GLYPH_BUF, 8, 8, framebuf.RGB565)
 
 
 @micropython.viper
 def _blit_glyph_scaled(dst_buf, glyph_buf, dst_x: int, dst_y: int, scale: int, dst_w: int, dst_h: int):
-    """Nearest-neighbor-replicate the 8x8 glyph in `glyph_buf` into
-    `dst_buf` (dst_w x dst_h RGB565) at (dst_x, dst_y), each source pixel
-    becoming a scale x scale block. Background (0 -- _GLYPH_FB.fill(0)
-    before each glyph) is treated as transparent, so only the glyph's own
-    "on" pixels are written -- letting scaled text composite over whatever
-    was already drawn, same as framebuf.text()'s own transparent-background
-    behavior at scale 1.
+    """Nearest-neighbor-replicate the 8x8 glyph in `glyph_buf` into `dst_buf` at (dst_x, dst_y),
+    rotated 180 degrees (row,col -> 7-row,7-col) -- same panel orientation fix render_points()
+    applies inline, done here in the same per-pixel loop rather than a separate pass. Each
+    source pixel becomes a scale x scale block; background (0) is transparent, same as
+    framebuf.text().
     """
     pdst = ptr16(dst_buf)
     pglyph = ptr16(glyph_buf)
@@ -219,8 +174,8 @@ def _blit_glyph_scaled(dst_buf, glyph_buf, dst_x: int, dst_y: int, scale: int, d
         while col < 8:
             c = pglyph[row * 8 + col]
             if c != 0:
-                base_x = dst_x + col * scale
-                base_y = dst_y + row * scale
+                base_x = dst_x + (7 - col) * scale
+                base_y = dst_y + (7 - row) * scale
                 by = 0
                 while by < scale:
                     py = base_y + by
@@ -246,21 +201,39 @@ def text_width_scaled(s, scale):
     return len(s) * 8 * scale
 
 
-def draw_text_scaled(fb, buf, x, y, s, color, scale):
-    """Draw `s` at `scale`x framebuf's native 8x8 font (see FONT_SCALE_*
-    above), left-to-right from (x, y), by rendering each glyph into the
-    shared 8x8 scratch buffer (_GLYPH_FB) and nearest-neighbor-blitting it
-    into `buf` (the raw bytearray backing `fb`) at scale*8 px --
-    draw_text_scaled(..., scale=1) is NOT the same call as fb.text(...)
-    directly (an extra glyph-buffer round-trip per character), so callers
-    that only ever want the native 8px size (e.g. the FPS counter) should
-    keep calling fb.text() directly instead.
+def pick_text_scale(s, max_width, max_scale=FONT_SCALE_HUGE, min_scale=FONT_SCALE_SMALL):
+    """Largest scale in [min_scale, max_scale] where `s` still fits max_width -- the font is
+    monospace (see text_width_scaled()), so a fixed huge scale that fits a short label like "Fe"
+    can badly overflow a long one like "3d_x2-y2". Falls back to min_scale if nothing fits.
     """
-    cursor_x = x
-    for ch in s:
+    scale = max_scale
+    while scale > min_scale and text_width_scaled(s, scale) > max_width:
+        scale -= 1
+    return scale
+
+
+def draw_text_scaled(fb, buf, x, y, s, color, scale):
+    """Draw `s` at `scale`x framebuf's native 8x8 font, sprite-space top-left (x, y) -- same
+    convention as fb.text() and every other coordinate in this project (see module docstring's
+    "Overlays" note). Each glyph is rendered into the shared 8x8 scratch buffer (_GLYPH_FB),
+    then nearest-neighbor-blitted into `buf` rotated 180 degrees (_blit_glyph_scaled()) at the
+    panel's physical position -- characters are drawn in REVERSE order, starting from the
+    string's own flipped bounding box, since rotating the whole string 180 degrees reverses
+    reading order too (each glyph's pixels are individually rotated; composing that with
+    reversed draw order is what makes the whole string read correctly, not upside down or
+    scrambled). Costs an extra round-trip per character vs. fb.text() directly, so callers that
+    only want the native 8px size AND don't need this project's orientation fix (rare -- see
+    fb.text() call sites) should call fb.text() instead.
+    """
+    total_width = len(s) * 8 * scale
+    height = 8 * scale
+    phys_x = WIDTH - x - total_width
+    phys_y = HEIGHT - y - height
+    cursor_x = phys_x
+    for ch in reversed(s):
         _GLYPH_FB.fill(0)
         _GLYPH_FB.text(ch, 0, 0, color)
-        _blit_glyph_scaled(buf, _GLYPH_BUF, cursor_x, y, scale, WIDTH, HEIGHT)
+        _blit_glyph_scaled(buf, _GLYPH_BUF, cursor_x, phys_y, scale, WIDTH, HEIGHT)
         cursor_x += 8 * scale
     return cursor_x - x
 
@@ -275,18 +248,10 @@ def to_fixed(values):
 
 @micropython.native
 def encode_orbital_colors(levels, signs, phase_pair):
-    """Per-point levels/signs -> encoded RGB565 array, for
-    orbital_view.py's PresetState (and micropython/benchmark_test.py).
-
-    cloud_common.level_to_rgb()'s per-channel scale and
-    encode_color565()'s color565()+swap16() are inlined here rather than
-    called, even though this function is itself @micropython.native --
-    calling a NON-native function from native-compiled code still pays the
-    interpreter's full bytecode call overhead for that call (native
-    compilation only speeds up the caller's OWN body), so leaving those as
-    real calls would have left most of the per-point cost unaffected.
-    Inlining lets the whole per-point body run as native-compiled integer
-    arithmetic with no bytecode call-outs at all.
+    """Per-point levels/signs -> encoded RGB565 array, for orbital_view.py's PresetState (and
+    benchmark_test.py). cloud_common.level_to_rgb()'s scale and encode_color565()'s
+    color565()+swap16() are inlined rather than called, since a call from native-compiled code
+    still pays full bytecode overhead unless the callee is native too.
     """
     n = len(levels)
     colors = array.array('H', bytes(2 * n))
@@ -309,9 +274,8 @@ def encode_orbital_colors(levels, signs, phase_pair):
 
 @micropython.native
 def encode_rgb_colors(rgb_list):
-    """Per-point (r, g, b) tuples -> encoded RGB565 array, for
-    atom_view.py's AtomPresetState (and benchmark_test.py) -- same
-    inlined-color565()+swap16() reasoning as encode_orbital_colors() above.
+    """Per-point (r, g, b) tuples -> encoded RGB565 array, for atom_view.py's AtomPresetState
+    (and benchmark_test.py) -- same inlined color565()+swap16() as encode_orbital_colors().
     """
     n = len(rgb_list)
     colors = array.array('H', bytes(2 * n))
@@ -323,16 +287,11 @@ def encode_rgb_colors(rgb_list):
 
 
 def draw_scale_bar(fb, buf, pixels_per_unit, unit_label, bar_color, text_color, max_bar_px=SCALE_BAR_MAX_PX):
-    """Device (framebuf) counterpart of pc/viewer_common.draw_scale_bar() --
-    same "nice round length" ladder (cloud_common.pick_scale_bar_length(),
-    which also supplies each length's precomputed display string, so this
-    never needs '%g'-style float formatting), drawn with fb.hline()/
-    fb.vline() for the bar itself and draw_text_scaled() (FONT_SCALE_LARGE,
-    matching src/render/overlay.cpp's drawScaleBar() -- kFontLarge "at its
-    own true size, not kFontSmall integer-upscaled") for the label. Panel-
-    native (non-prism-corrected) coordinates, same convention as the title/
-    corner-label text it sits next to. pixels_per_unit <= 0 draws nothing
-    (defensive only -- scale is never <= 0 in normal operation).
+    """Device (framebuf) counterpart of src/render/overlay.cpp's drawScaleBar() -- same "nice
+    round length" ladder (cloud_common.pick_scale_bar_length()), same geometry (bar + two end
+    ticks, SCALE_BAR_LINE_THICKNESS_PX thick, drawn via fb.fill_rect() for thickness -- fb.hline/
+    vline are always 1px), and draw_text_scaled() at FONT_SCALE_LARGE for the label.
+    pixels_per_unit <= 0 draws nothing (defensive only).
     """
     if pixels_per_unit <= 0:
         return
@@ -342,29 +301,27 @@ def draw_scale_bar(fb, buf, pixels_per_unit, unit_label, bar_color, text_color, 
     x0 = SCALE_BAR_MARGIN_X
     y = HEIGHT - SCALE_BAR_MARGIN_Y
     x1 = x0 + bar_px
+    t = SCALE_BAR_LINE_THICKNESS_PX
 
-    fb.hline(x0, y, bar_px, bar_color)
-    fb.vline(x0, y - SCALE_BAR_TICK_PX, 2 * SCALE_BAR_TICK_PX + 1, bar_color)
-    fb.vline(x1, y - SCALE_BAR_TICK_PX, 2 * SCALE_BAR_TICK_PX + 1, bar_color)
+    # Rectangles are symmetric under a 180-degree rotation, so only their POSITION needs the
+    # panel-orientation fix (no per-pixel work, unlike text) -- same w-1-x/h-1-y remap
+    # render_points()/the proton marker use, applied to each rect's flipped top-left corner.
+    fb.fill_rect(WIDTH - x0 - bar_px, HEIGHT - y - t, bar_px, t, bar_color)
+    tick_h = 2 * SCALE_BAR_TICK_PX + 1
+    fb.fill_rect(WIDTH - x0 - t, HEIGHT - y - SCALE_BAR_TICK_PX - 1, t, tick_h, bar_color)
+    fb.fill_rect(WIDTH - x1 - t, HEIGHT - y - SCALE_BAR_TICK_PX - 1, t, tick_h, bar_color)
+
     label_height = 8 * FONT_SCALE_LARGE
-    draw_text_scaled(fb, buf, x0, y - SCALE_BAR_TICK_PX - 4 - label_height, "%s %s" % (label, unit_label),
-                     text_color, FONT_SCALE_LARGE)
+    draw_text_scaled(fb, buf, x0, y - SCALE_BAR_TICK_PX - SCALE_BAR_LABEL_GAP_PX - label_height,
+                     "%s %s" % (label, unit_label), text_color, FONT_SCALE_LARGE)
 
 
 @micropython.viper
 def fade_buffer(buf, w: int, h: int, keep_q8: int):
-    """Full-frame persistence fade -- MicroPython port of Display::fade()
-    (src/render/display.cpp), which src/render/camera.h's renderScene()/
-    renderSceneGrouped() call every frame INSTEAD of a hard clear. Each
-    pixel's RGB565 is expanded to 8-bit-per-channel (same `(v5<<3)|(v5>>2)`/
-    `(v6<<2)|(v6>>4)` bit-replication Display::unpackColor565() uses -- not
-    a plain left-shift, which would leave the low bits always zero and bias
-    the faded color darker than the C++ side's), scaled by keep_q8/256,
-    then truncated back to 5/6/5 (Display::packColor565()'s plain `>>3`/
-    `>>2`/`>>3`, no rounding, matching that function exactly). `buf` holds
-    byte-swapped RGB565 (see module docstring's "Byte-order gotcha") so
-    each value is un-swapped before this and re-swapped after -- same
-    convention render_points() below already uses per point.
+    """Full-frame persistence fade -- MicroPython port of Display::fade(): each pixel is
+    expanded to 8-bit-per-channel (bit-replication, matching Display::unpackColor565() exactly,
+    not a plain left-shift), scaled by keep_q8/256, and truncated back to 5/6/5. `buf` holds
+    byte-swapped RGB565 (see module docstring), so each value is un/re-swapped around the math.
     """
     pbuf = ptr16(buf)
     n = w * h
@@ -419,14 +376,9 @@ def render_points(buf, xs, ys, zs, colors, n: int,
     (atom_view.py passes 0 -- no per-frame flicker for the static atom
     cloud).
 
-    Each written pixel is alpha-blended toward its target color (read the
-    existing pixel, blend at alpha_q8/256, write back) rather than an
-    opaque overwrite -- MicroPython port of Display::blendColor565()
-    (src/render/display.cpp), same bit-replication expand/truncate as
-    fade_buffer() above. This is real per-point work C++'s
-    renderPointsColored()/renderPointsGrouped() also do every point, not
-    optional polish: skipping it (a plain overwrite) makes overlapping
-    points fully replace each other instead of visually accumulating.
+    Each written pixel is alpha-blended toward its target color (read, blend at alpha_q8/256,
+    write back) -- MicroPython port of Display::blendColor565(), same expand/truncate as
+    fade_buffer(). See render_points_opaque() below for the plain-overwrite fast path.
     """
     pxs = ptr32(xs)
     pys = ptr32(ys)
@@ -482,16 +434,9 @@ def render_points_opaque(buf, xs, ys, zs, colors, n: int,
                          cos_y_fx: int, sin_y_fx: int, cos_x_fx: int, sin_x_fx: int,
                          cos_z_fx: int, sin_z_fx: int, scale_fx: int,
                          cx: int, cy: int, w: int, h: int, frame_salt: int, buzz_threshold: int):
-    """render_points()'s ELECTRON_ALPHA_Q8=256 fast path (see module docstring):
-    same rotation/projection/buzz as render_points() above, but writes each
-    point's color as a plain overwrite -- no old-pixel read, no unpack/blend/
-    pack. Correct, not just "close enough": blendColor565()'s formula at
-    alpha_q8=256 reduces algebraically to the target color unchanged
-    (`or8 + ((tr8-or8)*256>>8) == tr8`), and since `colors[]` is already
-    stored byte-swapped the same as `buf` (see render_points()'s own
-    unpack/pack round trip), the blended-then-repacked result is just
-    `pcolors[i]` again -- so skipping straight to `pbuf[idx] = pcolors[i]`
-    below is exact, not an approximation.
+    """render_points()'s ELECTRON_ALPHA_Q8=256 fast path: same rotate/project/buzz, but a plain
+    overwrite instead of read+blend+write. Exact, not an approximation -- blendColor565() at
+    alpha=256 reduces algebraically to the target color unchanged.
     """
     pxs = ptr32(xs)
     pys = ptr32(ys)
@@ -520,17 +465,10 @@ def render_points_opaque(buf, xs, ys, zs, colors, n: int,
 
 def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, frame_salt=0,
                   buzz_threshold=0):
-    """Fade (NOT clear -- see PERSISTENCE_KEEP_Q8/fade_buffer() above), draw
-    the proton marker (via framebuf -- cheap, not once-per-point), then
-    every point in `preset` at `angle`/`tilt_angle`/`roll_angle`/`scale`,
-    alpha-blended (ELECTRON_ALPHA_Q8, see render_points()). `preset` need
-    only expose xs_fx/ys_fx/zs_fx/colors (PresetState and AtomPresetState
-    both do). Shared by fly_over() and each app's steady-state loop.
-
-    PERSISTENCE_KEEP_Q8/ELECTRON_ALPHA_Q8 are checked once per frame here
-    (not per-pixel/per-point) to pick the fast disabled-state path
-    (fb.fill(0), render_points_opaque()) vs. the real fade/blend -- see
-    those constants' module-level comment.
+    """Fade (or clear, see PERSISTENCE_KEEP_Q8), draw the proton marker small before the cloud
+    (blendable), render every point in `preset`, then redraw the marker bigger and opaque on
+    top so it's never hidden under a point -- matches src/render/camera.h's renderScene() plus
+    each C++ view's own post-cloud marker redraw. `preset` needs xs_fx/ys_fx/zs_fx/colors.
     """
     w1 = WIDTH - 1
     h1 = HEIGHT - 1
@@ -560,6 +498,12 @@ def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, s
         render_points(buf, preset.xs_fx, preset.ys_fx, preset.zs_fx, preset.colors, len(preset.xs_fx),
                       cos_y_fx, sin_y_fx, cos_x_fx, sin_x_fx, cos_z_fx, sin_z_fx, scale_fx,
                       CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold, ELECTRON_ALPHA_Q8)
+
+    prominent_x = CENTER - PROMINENT_PROTON_SIZE // 2
+    prominent_y = CENTER - PROMINENT_PROTON_SIZE // 2
+    prominent_radius = PROMINENT_PROTON_SIZE // 2
+    fb.ellipse(w1 - prominent_x + prominent_radius, h1 - prominent_y + prominent_radius, prominent_radius,
+               prominent_radius, proton_color, True)
 
 
 def fly_over(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,

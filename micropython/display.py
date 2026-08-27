@@ -6,13 +6,9 @@ board, C++ port):
     SPI:       SCLK=40  MOSI=41  CS=39  DC=38  RST=42
     Backlight: GPIO20, active HIGH
 
-Uses machine.SPI (hardware SPI peripheral, not SoftSPI/bit-bang) at 80 MHz,
-matching the C++ port's LCD_PIXEL_CLOCK_HZ for this same target
-(src/render/display.cpp's non-CYD branch) -- keeping both builds at the
-same SPI clock is what makes micropython/benchmark_test.py's FPS numbers
-comparable to src/debug/benchmark_test.cpp's. Drop back to 40_000_000 if
-this proves unstable on this driver (SPI(1) below, not SPI(2), see next
-paragraph).
+Uses machine.SPI (hardware SPI peripheral, not SoftSPI/bit-bang) at 80 MHz, matching the C++
+port's LCD_PIXEL_CLOCK_HZ for this target so FPS numbers are comparable between builds. Drop
+back to 40_000_000 if this proves unstable.
 
 machine.SPI(2, ...) hangs this specific board on init (watchdog reset,
 verified empirically against the real device -- v1.28.0,
@@ -21,34 +17,22 @@ here instead. No MISO pin is wired (the display is write-only), so it is
 left unset -- machine.SPI defaults it to an unused GPIO internally without
 driving the actual display wiring.
 
-Panel-mirror + color-order fix: this exact panel is horizontally mirrored in
-a way tft.setRotation()'s four proper rotations cannot undo (see CLAUDE.md
-"Correzione verificata: mirror pannello e ordine colore" -- proven both
-mathematically and empirically in the C++ port / examples/corner_calibration/).
-The fix is a raw MADCTL write with only the MX bit set (not MX|MY), plus BGR
-(not RGB) color order. st7789py.py's custom_rotations lets us express this
-directly instead of picking from its four built-in rotation presets (none of
-which is MX-only): one rotation entry with madctl=MX; st7789py itself ORs in
-the BGR bit when color_order=BGR.
-
-On top of that mirror fix, this unit's prism mount also needs a plain 180
-degree rotation to line the image up with the physical viewing angle --
-verified on-device with main.py's corner test: sprite corners were landing
-on their diagonally-opposite physical corner (e.g. sprite top-left drawn red
-came out physically bottom-right), the same 180 degree offset
-examples/corner_calibration/README.md found for the C++ port.
-
-Tried doing that 180 in hardware via MADCTL (MY on top of the existing MX,
-using this driver's own built-in 240x240 rotation-table offset of
-ystart=80 for madctl=0xc0) -- on-device it produced a corrupted image
-(quadrants shuffled asymmetrically, not a clean 180), so this ST7789
-variant's RAM-window addressing does not behave like the generic four-way
-rotation table assumes for this combination. Reverted to the known-good
-MX-only addressing (positions correctly, just needs a software 180) and
-apply the 180 degree flip in the drawing code instead, exactly like
-examples/corner_calibration.ino does for the C++ port: use
-`to_physical(x, y)` below to convert a sprite-space coordinate to the
-coordinate that lands in that physical spot, and draw there.
+Orientation fix, split between hardware and software -- same split src/render/display.cpp uses
+on this identical hardware, and for the same reason: MADCTL with only the MX bit set (0x40),
+plus BGR color order, is the clean, non-corrupted part (st7789py.py's custom_rotations
+expresses this MX-only entry directly, since none of its four built-in presets is MX-only; it
+ORs in the BGR bit itself when color_order=BGR). MX|MY (0xc0) or MY alone (0x80) instead
+corrupt the image on this ST7789 variant (quadrants shuffled, not a clean rotation) -- matches
+that C++ file's own finding on the same hardware ("combining both mirrors in hardware produced
+a broken image on the S3 unit"). Verified on-device that MX alone, with NO software correction,
+still leaves sprite-space coordinates landing on the wrong (diagonally opposite) physical
+corner -- so unlike the C++ side (which only needs a per-pixel Y-remap on top of its hardware
+MX), this driver's MX doesn't get all the way there by itself; the remaining correction is a
+full 180-degree flip, applied cheaply (baked into existing per-pixel/per-shape drawing work, not
+a separate pass) everywhere content is drawn -- render_points()/render_points_opaque()'s pixel
+index, the proton marker's fb.ellipse() position, draw_text_scaled()'s glyph rotation, and
+draw_scale_bar()'s line positions (see device_render_common.py). to_physical() below is that
+same 180-degree flip for anything drawn directly (e.g. corner_test.py's markers).
 """
 
 from machine import Pin, SPI
@@ -67,16 +51,14 @@ PIN_BACKLIGHT = 20
 SPI_BAUDRATE = 80_000_000
 
 _MADCTL_MX = 0x40
-_MADCTL_MY = 0x80
-_MADCTL_BGR = 0x08
-_CUSTOM_ROTATIONS = ((0x00, WIDTH, HEIGHT, 0, 0, False),)
+_CUSTOM_ROTATIONS = ((_MADCTL_MX, WIDTH, HEIGHT, 0, 0, False),)
 
 
 def to_physical(x, y):
-    """Map a sprite-space (x, y) to the coordinate that lands in that
-    physical spot on screen, given the verified 180 degree prism-viewing
-    offset (see module docstring). Use this for anything drawn in
-    "intuitive" screen-space (e.g. corner markers) rather than raw x/y.
+    """Map a sprite-space (x, y) to the coordinate that lands in that physical spot on screen --
+    the software half of this panel's orientation fix (see module docstring). Use this for
+    anything drawn directly (e.g. corner_test.py's markers) rather than raw x/y; the shared
+    render path (device_render_common.py) already applies the same flip internally.
     """
     return WIDTH - 1 - x, HEIGHT - 1 - y
 

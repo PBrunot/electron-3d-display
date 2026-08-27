@@ -5,9 +5,8 @@ each *physical* screen corner, pre-rotating each marker's sprite-space
 position via display.to_physical() to compensate for this unit's verified
 180 degree prism-viewing offset (see display.py's docstring -- same fix
 examples/corner_calibration.ino applies for the C++ port). Kept as a
-standalone re-runnable diagnostic (moved out of main.py, which now boots
-straight into orbital_view's point-cloud animation) -- run this again if the
-mount changes or colors/corners ever look wrong.
+standalone re-runnable diagnostic -- run this again if the mount changes or
+colors/corners ever look wrong.
 
 On this board, `mpremote run <file>` hung after a watchdog reset (looked
 like a raw-paste-mode / USB-passthrough interaction, not a MicroPython or
