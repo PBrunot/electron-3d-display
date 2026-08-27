@@ -313,6 +313,27 @@ above; the 1000pt row's 20ms is the representative "warm" figure.)
   on first visit to an element/orbital per session, not a per-frame cost -- cached for every
   later revisit.
 
+### Default changed since this capture: fade/blend now disabled by default on MicroPython
+
+The sweep above was captured with `micropython/device_render_common.py`'s `PERSISTENCE_KEEP_Q8`/
+`ELECTRON_ALPHA_Q8` forced to match the C++ side (160/240) specifically for this apples-to-apples
+comparison. Following a visual A/B check on the C++ build (rendered live from the device --
+`img/fe_blend_on.gif` vs. `img/fe_blend_off.gif`/`img/fe_blend_comparison.gif`), those two
+constants now default to their disabled values (0/256) on MicroPython, since the "Render path"
+finding above -- full-frame fade dominating MicroPython's per-frame cost, ~3x slower than C++
+once the work matches exactly -- makes this the more expensive side to carry on an interpreted
+target. `render_frame()` takes an actual fast path when disabled (`fb.fill(0)` instead of
+`fade_buffer()`'s per-pixel loop; a plain overwrite instead of `render_points()`'s per-point
+blend, via the new `render_points_opaque()`), so a re-run of `micropython/benchmark_test.py`
+against current code will show better FPS than the table above at every point count -- that's
+the intended effect of this change, not a discrepancy to chase down. The C++ build is unaffected
+(`kPersistenceKeepQ8`/`kElectronAlphaQ8` in `src/config/visual_constants.h` are still 160/240).
+
+Both real fade/blend implementations are untouched and still bit-identical to the C++ formulas --
+set `PERSISTENCE_KEEP_Q8 = 160` / `ELECTRON_ALPHA_Q8 = 240` back in `device_render_common.py` to
+restore the matched-cost sweep this section documents (e.g. before re-running the comparison
+after a change to either render path).
+
 ### Caveats / non-identical factors not chased down further
 
 - Font rendering differs: C++ rasterizes a real typeface (Jersey10) into a proportional bitmap

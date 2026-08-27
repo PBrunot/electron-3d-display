@@ -83,17 +83,28 @@ ZOOM_EXCURSION_EASE_FRAMES = 30
 
 PROTON_SIZE = 3
 
-# Persistence-fade / alpha-blend constants -- MUST match src/config/visual_constants.h's
-# kPersistenceKeepQ8/kElectronAlphaQ8 exactly (both /256 fixed-point): src/render/camera.h's
-# renderScene()/renderSceneGrouped() fade the WHOLE frame buffer toward black every frame
-# (not a hard clear) and alpha-blend every point write against whatever's already there (not
-# an opaque overwrite) -- see fade_buffer()/render_points() below for the MicroPython port of
-# both. Keeping the two in sync matters for benchmark comparability
-# (micropython/benchmark_test.py vs src/debug/benchmark_test.cpp): a plain fb.fill(0) +
-# opaque point write does less per-frame work than this fade+blend, so FPS is only comparable
-# between the two builds when both do the same amount of work per frame.
-PERSISTENCE_KEEP_Q8 = 160  # kept fraction per frame, /256 (~0.625) -- kPersistenceKeepQ8
-ELECTRON_ALPHA_Q8 = 240    # blend-toward-target fraction per point write, /256 -- kElectronAlphaQ8
+# Persistence-fade / alpha-blend constants -- MicroPython port of src/config/visual_constants.h's
+# kPersistenceKeepQ8/kElectronAlphaQ8 (both /256 fixed-point): when non-default (see below),
+# src/render/camera.h's renderScene()/renderSceneGrouped() fade the WHOLE frame buffer toward
+# black every frame (not a hard clear) and alpha-blend every point write against whatever's
+# already there (not an opaque overwrite) -- fade_buffer()/render_points() below are the
+# MicroPython port of both, bit-identical to the C++ formulas when enabled.
+#
+# Disabled by default here (0 / 256), UNLIKE the C++ build, which keeps both on
+# (kPersistenceKeepQ8=160, kElectronAlphaQ8=240): per BENCHMARK.md's MicroPython section, the
+# full-frame fade touches WIDTH*HEIGHT pixels every frame regardless of point count and is the
+# dominant per-frame cost on this interpreted target -- with fade+blend matching C++ bit-for-bit,
+# MicroPython was consistently ~3x slower at every point count, not just build/sampling-bound.
+# render_frame() below takes the fast path when these are at their disabled values (fb.fill(0)
+# instead of fade_buffer()'s per-pixel loop; render_points_opaque()'s plain overwrite instead of
+# render_points()'s per-point read+blend) -- actual CPU saved, not just a different-looking
+# no-op. Both real implementations are left intact and still exactly match the C++ math, so
+# setting these back to 160/240 (e.g. to re-run the parity comparison against
+# src/debug/benchmark_test.cpp via micropython/benchmark_test.py) restores bit-identical,
+# apples-to-apples behavior -- these two just no longer describe the MicroPython viewers'
+# shipped default.
+PERSISTENCE_KEEP_Q8 = 0    # 0 = disabled (render_frame() does fb.fill(0)); 160 matches kPersistenceKeepQ8
+ELECTRON_ALPHA_Q8 = 256    # 256 = disabled (render_frame() does an opaque overwrite); 240 matches kElectronAlphaQ8
 
 # Overlays are drawn in panel-native (non-prism-corrected) orientation --
 # to_physical() is a coordinate remap, not a glyph-rotation, so framebuf
@@ -466,6 +477,47 @@ def render_points(buf, xs, ys, zs, colors, n: int,
         i += 1
 
 
+@micropython.viper
+def render_points_opaque(buf, xs, ys, zs, colors, n: int,
+                         cos_y_fx: int, sin_y_fx: int, cos_x_fx: int, sin_x_fx: int,
+                         cos_z_fx: int, sin_z_fx: int, scale_fx: int,
+                         cx: int, cy: int, w: int, h: int, frame_salt: int, buzz_threshold: int):
+    """render_points()'s ELECTRON_ALPHA_Q8=256 fast path (see module docstring):
+    same rotation/projection/buzz as render_points() above, but writes each
+    point's color as a plain overwrite -- no old-pixel read, no unpack/blend/
+    pack. Correct, not just "close enough": blendColor565()'s formula at
+    alpha_q8=256 reduces algebraically to the target color unchanged
+    (`or8 + ((tr8-or8)*256>>8) == tr8`), and since `colors[]` is already
+    stored byte-swapped the same as `buf` (see render_points()'s own
+    unpack/pack round trip), the blended-then-repacked result is just
+    `pcolors[i]` again -- so skipping straight to `pbuf[idx] = pcolors[i]`
+    below is exact, not an approximation.
+    """
+    pxs = ptr32(xs)
+    pys = ptr32(ys)
+    pzs = ptr32(zs)
+    pcolors = ptr16(colors)
+    pbuf = ptr16(buf)
+    i = 0
+    while i < n:
+        hv = ((i * 668265261 + frame_salt * 374761393) >> 16) & 0xFFFF
+        if hv >= buzz_threshold:
+            x = pxs[i]
+            y = pys[i]
+            z = pzs[i]
+            rx1 = (x * cos_y_fx + z * sin_y_fx + 128) >> 8
+            rz1 = (z * cos_y_fx - x * sin_y_fx + 128) >> 8
+            ry2 = (y * cos_x_fx - rz1 * sin_x_fx + 128) >> 8
+            rx3 = (rx1 * cos_z_fx - ry2 * sin_z_fx + 128) >> 8
+            ry3 = (rx1 * sin_z_fx + ry2 * cos_z_fx + 128) >> 8
+            sx = cx + ((rx3 * scale_fx + 32768) >> 16)
+            sy = cy - ((ry3 * scale_fx + 32768) >> 16)
+            if sx >= 0 and sx < w and sy >= 0 and sy < h:
+                idx = (h - 1 - sy) * w + (w - 1 - sx)
+                pbuf[idx] = pcolors[i]
+        i += 1
+
+
 def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, scale, frame_salt=0,
                   buzz_threshold=0):
     """Fade (NOT clear -- see PERSISTENCE_KEEP_Q8/fade_buffer() above), draw
@@ -474,11 +526,19 @@ def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, s
     alpha-blended (ELECTRON_ALPHA_Q8, see render_points()). `preset` need
     only expose xs_fx/ys_fx/zs_fx/colors (PresetState and AtomPresetState
     both do). Shared by fly_over() and each app's steady-state loop.
+
+    PERSISTENCE_KEEP_Q8/ELECTRON_ALPHA_Q8 are checked once per frame here
+    (not per-pixel/per-point) to pick the fast disabled-state path
+    (fb.fill(0), render_points_opaque()) vs. the real fade/blend -- see
+    those constants' module-level comment.
     """
     w1 = WIDTH - 1
     h1 = HEIGHT - 1
 
-    fade_buffer(buf, WIDTH, HEIGHT, PERSISTENCE_KEEP_Q8)
+    if PERSISTENCE_KEEP_Q8 == 0:
+        fb.fill(0)
+    else:
+        fade_buffer(buf, WIDTH, HEIGHT, PERSISTENCE_KEEP_Q8)
     proton_x = CENTER - PROTON_SIZE // 2
     proton_y = CENTER - PROTON_SIZE // 2
     proton_radius = PROTON_SIZE // 2
@@ -492,9 +552,14 @@ def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, s
     cos_z_fx = int(math.cos(roll_angle) * FX_SCALE)
     sin_z_fx = int(math.sin(roll_angle) * FX_SCALE)
     scale_fx = int(scale * FX_SCALE)
-    render_points(buf, preset.xs_fx, preset.ys_fx, preset.zs_fx, preset.colors, len(preset.xs_fx),
-                  cos_y_fx, sin_y_fx, cos_x_fx, sin_x_fx, cos_z_fx, sin_z_fx, scale_fx,
-                  CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold, ELECTRON_ALPHA_Q8)
+    if ELECTRON_ALPHA_Q8 == 256:
+        render_points_opaque(buf, preset.xs_fx, preset.ys_fx, preset.zs_fx, preset.colors, len(preset.xs_fx),
+                             cos_y_fx, sin_y_fx, cos_x_fx, sin_x_fx, cos_z_fx, sin_z_fx, scale_fx,
+                             CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold)
+    else:
+        render_points(buf, preset.xs_fx, preset.ys_fx, preset.zs_fx, preset.colors, len(preset.xs_fx),
+                      cos_y_fx, sin_y_fx, cos_x_fx, sin_x_fx, cos_z_fx, sin_z_fx, scale_fx,
+                      CENTER, CENTER, WIDTH, HEIGHT, frame_salt, buzz_threshold, ELECTRON_ALPHA_Q8)
 
 
 def fly_over(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,
