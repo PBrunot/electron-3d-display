@@ -372,6 +372,39 @@ MicroPython went from ~3.1x slower than C++ to ~1.16x slower at the production p
 (e.g. 5224ms vs. C++'s 50ms at 8000 atom points -- see "Build/sampling path" above), not the
 render loop.
 
+### MicroPython point count (dimness investigation, 2026-08-27)
+
+Live demo on-device looked visibly dimmer/sparser than the C++ build side by side. Three
+compounding factors, chased down together rather than guessed at:
+
+1. **Point count.** `N_POINTS` in `cloud_common.py`/`atom_view.py` was 3000, vs. C++'s
+   `kOrbitalNumPoints`/`kAtomNumPoints` = 12000 -- a 4x density gap, the single biggest
+   contributor to the sparse look.
+2. **Fade/blend disabled by default** (see previous section) -- no persistence trail means each
+   point is only ever lit for exactly one frame, so the same point count reads dimmer than a
+   fading build even at equal density.
+3. **Brighten-factor mismatch.** `OUTER_SHELL_BRIGHTEN` in `atom_cloud.py` was 0.3 vs. C++'s
+   `kAtomOuterShellBrighten` = 0.4 -- outer-shell (valence) points, the ones most visible at a
+   glance, were rendered dimmer than intended independent of the other two factors.
+
+Bumping `N_POINTS` to the full 12000 to match C++ exactly was tried first and measured: atom
+build/load time went from ~2.9s (3000 pts) to **16.4s (12000 pts)** on this board -- too slow for
+the idle-cycling/element-switching feel of the live demo, since every switch re-samples and
+re-builds the point cloud from scratch (the table-caching added earlier caches the *sampling
+tables*, not the sampled point set itself, so this cost is paid every time regardless).
+
+Settled on:
+- `N_POINTS = 5000` (`cloud_common.py`, `atom_view.py`) -- roughly splits the gap, keeps
+  build/load time in the low single-digit seconds, well short of C++'s 12000 but a meaningful
+  density bump over the original 3000.
+- `OUTER_SHELL_BRIGHTEN = 0.4` (`atom_cloud.py`) -- now matches `kAtomOuterShellBrighten` exactly.
+- Fade/blend stays disabled by default (explicit decision, not revisited) -- the ~3x render-loop
+  cost documented above isn't worth paying back just for the persistence-trail brightness effect.
+
+Net effect: still fewer, non-fading points than C++, by design -- this is a deliberate
+speed/density trade-off for the interpreted target, not an attempt to make MicroPython visually
+identical to C++ at matched point count (that comparison is what the sweep tables above are for).
+
 ### Caveats / non-identical factors not chased down further
 
 - Font rendering differs: C++ rasterizes a real typeface (Jersey10) into a proportional bitmap

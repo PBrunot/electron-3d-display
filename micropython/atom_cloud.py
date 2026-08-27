@@ -268,13 +268,8 @@ SHELL_LETTERS = ('?', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', '?')
 # How far the outermost subshell's points get lerped toward white (0 = no
 # change, 1 = pure white) -- see build_atom_point_cloud()'s call to
 # _brighten_outer_shell() and the module docstring's Coloring paragraph.
-# 0.55 read as only a modest change once actually rendered (PC's
-# ELECTRON_ALPHA=0.7 per-hit blending already discounts whatever color a
-# sparse, rarely-repeated-pixel point carries, and the device path draws the
-# color outright with no discount at all) -- pushed close to 1.0 so a single
-# hit is close to pure white, the brightest a pixel can get against the
-# black background, while keeping a sliver of the shell hue.
-OUTER_SHELL_BRIGHTEN = 0.3
+# Matches kAtomOuterShellBrighten (src/config/visual_constants.h).
+OUTER_SHELL_BRIGHTEN = 0.4
 
 
 def _brighten_outer_shell(rgb, factor=OUTER_SHELL_BRIGHTEN):

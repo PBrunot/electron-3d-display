@@ -10,10 +10,11 @@ static, see its module docstring), _draw_atom_title() (element symbol huge
 top-left, Z number huge top-right -- exact parity with
 src/views/atom_view.cpp's renderAtomFrame() layout; the electron
 configuration is NOT drawn every frame, matching that file, though it's
-still available via AtomPresetState.config), N_POINTS
-(smaller than the PC viewer's 10000, same device rendering budget as
-orbital_view.py's 3000), a shell-dissection sequence (D nudge or idle
-auto-advance -- see _run_dissection() below, MicroPython port of that
+still available via AtomPresetState.config), N_POINTS (below
+kAtomNumPoints, the C++ S3 build's own production count -- see
+BENCHMARK.md's "MicroPython point count" section), a
+shell-dissection sequence (D nudge or idle auto-advance -- see
+_run_dissection() below, MicroPython port of that
 file's runDissectionSequence()), and a run() loop that lets nudge step the
 atomic number Z instead of cycling a fixed preset list.
 
@@ -53,7 +54,8 @@ WIDTH = drc.WIDTH
 HEIGHT = drc.HEIGHT
 CENTER = drc.CENTER
 
-N_POINTS = 3000  # same device render budget as orbital_view.py's cloud_common.N_POINTS
+N_POINTS = 5000  # below kAtomNumPoints's 12000 (S3 target) -- see BENCHMARK.md's "MicroPython
+                 # point count" section for the load-time-vs-density tradeoff this settles on
 DEFAULT_Z = 6  # carbon -- simplest element with an interesting (non-full, non-empty) p subshell
 
 # Calibrated once for THIS panel's own CENTER (see
@@ -137,18 +139,22 @@ class _DissectPreset:
     array and title.
     """
 
-    def __init__(self, xs_fx, ys_fx, zs_fx, colors, title_fn):
+    def __init__(self, xs_fx, ys_fx, zs_fx, colors, title_fn, r_ref):
         self.xs_fx = xs_fx
         self.ys_fx = ys_fx
         self.zs_fx = zs_fx
         self.colors = colors
         self._title_fn = title_fn
+        self.r_ref = r_ref
 
     def draw_title(self, fb, buf, x, y, text_color):
         self._title_fn(fb, buf, x, y, text_color)
 
     def draw_corner_label(self, fb, buf, text_color):
         pass  # occupancy note is drawn as part of draw_title() above instead
+
+    def draw_bounding_circle(self, fb, buf, scale):
+        _draw_bounding_circle(fb, self.r_ref, scale)
 
 
 def _ease_scale_timed(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,
@@ -255,7 +261,7 @@ def _run_dissection(d, fb, buf, preset, proton_color, text_color, scale_bar_colo
             occ_w = drc.text_width_scaled(occ_text, drc.FONT_SCALE_LARGE)
             drc.draw_text_scaled(fb_, buf_, WIDTH - occ_w - 1, 1, occ_text, _DISSECT_OCC_COLOR, drc.FONT_SCALE_LARGE)
 
-        level_preset = _DissectPreset(preset.xs_fx, preset.ys_fx, preset.zs_fx, colors, title_fn)
+        level_preset = _DissectPreset(preset.xs_fx, preset.ys_fx, preset.zs_fx, colors, title_fn, rref)
         target_scale, _amp, _rr = atom_cloud.scale_for_atom(rref, PIXELS_PER_BOHR)
         fly_ms = _fly_duration_ms(prev_rref, rref)
         print("atom: dissecting shell %s (level %d/%d, fly %dms)" % (big_label, level, len(plan), fly_ms))
@@ -281,6 +287,18 @@ def _run_dissection(d, fb, buf, preset, proton_color, text_color, scale_bar_colo
         d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,
         scale, preset.base_scale, return_ms, None, buzz_threshold)
     return angle, tilt_angle, roll_angle
+
+
+def _draw_bounding_circle(fb, r_ref, scale):
+    """Outline circle at the outer/valence subshell's own radius -- device counterpart of
+    src/render/overlay.cpp's drawBoundingCircle(). A circle centered at the exact panel center
+    is symmetric under the 180-degree orientation flip, so (unlike text) it needs no per-pixel
+    work -- framebuf's own outline-mode fb.ellipse() (f=False) draws it directly.
+    """
+    r = int(r_ref * scale + 0.5)
+    if r <= 0:
+        return
+    fb.ellipse(CENTER, CENTER, r, r, drc.BOUNDING_CIRCLE_COLOR, False)
 
 
 # --- Full-atom render/state (steady-state view, not dissection) --------------------------------
@@ -352,6 +370,9 @@ class AtomPresetState:
         z_label = str(self.z)
         w = drc.text_width_scaled(z_label, drc.FONT_SCALE_HUGE)
         drc.draw_text_scaled(fb, buf, WIDTH - w, 1, z_label, _GREEN_YELLOW, drc.FONT_SCALE_HUGE)
+
+    def draw_bounding_circle(self, fb, buf, scale):
+        _draw_bounding_circle(fb, self.r_ref, scale)
 
 
 def run(z=DEFAULT_Z, d=None, detector=None):

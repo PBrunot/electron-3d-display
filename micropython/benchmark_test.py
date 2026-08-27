@@ -76,6 +76,9 @@ class _BenchPreset:
     def draw_corner_label(self, fb, buf, text_color):
         pass  # benchmark uses one combined title line, matching src/debug/benchmark_test.cpp
 
+    def draw_bounding_circle(self, fb, buf, scale):
+        pass  # not part of what src/debug/benchmark_test.cpp times either
+
 
 def _outer_subshell_info(xs, ys, zs, shells, ells, config):
     """(n, ell, r_ref) of the outermost occupied subshell, via

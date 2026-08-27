@@ -11,8 +11,9 @@ internals for it).
 What stays OUT of this module, in each app instead: the per-app PresetState
 class (PresetState/AtomPresetState -- different data sources and coloring:
 cloud_common phase-by-sign vs atom_cloud shell-by-n, only PresetState turns
-over via resample()), N_POINTS (cloud_common.N_POINTS=3000 for orbitals;
-atom_view.py sets its own), the run() loop and its input handling (both
+over via resample()), N_POINTS (cloud_common.N_POINTS for orbitals; atom_view.py
+sets its own -- both match the C++ S3 build's production point counts), the
+run() loop and its input handling (both
 cycle via the same nudge gesture, but orbital_view.py wraps a fixed preset
 index while atom_view.py clamps an atomic number), and FPS-counter
 bookkeeping (dev/debug only, trivial enough not to share).
@@ -150,6 +151,9 @@ def swap16(color565):
 
 def encode_color565(r, g, b):
     return swap16(st7789.color565(r, g, b))
+
+
+BOUNDING_CIRCLE_COLOR = encode_color565(180, 180, 180)  # matches kBoundingCircleColor
 
 
 # Scratch 8x8 glyph buffer, shared across every draw_text_scaled() call (not one per call) to
@@ -504,6 +508,8 @@ def render_frame(fb, buf, preset, proton_color, angle, tilt_angle, roll_angle, s
     prominent_radius = PROMINENT_PROTON_SIZE // 2
     fb.ellipse(w1 - prominent_x + prominent_radius, h1 - prominent_y + prominent_radius, prominent_radius,
                prominent_radius, proton_color, True)
+
+    preset.draw_bounding_circle(fb, buf, scale)
 
 
 def fly_over(d, fb, buf, preset, proton_color, text_color, scale_bar_color, angle, tilt_angle, roll_angle,

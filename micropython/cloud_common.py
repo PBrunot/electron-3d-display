@@ -19,7 +19,8 @@ import pointcloud
 ORBITAL_N = 2
 ORBITAL_ELL = 1
 ORBITAL_M = 0
-N_POINTS = 3000
+N_POINTS = 5000  # below kOrbitalNumPoints's 12000 (S3 target) -- see BENCHMARK.md's "MicroPython
+                 # point count" section for the load-time-vs-density tradeoff this settles on
 SEED = 12345  # fixed for a reproducible-looking demo across boots
 
 # (n, ell, m, label) presets cycled through on a nudge/keypress.

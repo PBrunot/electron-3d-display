@@ -4,7 +4,7 @@ with pc/orbital_view_pc.py. Q8 fixed-point/viper rendering, framebuf/ST7789
 blitting, the fly-over/zoom-excursion camera, and nudge/IMU plumbing are
 shared with micropython/atom_view.py via device_render_common.py. What's
 left here is genuinely orbital-specific: PresetState (phase-by-sign coloring
-+ point-turnover), cloud_common.N_POINTS=3000, and the nudge-cycles-a-fixed-
++ point-turnover), cloud_common.N_POINTS, and the nudge-cycles-a-fixed-
 preset-list run() loop.
 
 Rendering: orthographic projection, three-axis tumble (yaw about Y, tilt
@@ -135,6 +135,9 @@ class PresetState:
         height = 8 * drc.FONT_SCALE_SMALL
         drc.draw_text_scaled(fb, buf, drc.WIDTH - width, drc.HEIGHT - height - 15, self.orbital_numbers,
                              text_color, drc.FONT_SCALE_SMALL)
+
+    def draw_bounding_circle(self, fb, buf, scale):
+        pass  # orbital_view.cpp doesn't draw one -- atom-only, see atom_view.py
 
     def resample(self, count):
         """Point turnover (see CULL_FRACTION/CULL_REFRESH_FRAMES): redraw
