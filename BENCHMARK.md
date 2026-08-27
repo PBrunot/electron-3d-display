@@ -313,10 +313,10 @@ above; the 1000pt row's 20ms is the representative "warm" figure.)
   on first visit to an element/orbital per session, not a per-frame cost -- cached for every
   later revisit.
 
-### Default changed since this capture: fade/blend now disabled by default on MicroPython
+### Fade/blend now disabled by default on MicroPython (re-captured 2026-08-27)
 
 The sweep above was captured with `micropython/device_render_common.py`'s `PERSISTENCE_KEEP_Q8`/
-`ELECTRON_ALPHA_Q8` forced to match the C++ side (160/240) specifically for this apples-to-apples
+`ELECTRON_ALPHA_Q8` forced to match the C++ side (160/240) specifically for that apples-to-apples
 comparison. Following a visual A/B check on the C++ build (rendered live from the device --
 `img/fe_blend_on.gif` vs. `img/fe_blend_off.gif`/`img/fe_blend_comparison.gif`), those two
 constants now default to their disabled values (0/256) on MicroPython, since the "Render path"
@@ -324,15 +324,53 @@ finding above -- full-frame fade dominating MicroPython's per-frame cost, ~3x sl
 once the work matches exactly -- makes this the more expensive side to carry on an interpreted
 target. `render_frame()` takes an actual fast path when disabled (`fb.fill(0)` instead of
 `fade_buffer()`'s per-pixel loop; a plain overwrite instead of `render_points()`'s per-point
-blend, via the new `render_points_opaque()`), so a re-run of `micropython/benchmark_test.py`
-against current code will show better FPS than the table above at every point count -- that's
-the intended effect of this change, not a discrepancy to chase down. The C++ build is unaffected
-(`kPersistenceKeepQ8`/`kElectronAlphaQ8` in `src/config/visual_constants.h` are still 160/240).
+blend, via the new `render_points_opaque()`). The C++ build is unaffected (`kPersistenceKeepQ8`/
+`kElectronAlphaQ8` in `src/config/visual_constants.h` are still 160/240).
 
 Both real fade/blend implementations are untouched and still bit-identical to the C++ formulas --
 set `PERSISTENCE_KEEP_Q8 = 160` / `ELECTRON_ALPHA_Q8 = 240` back in `device_render_common.py` to
-restore the matched-cost sweep this section documents (e.g. before re-running the comparison
-after a change to either render path).
+restore the matched-cost sweep the table above documents.
+
+Re-ran `micropython/benchmark_test.py` (same board, same methodology, `frames_per_step=30`)
+against this new default to confirm the expected speedup, not just the code-reading argument for
+it:
+
+**Atom sweep (Fe, Z=26):**
+
+| points | build_ms | avg_compute_ms | avg_blit_ms | avg_frame_ms | fps | heap_free |
+|-------:|---------:|----------------:|-------------:|--------------:|-----:|----------:|
+|    500 |      369 |            8.267 |        13.087 |         21.354 | 46.83 |   7776368 |
+|   1000 |      693 |            9.211 |        13.083 |         22.294 | 44.85 |   7756848 |
+|   2000 |     1391 |           11.094 |        13.089 |         24.183 | 41.35 |   7717856 |
+|   4000 |     2896 |           14.495 |        13.131 |         27.625 | 36.20 |   7639856 |
+|   8000 |     5224 |           21.431 |        13.090 |         34.521 | 28.97 |   7459264 |
+
+**Orbital sweep (2p_z):**
+
+| points | build_ms | avg_compute_ms | avg_blit_ms | avg_frame_ms | fps | heap_free |
+|-------:|---------:|----------------:|-------------:|--------------:|-----:|----------:|
+|    500 |      454 |            6.275 |        13.098 |         19.373 | 51.62 |   7729088 |
+|   1000 |      860 |            7.275 |        13.094 |         20.369 | 49.09 |   7711104 |
+|   2000 |     1724 |           11.294 |        13.187 |         24.481 | 40.85 |   7675136 |
+|   4000 |     3542 |           13.377 |        13.101 |         26.478 | 37.77 |   7603104 |
+|   8000 |     7236 |           21.171 |        13.094 |         34.264 | 29.18 |   7459056 |
+
+`avg_compute_ms` (fade/proton/rotate-project-write, excluding blit) dropped ~85% at 500 points
+(56.4ms -> 8.3ms atom, 53.1ms -> 6.3ms orbital) and ~73% at 8000 (78.3ms -> 21.4ms atom, 77.8ms
+-> 21.2ms orbital) vs. the matched-cost table above -- the gap narrows at higher point counts
+because per-point rotate/project/write cost (unavoidable, same in both builds) grows with point
+count while the now-skipped full-frame fade stays flat, so it's a shrinking share of the total.
+
+**FPS at production count (8000 points) vs. C++, before and after this change:**
+
+| points | C++ atom fps | MPY atom fps (matched) | MPY atom fps (fast default) | C++ orbital fps | MPY orbital fps (matched) | MPY orbital fps (fast default) |
+|-------:|-------------:|------------------------:|------------------------------:|-----------------:|----------------------------:|----------------------------------:|
+|   8000 |        33.56 |                    10.94 |                          28.97 |             31.47 |                        11.00 |                              29.18 |
+
+MicroPython went from ~3.1x slower than C++ to ~1.16x slower at the production point count --
+`build_ms` (point-cloud sampling, unaffected by this change) is still the larger remaining gap
+(e.g. 5224ms vs. C++'s 50ms at 8000 atom points -- see "Build/sampling path" above), not the
+render loop.
 
 ### Caveats / non-identical factors not chased down further
 
