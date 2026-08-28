@@ -13,7 +13,8 @@ that file's header comment for the full rationale.
    ```c
    #define BENCHMARK_TEST
    ```
-2. Build and flash:
+2. Build and flash (`-e CYD` also works -- see the "CYD" section below for that board's own,
+   smaller point-count range and why):
    ```
    pio run -e WS_ESP32_S3_LCD_1_3 -t upload
    ```
@@ -175,6 +176,109 @@ Notes:
   sampling for 4s, not just noise.
 - `base_scale_px` = `kAtomTargetPx / outer_rref_bohr` (`atom_cloud.h`), so it moves inversely
   with `outer_rref_bohr` -- expect ~12.0-12.5px across all rows.
+
+## CYD (ESP32-2432S028R, no PSRAM, ILI9341 240x320)
+
+Captured 2026-08-28 on real CYD hardware (`pio run -e CYD -t upload`, `BENCHMARK_TEST` toggle
+in `main.cpp`), same methodology as the S3 sweep above (`src/debug/benchmark_test.cpp`, same
+fixed Fe/2pz targets, same seed) but with two changes required to even boot on this board,
+both now baked into `benchmark_test.cpp` itself rather than being one-off hacks for this
+capture:
+
+1. **Point-count sweep capped at 1000, not 500-8000.** CYD's `kAtomNumPoints`/
+   `kOrbitalNumPoints` (`config/visual_constants.h`) are 1000/3400, not the S3's 12000/12000
+   -- no PSRAM to hold a bigger cloud. `kBenchPointCounts` is now branched on
+   `CONFIG_IDF_TARGET_ESP32`: `{200, 400, 600, 800, 1000}` on CYD (the smaller of the two
+   ceilings, since one array drives both the atom and orbital sweep loops), unchanged
+   `{500, 1000, 2000, 4000, 8000}` on the S3. Sweeping the S3's range unmodified on CYD would
+   have written past the end of the sweep's own static `atomPoints[]` buffer (sized to the
+   swept range, see next point) -- an out-of-bounds write, not just a slow run.
+2. **Swept buffers sized to the sweep's own max, not to `kAtomNumPoints`/`kOrbitalNumPoints`.**
+   The first attempt at this capture (still sized to the production constants, before point 1
+   above too) crashed at boot -- `Display::Display()`'s 240x320 DMA frame-buffer allocation
+   failed even at its smallest 1-row/block retry:
+   ```
+   E (546) display: failed to allocate frame buffer (even at 1 row/block)
+   abort() was called at PC 0x400d5d25 on core 0
+   ```
+   Cause: the sweep's own static scratch (`orbitalPsi2`/`orbitalSigns`/`orbitalLevels`/
+   `orbitalPsi2Sorted`, none of which the production `OrbitalPresetState` needs) sized to
+   `kOrbitalNumPoints`=3400 added ~34KB of internal-SRAM BSS on top of what normal boot's own
+   view state already uses on a board with no PSRAM fallback to absorb it -- enough to
+   fragment internal SRAM past the point the block allocator could find contiguous DMA-capable
+   space, at any block size. Fixed by introducing `kBenchMaxPoints` (the sweep's own largest
+   step, from point 1 -- 1000 on CYD, 8000 on the S3, so no behavior change there) and sizing
+   every static buffer in `runBenchmarkTest()` to that instead of the production constants.
+   After the fix, the full sweep ran end-to-end with no crash and flat `iram_free` throughout
+   (see table below) -- confirmed as the actual fix, not just a plausible-sounding one.
+
+Re-run this capture (and re-check both points above still hold) after: changing
+`kBenchPointCounts`, changing `kAtomNumPoints`/`kOrbitalNumPoints` for CYD, or adding any new
+static scratch buffer to `runBenchmarkTest()`.
+
+### Performance (`BENCH,STEP`)
+
+**Atom sweep (Fe, Z=26):**
+
+| points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps   | iram_free |
+|-------:|---------:|---------------:|---------------:|---------------:|------:|----------:|
+|    200 |       97 |          36.366 |          36.342 |          37.032 | 20.91 |    101364 |
+|    400 |       22 |          36.580 |          36.566 |          37.025 | 20.91 |    101364 |
+|    600 |       23 |          36.805 |          36.794 |          37.280 | 20.91 |    101364 |
+|    800 |       24 |          37.025 |          37.013 |          37.519 | 20.90 |    101364 |
+|   1000 |       25 |          37.232 |          37.215 |          37.765 | 20.91 |    101364 |
+
+**Orbital sweep (2pz, `kOrbitalDefaultPresetIndex`):**
+
+| points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps   | iram_free |
+|-------:|---------:|---------------:|---------------:|---------------:|------:|----------:|
+|    200 |       30 |          36.726 |          36.713 |          37.397 | 20.91 |    101056 |
+|    400 |       50 |          36.963 |          36.951 |          37.440 | 20.90 |    101056 |
+|    600 |       60 |          37.212 |          37.202 |          37.663 | 20.90 |    101056 |
+|    800 |       69 |          37.452 |          37.439 |          37.934 | 20.91 |    101056 |
+|   1000 |       78 |          37.700 |          37.686 |          38.150 | 20.90 |    101056 |
+
+(200-point atom `build_ms` of 97 is the same kind of one-off first-step warmup artifact the S3
+table's 500-point row shows, just at a different point count since CYD's sweep starts lower --
+not a regression signal by itself.)
+
+Notes:
+- **1000 points is the production atom count on this board** (`kAtomNumPoints`); the orbital
+  view's production count is 3400 (`kOrbitalNumPoints`), higher than this sweep's 1000-point
+  ceiling (capped to the smaller of the two ceilings, see above) -- so the 1000-point orbital
+  row here is a lower bound on real orbital cost, not the exact production figure.
+- **fps is essentially flat (~20.9) across the whole swept range**, unlike the S3 table where
+  fps visibly drops as point count grows. Two compounding reasons: CYD's frame is 33% more
+  pixels (240x320=76800 vs the S3's 240x240=57600), and its SPI clock is half the S3's (40MHz
+  vs 80MHz, see `display.cpp`) -- so the fixed per-frame cost (whole-frame persistence fade +
+  SPI DMA transfer) is both larger in absolute terms and a much bigger share of each frame's
+  budget here, dwarfing the point-count-dependent rotate/project/write cost that dominates the
+  S3's numbers at low point counts. `avg_render_ms` still climbs slightly with point count
+  (36.4ms -> 37.7ms atom, 36.7ms -> 37.7ms orbital) -- the per-point cost is real, just small
+  next to the ~36ms fixed floor.
+- `avg_wait_ms` (not in the summary table, see the raw `BENCH,STEP` line) drifted mildly
+  downward across each sweep (atom: 11.4ms -> 10.6ms; orbital: 11.1ms -> 10.1ms) rather than
+  staying flat like the S3's -- small enough (~1ms) to plausibly be scheduling jitter rather
+  than a real trend, but flagged in case a future capture shows it growing further.
+- `iram_free` stayed exactly flat within each sweep (101364 atom, 101056 orbital) -- no leak
+  across steps. The 308-byte gap between the two is `orbitalPoints[]`/scratch vs `atomPoints[]`
+  differing in per-point struct size at the same `kBenchMaxPoints`=1000 ceiling, not drift.
+- `BENCH,MEM` start (105808 bytes internal free) vs end (101056) shows a one-time ~4.7KB drop,
+  not a per-step leak -- consistent with one-off allocations (e.g. the orbital sampler's
+  inverse-CDF table, built once on first use) rather than the sweep itself leaking.
+
+### Physical correctness (`BENCH,CONFIG` / `BENCH,ZEFF`)
+
+Bit-identical to the S3 table above (`[Ar] 3d6 4s2`, same seven `Z_eff` values to all 17
+significant digits logged) -- expected, since both are pure functions of Z with no RNG or
+point sampling, and this is the same `slater.h`/`slater_data.h` code compiled for a different
+target. Not re-tabulated here; see the S3 section's tables, this run reproduced them exactly.
+
+`BENCH,GEOM` isn't directly comparable to the S3 table's rows -- different point counts (CYD's
+sweep tops out at 1000, the S3's at 8000) and a different seed-consumption path (fewer points
+sampled per step), so the outer-subshell reference radius differs by construction, not as a
+regression signal. Confirmed the outer subshell is **4s at every step** (correct -- Fe's real
+valence shell), same as the S3 run.
 
 ## MicroPython (ESP32-S3, 8MB Octal PSRAM)
 

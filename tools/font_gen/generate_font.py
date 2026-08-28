@@ -65,7 +65,7 @@ SIZES = [
         1,
         "uint32_t",
     ),  # quick test: widened from uint16_t for DejaVu's wider glyphs
-    ("Huge", 40, 4, 2, "uint64_t"),
+    ("Huge", 36, 4, 2, "uint64_t"),
 ]
 
 FIRST_CHAR = 0x20
@@ -365,10 +365,14 @@ namespace
         body_parts.append(body)
         decls.append(decl)
 
-    footer = """
+    footer = (
+        """
 } // namespace
 
-""" + "\n".join(decls) + "\n"
+"""
+        + "\n".join(decls)
+        + "\n"
+    )
     print(header + "\n".join(body_parts) + footer)
 
 
