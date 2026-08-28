@@ -175,3 +175,242 @@ Notes:
   sampling for 4s, not just noise.
 - `base_scale_px` = `kAtomTargetPx / outer_rref_bohr` (`atom_cloud.h`), so it moves inversely
   with `outer_rref_bohr` -- expect ~12.0-12.5px across all rows.
+
+## MicroPython (ESP32-S3, 8MB Octal PSRAM)
+
+`micropython/benchmark_test.py` mirrors `src/debug/benchmark_test.cpp`'s methodology exactly, so
+the two are directly comparable: same fixed atom (Fe, Z=26), same fixed orbital preset (2p_z,
+`cloud_common.ORBITAL_PRESETS[DEFAULT_PRESET_INDEX]` -- index-matched to
+`kOrbitalDefaultPresetIndex`), same point-count sweep (500/1000/2000/4000/8000), same seed
+(12345, `kAtomCloudSeed`/`cloud_common.SEED`).
+
+### How to run it
+
+```
+mpremote connect <port> fs cp -r micropython/. :
+mpremote connect <port> exec "import benchmark_test; benchmark_test.run()"
+```
+
+### Parity fixes required before these numbers meant anything
+
+Three real mismatches were found and fixed before this comparison was trustworthy -- without
+them, MicroPython's numbers looked better than C++'s at low point counts, which was the tell
+that something was being measured unfairly rather than MicroPython genuinely being faster:
+
+1. **SPI clock**: `micropython/display.py` was running the panel at 40MHz;
+   `src/render/display.cpp`'s `LCD_PIXEL_CLOCK_HZ` for this same S3 target is 80MHz. Bumped to
+   match -- `SPI_BAUDRATE = 80_000_000`.
+2. **Table-build amortization**: C++'s orbital sampler tables (`kOrbitalLibrary`) and per-`(ell,
+   m)` angular tables (`angular_library.h`) are `constexpr`, baked into flash at *compile* time --
+   zero runtime cost, every sweep step. MicroPython was rebuilding the equivalent inverse-CDF
+   tables from scratch on every single sweep step. Fixed by adding real caches to
+   `cloud_common.py` (`_ORBITAL_SAMPLER_CACHE`) and `atom_cloud.py` (`_RADIAL_TABLE_CACHE`/
+   `_ANISO_SAMPLER_CACHE`), keyed by `(n, ell, m)` / `(z, n, ell[, m])` -- a genuine production
+   improvement (faster element/orbital switching in the live viewers, and in `pc/`, which shares
+   these modules), not just a benchmark shortcut. The one-time build cost is still real and is
+   reported separately (`BENCH,TABLEBUILD`), paid once before the timed sweep starts, mirroring
+   how C++ never pays it during the sweep either.
+3. **Render pipeline was doing less work than C++**: `src/render/camera.h`'s `renderScene()`/
+   `renderSceneGrouped()` fade the *entire* frame buffer toward black every frame
+   (`Display::fade()`, `kPersistenceKeepQ8=160/256`) and alpha-blend every point write against
+   whatever's already there (`blendColor565()`, `kElectronAlphaQ8=240/256`) -- not a hard clear
+   and opaque overwrite, which is what `device_render_common.py` was doing. Ported both to
+   MicroPython (`fade_buffer()` and the blend inside `render_points()`, both
+   `@micropython.viper`), using the identical unpack/scale/pack bit formulas as
+   `Display::unpackColor565()`/`fadeColor565()`/`blendColor565()` -- cross-checked bit-identical
+   against the C++ formulas across 200k random values before trusting it on hardware.
+
+Point-cloud sampling ALGORITHM parity was also checked directly (not just assumed): both sides
+use the same inverse-CDF sampling, the same `XorShift32` PRNG, the same 3-draws-per-point order
+(`src/physics/pointcloud.{h,cpp}` vs `micropython/pointcloud.py`) -- confirmed identical, so the
+build-time gap below is implementation speed (interpreted vs compiled), not different work.
+
+### One-time table-build cost (paid once per element/orbital selection, not per sweep step)
+
+| kind | warm_ms |
+|------|--------:|
+| atom (Fe subshells) | ~2400-2700 |
+| orbital (2p_z sampler) | ~650-660 |
+
+This is what the live viewers' "Loading..." screen covers -- with caching, it now only happens
+on the first visit to a given element/orbital per session, not on every switch.
+
+### Performance (`frames_per_step=30` -- half the C++ side's 60; FPS already converges well
+before 60 samples, and MicroPython's per-point sampling cost below makes the full schedule
+noticeably slower to capture, so this was halved to keep capture time reasonable)
+
+**Atom sweep (Fe, Z=26):**
+
+| points | build_ms | avg_compute_ms | avg_blit_ms | avg_frame_ms | fps | heap_free |
+|-------:|---------:|----------------:|-------------:|--------------:|-----:|----------:|
+|    500 |      325 |           56.428 |        13.224 |         69.652 | 14.36 |   7777696 |
+|   1000 |      694 |           56.648 |        13.125 |         69.773 | 14.33 |   7758192 |
+|   2000 |     1392 |           59.850 |        13.113 |         72.963 | 13.71 |   7719168 |
+|   4000 |     2900 |           65.867 |        13.168 |         79.035 | 12.65 |   7641168 |
+|   8000 |     5227 |           78.301 |        13.120 |         91.421 | 10.94 |   7460576 |
+
+**Orbital sweep (2p_z):**
+
+| points | build_ms | avg_compute_ms | avg_blit_ms | avg_frame_ms | fps | heap_free |
+|-------:|---------:|----------------:|-------------:|--------------:|-----:|----------:|
+|    500 |      453 |           53.063 |        13.148 |         66.212 | 15.10 |   7730400 |
+|   1000 |      863 |           54.717 |        13.142 |         67.859 | 14.74 |   7712416 |
+|   2000 |     1727 |           59.889 |        13.173 |         73.062 | 13.69 |   7676448 |
+|   4000 |     3543 |           64.565 |        13.117 |         77.682 | 12.87 |   7604384 |
+|   8000 |     7220 |           77.793 |        13.133 |         90.926 | 11.00 |   7460400 |
+
+`avg_compute_ms`/`avg_blit_ms` are the MicroPython analogue of C++'s `avg_render_ms`/
+`avg_wait_ms`, but the underlying mechanism differs: `st7789py.py`'s `blit_buffer()` is a
+synchronous blocking SPI write (no DMA-kickoff-then-wait-later split like
+`Display::presentFrame()`/`waitForFlushDone()`), so `avg_blit_ms` is the SPI transfer alone and
+`avg_compute_ms` is everything else (fade + proton marker + rotate/project/blend + title/scale
+bar), still excluding the blit.
+
+### Comparison vs C++ (same hardware class, same points, same seed)
+
+**FPS at matching point counts:**
+
+| points | C++ atom fps | MPY atom fps | C++ orbital fps | MPY orbital fps |
+|-------:|-------------:|-------------:|-----------------:|------------------:|
+|    500 |        45.89 |        14.36 |             45.87 |              15.10 |
+|   2000 |        42.08 |        13.71 |             42.00 |              13.69 |
+|   8000 |        33.56 |        10.94 |             31.47 |              11.00 |
+
+**Build/sampling cost at matching point counts:**
+
+| points | C++ atom build_ms | MPY atom build_ms | C++ orbital build_ms | MPY orbital build_ms |
+|-------:|-------------------:|--------------------:|-----------------------:|------------------------:|
+|    500 |                 20* |                  325 |                     105 |                      453 |
+|   2000 |                  24 |                 1392 |                     114 |                     1727 |
+|   8000 |                  50 |                 5227 |                     214 |                     7220 |
+
+(*C++'s own 500pt atom row has a one-off 265ms branch-prediction warmup artifact, documented
+above; the 1000pt row's 20ms is the representative "warm" figure.)
+
+### Interpretation
+
+- **Render path**: once the animation is doing genuinely equivalent per-frame work (fade +
+  alpha-blend, matching C++ bit-for-bit), MicroPython is consistently ~3x slower than C++ at
+  every point count -- `@micropython.viper`'s Q8-fixed-point loop is fast for an interpreted
+  target, but not compiled-native fast, and the persistence fade (57,600 pixels touched every
+  frame, independent of point count) is now the dominant per-frame cost. `avg_blit_ms` is flat
+  at ~13.1ms on both platforms, confirming the SPI-clock fix closed that gap specifically -- the
+  remaining FPS gap is compute, not the display transfer.
+- **Build/sampling path**: MicroPython is ~100x slower for atom sampling and ~34x slower for
+  orbital sampling at 8000 points, even after caching (eliminating the C++-side's
+  compile-time-embedded-table advantage), `@micropython.native` on the hot loops, and inlining
+  the color-encoding math to avoid losing native speedup on nested non-native calls. Applying
+  those three optimizations took the atom build from 7670ms to 5227ms (-32%) and the orbital
+  build from 13139ms to 7220ms (-45%) at 8000 points, measured against the original
+  uncached/unoptimized MicroPython numbers -- and that's despite the optimized numbers now
+  correctly *including* the per-point color-encoding step, which the original measurement had
+  silently left untimed. This residual gap (an interpreter, even an optimized one, doing
+  per-point trig/branchy Python vs compiled C++) is expected and would need inlining
+  `sample_orbital_point()`/`psi_real()` themselves to close further -- not done, since those are
+  cross-validated against the C++ and JS reference ports (`tools/orbitals_host/`) and duplicating
+  them inline is a real correctness risk for marginal further gain.
+- One-time table cost (~2.4-2.7s for Fe, ~0.65s for 2p_z) is a real, one-off "Loading..." delay
+  on first visit to an element/orbital per session, not a per-frame cost -- cached for every
+  later revisit.
+
+### Fade/blend now disabled by default on MicroPython (re-captured 2026-08-27)
+
+The sweep above was captured with `micropython/device_render_common.py`'s `PERSISTENCE_KEEP_Q8`/
+`ELECTRON_ALPHA_Q8` forced to match the C++ side (160/240) specifically for that apples-to-apples
+comparison. Following a visual A/B check on the C++ build (rendered live from the device --
+`img/fe_blend_on.gif` vs. `img/fe_blend_off.gif`/`img/fe_blend_comparison.gif`), those two
+constants now default to their disabled values (0/256) on MicroPython, since the "Render path"
+finding above -- full-frame fade dominating MicroPython's per-frame cost, ~3x slower than C++
+once the work matches exactly -- makes this the more expensive side to carry on an interpreted
+target. `render_frame()` takes an actual fast path when disabled (`fb.fill(0)` instead of
+`fade_buffer()`'s per-pixel loop; a plain overwrite instead of `render_points()`'s per-point
+blend, via the new `render_points_opaque()`). The C++ build is unaffected (`kPersistenceKeepQ8`/
+`kElectronAlphaQ8` in `src/config/visual_constants.h` are still 160/240).
+
+Both real fade/blend implementations are untouched and still bit-identical to the C++ formulas --
+set `PERSISTENCE_KEEP_Q8 = 160` / `ELECTRON_ALPHA_Q8 = 240` back in `device_render_common.py` to
+restore the matched-cost sweep the table above documents.
+
+Re-ran `micropython/benchmark_test.py` (same board, same methodology, `frames_per_step=30`)
+against this new default to confirm the expected speedup, not just the code-reading argument for
+it:
+
+**Atom sweep (Fe, Z=26):**
+
+| points | build_ms | avg_compute_ms | avg_blit_ms | avg_frame_ms | fps | heap_free |
+|-------:|---------:|----------------:|-------------:|--------------:|-----:|----------:|
+|    500 |      369 |            8.267 |        13.087 |         21.354 | 46.83 |   7776368 |
+|   1000 |      693 |            9.211 |        13.083 |         22.294 | 44.85 |   7756848 |
+|   2000 |     1391 |           11.094 |        13.089 |         24.183 | 41.35 |   7717856 |
+|   4000 |     2896 |           14.495 |        13.131 |         27.625 | 36.20 |   7639856 |
+|   8000 |     5224 |           21.431 |        13.090 |         34.521 | 28.97 |   7459264 |
+
+**Orbital sweep (2p_z):**
+
+| points | build_ms | avg_compute_ms | avg_blit_ms | avg_frame_ms | fps | heap_free |
+|-------:|---------:|----------------:|-------------:|--------------:|-----:|----------:|
+|    500 |      454 |            6.275 |        13.098 |         19.373 | 51.62 |   7729088 |
+|   1000 |      860 |            7.275 |        13.094 |         20.369 | 49.09 |   7711104 |
+|   2000 |     1724 |           11.294 |        13.187 |         24.481 | 40.85 |   7675136 |
+|   4000 |     3542 |           13.377 |        13.101 |         26.478 | 37.77 |   7603104 |
+|   8000 |     7236 |           21.171 |        13.094 |         34.264 | 29.18 |   7459056 |
+
+`avg_compute_ms` (fade/proton/rotate-project-write, excluding blit) dropped ~85% at 500 points
+(56.4ms -> 8.3ms atom, 53.1ms -> 6.3ms orbital) and ~73% at 8000 (78.3ms -> 21.4ms atom, 77.8ms
+-> 21.2ms orbital) vs. the matched-cost table above -- the gap narrows at higher point counts
+because per-point rotate/project/write cost (unavoidable, same in both builds) grows with point
+count while the now-skipped full-frame fade stays flat, so it's a shrinking share of the total.
+
+**FPS at production count (8000 points) vs. C++, before and after this change:**
+
+| points | C++ atom fps | MPY atom fps (matched) | MPY atom fps (fast default) | C++ orbital fps | MPY orbital fps (matched) | MPY orbital fps (fast default) |
+|-------:|-------------:|------------------------:|------------------------------:|-----------------:|----------------------------:|----------------------------------:|
+|   8000 |        33.56 |                    10.94 |                          28.97 |             31.47 |                        11.00 |                              29.18 |
+
+MicroPython went from ~3.1x slower than C++ to ~1.16x slower at the production point count --
+`build_ms` (point-cloud sampling, unaffected by this change) is still the larger remaining gap
+(e.g. 5224ms vs. C++'s 50ms at 8000 atom points -- see "Build/sampling path" above), not the
+render loop.
+
+### MicroPython point count (dimness investigation, 2026-08-27)
+
+Live demo on-device looked visibly dimmer/sparser than the C++ build side by side. Three
+compounding factors, chased down together rather than guessed at:
+
+1. **Point count.** `N_POINTS` in `cloud_common.py`/`atom_view.py` was 3000, vs. C++'s
+   `kOrbitalNumPoints`/`kAtomNumPoints` = 12000 -- a 4x density gap, the single biggest
+   contributor to the sparse look.
+2. **Fade/blend disabled by default** (see previous section) -- no persistence trail means each
+   point is only ever lit for exactly one frame, so the same point count reads dimmer than a
+   fading build even at equal density.
+3. **Brighten-factor mismatch.** `OUTER_SHELL_BRIGHTEN` in `atom_cloud.py` was 0.3 vs. C++'s
+   `kAtomOuterShellBrighten` = 0.4 -- outer-shell (valence) points, the ones most visible at a
+   glance, were rendered dimmer than intended independent of the other two factors.
+
+Bumping `N_POINTS` to the full 12000 to match C++ exactly was tried first and measured: atom
+build/load time went from ~2.9s (3000 pts) to **16.4s (12000 pts)** on this board -- too slow for
+the idle-cycling/element-switching feel of the live demo, since every switch re-samples and
+re-builds the point cloud from scratch (the table-caching added earlier caches the *sampling
+tables*, not the sampled point set itself, so this cost is paid every time regardless).
+
+Settled on:
+- `N_POINTS = 5000` (`cloud_common.py`, `atom_view.py`) -- roughly splits the gap, keeps
+  build/load time in the low single-digit seconds, well short of C++'s 12000 but a meaningful
+  density bump over the original 3000.
+- `OUTER_SHELL_BRIGHTEN = 0.4` (`atom_cloud.py`) -- now matches `kAtomOuterShellBrighten` exactly.
+- Fade/blend stays disabled by default (explicit decision, not revisited) -- the ~3x render-loop
+  cost documented above isn't worth paying back just for the persistence-trail brightness effect.
+
+Net effect: still fewer, non-fading points than C++, by design -- this is a deliberate
+speed/density trade-off for the interpreted target, not an attempt to make MicroPython visually
+identical to C++ at matched point count (that comparison is what the sweep tables above are for).
+
+### Caveats / non-identical factors not chased down further
+
+- Font rendering differs: C++ rasterizes a real typeface (Jersey10) into a proportional bitmap
+  font (`src/render/font.cpp`); MicroPython uses `framebuf`'s built-in fixed 8x8 font. Both are
+  bitmap fonts drawn pixel-by-pixel (same general cost order), and it's a small, point-count-
+  -independent fixed cost either way (one title string + one scale-bar string per frame) -- not
+  worth unifying just for this benchmark.
+- `frames_per_step=30` on MicroPython vs 60 on C++, purely for capture-time budget; FPS already
+  converges well before 60 samples at either count.

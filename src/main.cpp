@@ -11,6 +11,7 @@
 // #define COLOR_TEST
 // #define BENCHMARK_TEST
 // #define SLICE_TEST
+// #define GIF_CAPTURE_TEST
 
 #include "ux/chooser.h"
 #include "esp_log.h"
@@ -26,6 +27,7 @@
 #include "ux/tilt_gesture.h"
 #include "views/orbital_view.h" // CYD boot fallback -- see the CONFIG_IDF_TARGET_ESP32 branch below
 #include "debug/benchmark_test.h"
+#include "debug/gif_capture_test.h"
 
 #ifdef ATOM_VALIDATION_TEST
 #include "debug/atom_validation_test.h"
@@ -58,6 +60,14 @@ extern "C" void app_main(void)
     runBenchmarkTest(display);
     ESP_LOGI(kMainTag, "benchmark finished -- capture via `pio device monitor`, watch for BENCH,DONE; "
                        "reflash without BENCHMARK_TEST to return to normal boot");
+    while (1)
+        vTaskDelay(pdMS_TO_TICKS(1000));
+#elif defined(GIF_CAPTURE_TEST)
+    Display display{};
+    startScreenshotConsole(display); // so pc/pull_screenshots.py can SS_LIST/SS_GET the saved frames afterward
+    runGifCaptureTest(display);
+    ESP_LOGI(kMainTag, "gif capture finished -- pull frames via `python3 pc/pull_screenshots.py --all`, "
+                       "watch for GIF,DONE; reflash without GIF_CAPTURE_TEST to return to normal boot");
     while (1)
         vTaskDelay(pdMS_TO_TICKS(1000));
 #elif defined(SLICE_TEST) && !CONFIG_IDF_TARGET_ESP32

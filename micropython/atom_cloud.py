@@ -268,13 +268,8 @@ SHELL_LETTERS = ('?', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', '?')
 # How far the outermost subshell's points get lerped toward white (0 = no
 # change, 1 = pure white) -- see build_atom_point_cloud()'s call to
 # _brighten_outer_shell() and the module docstring's Coloring paragraph.
-# 0.55 read as only a modest change once actually rendered (PC's
-# ELECTRON_ALPHA=0.7 per-hit blending already discounts whatever color a
-# sparse, rarely-repeated-pixel point carries, and the device path draws the
-# color outright with no discount at all) -- pushed close to 1.0 so a single
-# hit is close to pure white, the brightest a pixel can get against the
-# black background, while keeping a sliver of the shell hue.
-OUTER_SHELL_BRIGHTEN = 0.3
+# Matches kAtomOuterShellBrighten (src/config/visual_constants.h).
+OUTER_SHELL_BRIGHTEN = 0.4
 
 
 def _brighten_outer_shell(rgb, factor=OUTER_SHELL_BRIGHTEN):
@@ -361,6 +356,16 @@ def _drawing_groups(config):
     return groups
 
 
+# Per-subshell table caches, same idea as cloud_common.py's _ORBITAL_SAMPLER_CACHE: keyed by
+# (radial-model-kind, z, n, ell[, m]) so revisiting an element reuses its already-built
+# table(s). _RADIAL_TABLE_CACHE holds a full (isotropic) subshell's inv_r_table;
+# _ANISO_SAMPLER_CACHE holds a partial subshell's sampler + coefficients + (for HFS) the raw
+# (x_grid, u_values) needed for the sign recompute in build_atom_point_cloud() below.
+_RADIAL_TABLE_CACHE = {}
+_ANISO_SAMPLER_CACHE = {}
+
+
+@micropython.native
 def build_atom_point_cloud(z, count=N_POINTS, seed=SEED, radial_tables=None):
     """Sample `count` points approximating atomic number z's total electron
     density (see module docstring for the model).
@@ -403,32 +408,26 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED, radial_tables=None):
     signs = array.array('b', bytes(count))
 
     rng = pointcloud.XorShift32(seed)
+    source_kind = 'hfs' if radial_tables is not None else 'hydro'
     idx = 0
     for (n, ell, m, _weight), group_count in zip(groups, counts):
-        # Radial model: screened-potential tables (radial_tables) or the
-        # hydrogenic Z_eff substitution (default). The SAME radial function
-        # feeds both the sampler and the sign recomputation below, so the
-        # psi evaluation always matches the table the point was drawn from.
-        if radial_tables is not None:
-            src = radial_tables.source(z, n, ell)
-            x_grid = src.r
-            u_values = src.u
-            max_r = src.max_r()
-        else:
-            z_eff = slater.z_eff_radial(z, config, n, ell)
-            x_grid = None
-            u_values = None
-            max_r = None
         rgb = SHELL_RGB[n] if n < len(SHELL_RGB) else SHELL_RGB[-1]
 
         if m is None:
-            if radial_tables is not None:
-                density = array.array('d', bytes(8 * len(x_grid)))
-                for i in range(len(x_grid)):
-                    density[i] = u_values[i] * u_values[i]
-                inv_r_table, _max_r = pointcloud.init_radial_sampler_from_table(x_grid, density)
-            else:
-                inv_r_table, _max_r = pointcloud.init_radial_sampler(n, ell, z_eff)
+            # Radial model: screened-potential tables or hydrogenic Z_eff, cached per (z, n, ell).
+            cache_key = (source_kind, z, n, ell)
+            inv_r_table = _RADIAL_TABLE_CACHE.get(cache_key)
+            if inv_r_table is None:
+                if radial_tables is not None:
+                    src = radial_tables.source(z, n, ell)
+                    density = array.array('d', bytes(8 * len(src.r)))
+                    for i in range(len(src.r)):
+                        density[i] = src.u[i] * src.u[i]
+                    inv_r_table, _max_r = pointcloud.init_radial_sampler_from_table(src.r, density)
+                else:
+                    z_eff = slater.z_eff_radial(z, config, n, ell)
+                    inv_r_table, _max_r = pointcloud.init_radial_sampler(n, ell, z_eff)
+                _RADIAL_TABLE_CACHE[cache_key] = inv_r_table
             for _ in range(group_count):
                 x, y, pz = pointcloud.sample_isotropic_point(inv_r_table, rng)
                 xs[idx] = x
@@ -439,13 +438,24 @@ def build_atom_point_cloud(z, count=N_POINTS, seed=SEED, radial_tables=None):
                 ells[idx] = ell
                 idx += 1
         else:
-            radial_coeff = orbitals.laguerre_coeffs(n, ell)
-            legendre_coeff = orbitals.legendre_coeffs(ell, m)
-            if radial_tables is not None:
-                sampler = pointcloud.init_orbital_sampler(n, ell, m, radial_fn=src.R_lookup,
-                                                          max_r=max_r)
-            else:
-                sampler = pointcloud.init_orbital_sampler(n, ell, m, z_eff)
+            # Same idea, but for a partial subshell's per-orbital sampler, cached per
+            # (z, n, ell, m) along with what the sign recompute below needs.
+            cache_key = (source_kind, z, n, ell, m)
+            cached = _ANISO_SAMPLER_CACHE.get(cache_key)
+            if cached is None:
+                radial_coeff = orbitals.laguerre_coeffs(n, ell)
+                legendre_coeff = orbitals.legendre_coeffs(ell, m)
+                if radial_tables is not None:
+                    src = radial_tables.source(z, n, ell)
+                    sampler = pointcloud.init_orbital_sampler(n, ell, m, radial_fn=src.R_lookup,
+                                                              max_r=src.max_r())
+                    cached = (sampler, radial_coeff, legendre_coeff, src.r, src.u, None)
+                else:
+                    z_eff = slater.z_eff_radial(z, config, n, ell)
+                    sampler = pointcloud.init_orbital_sampler(n, ell, m, z_eff)
+                    cached = (sampler, radial_coeff, legendre_coeff, None, None, z_eff)
+                _ANISO_SAMPLER_CACHE[cache_key] = cached
+            sampler, radial_coeff, legendre_coeff, x_grid, u_values, z_eff = cached
             for _ in range(group_count):
                 x, y, pz = pointcloud.sample_orbital_point(sampler, rng)
                 xs[idx] = x

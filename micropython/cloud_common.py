@@ -19,7 +19,8 @@ import pointcloud
 ORBITAL_N = 2
 ORBITAL_ELL = 1
 ORBITAL_M = 0
-N_POINTS = 3000
+N_POINTS = 5000  # below kOrbitalNumPoints's 12000 (S3 target) -- see BENCHMARK.md's "MicroPython
+                 # point count" section for the load-time-vs-density tradeoff this settles on
 SEED = 12345  # fixed for a reproducible-looking demo across boots
 
 # (n, ell, m, label) presets cycled through on a nudge/keypress.
@@ -92,7 +93,8 @@ ZOOM_AMPLITUDE_FRACTION = 0.4
 
 CULL_FRACTION = 0.01        # point-turnover: fraction of the cloud resampled...
 CULL_REFRESH_FRAMES = 3     # ...every this many frames
-BUZZ_FRACTION = 0.40        # per-frame flicker fraction (device-only effect; see orbital_view.py)
+BUZZ_FRACTION = 0.15        # per-frame flicker fraction (device-only effect), used by both
+                            # orbital_view.py and atom_view.py -- matches kHiddenPointsFraction.
 
 # 1 Bohr radius in picometers (CODATA a0 = 0.52917721090(80)e-10 m) -- lets
 # orbital_view.py (device), pc/orbital_view_pc.py (PC), and atom_cloud.py
@@ -147,6 +149,22 @@ def title_for_preset(preset):
     return "%s (n=%d l=%d m=%d)" % (label, n, ell, m)
 
 
+def orbital_numbers_str(preset):
+    """Just the quantum-number part, e.g. "n=2 l=1 m=0" -- separate from title_for_preset()'s
+    one combined string since pc/orbital_view_pc.py depends on that one staying combined.
+    """
+    n, ell, m, _label = preset
+    return "n=%d l=%d m=%d" % (n, ell, m)
+
+
+# Orbital sampler cache, keyed by (n, ell, m) -- memoizes init_orbital_sampler()'s three
+# inverse-CDF tables so revisiting a preset skips straight to sampling. Doesn't change what
+# gets sampled (same seed -> same points either way). Unbounded but tiny: at most
+# len(ORBITAL_PRESETS) entries.
+_ORBITAL_SAMPLER_CACHE = {}
+
+
+@micropython.native
 def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
     """Sample `count` points from the (n, ell, m) orbital's probability
     density via inverse-CDF sampling, plus psi^2 (unnormalized) and
@@ -157,8 +175,12 @@ def build_point_cloud(n, ell, m, count=N_POINTS, seed=SEED):
     "positive" vs "negative" is only meaningful before squaring).
     Also returns sampler/rng/radial_coeff/legendre_coeff so
     resample_levels() can keep drawing from the same distribution later.
+    The sampler itself is cached, see _ORBITAL_SAMPLER_CACHE above.
     """
-    sampler = pointcloud.init_orbital_sampler(n, ell, m)
+    sampler = _ORBITAL_SAMPLER_CACHE.get((n, ell, m))
+    if sampler is None:
+        sampler = pointcloud.init_orbital_sampler(n, ell, m)
+        _ORBITAL_SAMPLER_CACHE[(n, ell, m)] = sampler
     rng = pointcloud.XorShift32(seed)
     radial_coeff = orbitals.laguerre_coeffs(n, ell)
     legendre_coeff = orbitals.legendre_coeffs(ell, m)
@@ -259,6 +281,7 @@ def level_to_rgb(level, sign, phase_pair=None):
     return (base[0] * level // 255, base[1] * level // 255, base[2] * level // 255)
 
 
+@micropython.native
 def compute_levels(psi2, min_level=COLOR_MIN_LEVEL, max_level=COLOR_MAX_LEVEL):
     """Rank-based (histogram-equalized) brightness levels for each point.
     NOT linear min/max: psi^2 is heavily right-skewed (a handful of samples
