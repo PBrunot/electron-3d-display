@@ -1,6 +1,10 @@
 # CYD (ESP32-2432S028R): plain ESP32-D0WD-V3, 4MB flash, no PSRAM.
-# Intentionally NOT layered on top of sdkconfig.defaults -- that file's 16MB flash size and
-# PSRAM speed settings are specific to the Waveshare S3 board and would misconfigure this one.
+# Filename IS the mechanism: ESP-IDF's CMake build auto-appends
+# "sdkconfig.defaults.$IDF_TARGET" after the base sdkconfig.defaults, so this file (target
+# "esp32") overrides that file's S3-oriented settings (16MB flash, PSRAM) for this board's
+# build only -- see sdkconfig.defaults's header comment for the history here (this file was
+# previously named sdkconfig.defaults.CYD, which ESP-IDF never actually looks for, so none
+# of this took effect until the rename).
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
 

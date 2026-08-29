@@ -274,10 +274,23 @@ non da un calcolo puramente teorico.
 
 ### Partizioni e storage dati
 
-- `partitions_cyd.csv` + `sdkconfig.defaults.CYD`: tabella partizioni e
-  sdkconfig dedicati per i 4 MB flash della CYD (`sdkconfig.defaults`
-  esistente resta specifico per i 16 MB + PSRAM della S3, i due file NON si
-  sommano).
+- `partitions_cyd.csv` + `sdkconfig.defaults.esp32`: tabella partizioni e
+  sdkconfig dedicati per i 4 MB flash / niente PSRAM della CYD.
+  `sdkconfig.defaults` (root) resta condiviso da entrambe le board;
+  `sdkconfig.defaults.esp32` lo sovrascrive per il target `esp32` (CYD),
+  `sdkconfig.defaults.esp32s3` (16 MB flash + PSRAM) per il target `esp32s3`
+  (S3) — questo file era prima chiamato `sdkconfig.defaults.CYD`, un nome
+  MAI riconosciuto da ESP-IDF (che cerca solo
+  `sdkconfig.defaults.$IDF_TARGET`, es. `sdkconfig.defaults.esp32`), quindi
+  non veniva mai letto: la build CYD girava per intero sulle impostazioni
+  della root pensate per la S3 (16 MB flash — causa reale del warning
+  PlatformIO "Expected 4MB, found 16MB!" — vedi sotto), e una build S3 da
+  clone pulito (senza un `sdkconfig.WS_ESP32_S3_LCD_1_3` locale già
+  persistito da una vecchia sessione di menuconfig) compilava con PSRAM
+  disabilitata e sforava il DRAM interno di oltre 1 MB in fase di link.
+  Corretto rinominando il file al target IDF corretto e spostando le
+  impostazioni PSRAM della S3 in `sdkconfig.defaults.esp32s3` — vedi il
+  commento in testa a `sdkconfig.defaults` per i dettagli completi.
 - **Partizione `storage` (SPIFFS, 1.5 MB)** aggiunta a `partitions_cyd.csv`
   (`factory` 0x10000–0x270000, `storage` 0x280000–0x400000):
   `src/physics/hfs_radial.cpp`/`src/physics/orbital_library.cpp` caricano
@@ -311,11 +324,8 @@ non da un calcolo puramente teorico.
   partizioni dell'ambiente (stesso approccio di `uploadfs_cyd` sopra) e
   calcola `--flash_size` dall'estensione reale della tabella partizioni
   invece di fidarsi del flash_size generato da PlatformIO in
-  `flasher_args.json` — per la CYD quel file riporta 16 MB anche se la
-  scheda ha 4 MB flash, perché `sdkconfig.defaults` (16 MB, pensato per la
-  S3) si somma comunque a `sdkconfig.defaults.CYD` nonostante il commento
-  d'intestazione di quest'ultimo dica il contrario (bug di configurazione
-  aperto, non ancora corretto). Output in
+  `flasher_args.json` (robusto per design anche indipendentemente dal bug di
+  sdkconfig di cui sopra, ora comunque corretto). Output in
   `.pio/build/<env>/merged-flash.bin`; flash con
   `esptool.py --chip <esp32|esp32s3> write_flash 0x0 <file>`.
 

@@ -1,19 +1,30 @@
-# Waveshare ESP32-S3-LCD-1.3 has 16 MB external flash (see boards/WS-ESP32-S3-LCD-1-3.json).
-# The espidf framework doesn't read the board manifest's Arduino-only "partitions" key,
-# so flash size and partition table need to be pinned here explicitly.
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
-
+# Shared by BOTH boards (esp32s3 Waveshare and esp32 CYD) -- ESP-IDF's CMake build
+# unconditionally applies this file to every target, then auto-appends
+# sdkconfig.defaults.$IDF_TARGET (sdkconfig.defaults.esp32 / .esp32s3) on top, which
+# overrides anything here that's genuinely board-specific (flash size, PSRAM). See those
+# two files for what differs per board.
+#
+# Until that per-target split existed, this file was the ONLY defaults file actually
+# applied to EITHER board: the old sdkconfig.defaults.CYD (now renamed
+# sdkconfig.defaults.esp32) used an arbitrary board name instead of ESP-IDF's actual
+# "sdkconfig.defaults.<IDF_TARGET>" convention, so it was silently never read. Every CYD
+# build ran on this file's then-16MB flash-size setting (harmless in practice since
+# partitions_cyd.csv's own table still fit inside 4MB, but wrong/misleading, source of
+# PlatformIO's "Expected 4MB, found 16MB!" build warning), and a from-scratch S3 build
+# (e.g. this repo's GitHub Actions release workflow, or any clean checkout with no
+# locally-persisted sdkconfig.WS_ESP32_S3_LCD_1_3 to fall back on) built with PSRAM
+# disabled and overflowed internal DRAM by >1MB at link time.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8096
 
 # Performance tuning found via menuconfig (see boards/ST7789VW_ESP32S3.pdf review):
-# stock idf.py defaults were leaving CPU clock, build optimization, PSRAM speed, and
-# FreeRTOS tick rate all below what the ESP32-S3 and this board's octal PSRAM support.
+# stock idf.py defaults were leaving CPU clock, build optimization, and FreeRTOS tick
+# rate all below what the ESP32-S3 supports -- kept here since both boards' render loops
+# share the same per-frame vTaskDelay pattern (see FREERTOS_HZ note below) and benefit
+# equally, even though the S3 is the board these were originally tuned against.
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
-CONFIG_SPIRAM_SPEED_80M=y
 # Was 100Hz (10ms tick), which silently turned every per-frame vTaskDelay(pdMS_TO_TICKS(1))
 # in the render loops (e.g. atom_view.cpp) into a 10ms sleep -- a third of the frame
 # budget at 30 FPS. 500Hz (2ms tick) shrinks that to 2ms; still not literally 1ms.
