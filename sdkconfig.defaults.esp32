@@ -15,4 +15,4 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 # "partitions.csv" for board_build.partitions=partitions_16M.csv on the S3 env).
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

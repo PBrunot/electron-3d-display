@@ -23,7 +23,7 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8096
 # rate all below what the ESP32-S3 supports -- kept here since both boards' render loops
 # share the same per-frame vTaskDelay pattern (see FREERTOS_HZ note below) and benefit
 # equally, even though the S3 is the board these were originally tuned against.
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # Was 100Hz (10ms tick), which silently turned every per-frame vTaskDelay(pdMS_TO_TICKS(1))
 # in the render loops (e.g. atom_view.cpp) into a 10ms sleep -- a third of the frame
