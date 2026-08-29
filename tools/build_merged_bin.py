@@ -12,12 +12,14 @@
 # approach as tools/extra_script_uploadfs_cyd.py's storage-offset lookup) so
 # this stays correct if that table changes. flash_size is computed from the
 # highest partition end in that CSV rather than trusted from PlatformIO's
-# generated flasher_args.json -- for CYD that file currently reports 16MB
-# (sdkconfig.defaults's S3-oriented 16MB setting leaks into every env because
-# PlatformIO always applies the project-root sdkconfig.defaults in addition to
-# board_build.esp-idf.sdkconfig_defaults, contradicting sdkconfig.defaults.CYD's
-# own header comment) even though partitions_cyd.csv's own header says this
-# board has 4MB flash and the table ends exactly at 0x400000.
+# generated flasher_args.json, on general principle (that file is a build
+# artifact, not a source of truth) -- historically this mattered a lot: CYD's
+# flasher_args.json used to report 16MB even though the board has 4MB flash,
+# because sdkconfig.defaults.CYD (the file meant to override that) used the
+# wrong filename for ESP-IDF's per-target defaults convention and was never
+# actually read. Fixed now (see sdkconfig.defaults's header comment), but
+# computing flash_size from the partition table directly stays the more
+# robust choice either way.
 #
 # Usage: python3 tools/build_merged_bin.py <CYD|WS_ESP32_S3_LCD_1_3>
 import argparse
