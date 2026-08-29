@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coefficients to Tables</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=STIX+Two+Text:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#F3F4FA;
+    --surface:#FFFFFF;
+    --surface-2:#ECEBFC;
+    --border:#D9DBEA;
+    --border-strong:#B9BCD9;
+    --text:#1B1E2E;
+    --text-muted:#5A5F78;
+    --accent:#4B4FD1;
+    --accent-soft:#EDEDFB;
+    --font-display:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-mono:'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --font-math:'STIX Two Text', 'Cambria Math', Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0C0E1A; --surface:#141727; --surface-2:#1B1E38;
+      --border:#2B2F4C; --border-strong:#3C4166;
+      --text:#E7E8F5; --text-muted:#9CA0C4;
+      --accent:#9497FF; --accent-soft:#232752;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0C0E1A; --surface:#141727; --surface-2:#1B1E38;
+    --border:#2B2F4C; --border-strong:#3C4166;
+    --text:#E7E8F5; --text-muted:#9CA0C4;
+    --accent:#9497FF; --accent-soft:#232752;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:var(--font-display);
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:840px; margin:0 auto; padding:48px 24px 80px;}
+
+  header.page h1{
+    font-family:var(--font-display); font-weight:700; font-size:clamp(1.7rem,4vw,2.35rem);
+    letter-spacing:-0.01em; margin:0 0 10px; text-wrap:balance;
+  }
+  header.page .lede{
+    font-family:var(--font-math); font-size:1.05rem; line-height:1.6; color:var(--text-muted);
+    max-width:66ch; margin:0 0 22px;
+  }
+  .scope-note{
+    display:flex; gap:12px; align-items:flex-start;
+    background:var(--accent-soft); border:1px solid var(--border);
+    border-radius:10px; padding:14px 16px; margin-bottom:8px;
+  }
+  .scope-note .mark{
+    font-family:var(--font-mono); font-weight:600; color:var(--accent);
+    font-size:11px; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; padding-top:2px;
+  }
+  .scope-note p{margin:0; font-size:.92rem; line-height:1.55; color:var(--text);}
+  .scope-note a{color:var(--accent); font-weight:600;}
+
+  section.pipeline{margin-top:56px;}
+  section.pipeline h2{
+    font-family:var(--font-display); font-weight:700; font-size:1.45rem;
+    margin:0 0 4px; letter-spacing:-.005em;
+  }
+  section.pipeline .subtitle{
+    font-size:.88rem; color:var(--text-muted); margin:0 0 26px; font-family:var(--font-mono);
+  }
+
+  .flow{display:flex; flex-direction:column; align-items:stretch; max-width:640px; margin:0 auto;}
+
+  .connector{display:flex; flex-direction:column; align-items:center; gap:1px; margin:0 auto; color:var(--accent);}
+  .connector svg{width:18px; height:30px; display:block;}
+  .connector .clabel{
+    font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted);
+    letter-spacing:.02em; white-space:nowrap; margin-top:1px;
+  }
+
+  .stage{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 20px 15px; box-shadow:0 1px 2px rgba(20,20,50,.04);
+  }
+  .stage.given{
+    background:var(--surface-2); border-style:dashed; border-color:var(--border-strong);
+    box-shadow:none;
+  }
+  .kicker{
+    font-family:var(--font-mono); font-size:10.5px; font-weight:600; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 6px;
+  }
+  .given .kicker{color:var(--text-muted);}
+  .stage-title{font-family:var(--font-display); font-weight:600; font-size:1rem; margin:0 0 10px;}
+
+  .fstack{display:flex; flex-direction:column; align-items:center; gap:7px; margin-bottom:10px;}
+  .f{
+    font-family:var(--font-math); font-size:1.02rem; text-align:center;
+    display:block; line-height:1.7;
+  }
+  .f.small{font-size:.86rem; color:var(--text-muted);}
+  .f.bullet{text-align:left;}
+  .given .fstack{align-items:flex-start;}
+  .given .f{text-align:left;}
+
+  .caption{font-size:.86rem; line-height:1.5; color:var(--text-muted); margin:0;}
+  .caption a{color:var(--accent);}
+  .tag{
+    display:inline-block; font-family:var(--font-mono); font-size:10.5px; color:var(--accent);
+    background:var(--accent-soft); border-radius:5px; padding:2px 7px; margin-top:10px;
+  }
+  .given .tag{background:transparent; border:1px solid var(--border-strong); color:var(--text-muted);}
+
+  i.v{font-style:italic; font-family:var(--font-math);}
+  .frac{display:inline-flex; flex-direction:column; align-items:center; vertical-align:middle; margin:0 .12em; line-height:1.15;}
+  .frac .num{padding:0 .15em .1em; border-bottom:1.4px solid currentColor;}
+  .frac .den{padding:.1em .15em 0;}
+  .cases{display:inline-flex; align-items:center; gap:.4em;}
+  .cases::before{content:"{"; font-size:1.9em; font-weight:300; line-height:.6; transform:scaleY(1.25);}
+  .cases-list{display:flex; flex-direction:column; gap:.12em; font-size:.9em; text-align:left;}
+
+  .split{
+    display:grid; grid-template-columns:1fr 1fr; gap:0; margin-bottom:6px;
+    border:1px solid var(--border); border-radius:10px; overflow:hidden;
+  }
+  .split-half{padding:13px 14px; background:var(--surface);}
+  .split-half:first-child{border-right:1px dashed var(--border-strong);}
+  .split-half .half-label{
+    font-family:var(--font-mono); font-size:10px; font-weight:600; color:var(--text-muted);
+    text-transform:uppercase; letter-spacing:.06em; margin:0 0 8px;
+  }
+  .split-half .f{font-size:.92rem; text-align:left;}
+  @media (max-width:560px){
+    .split{grid-template-columns:1fr;}
+    .split-half:first-child{border-right:none; border-bottom:1px dashed var(--border-strong);}
+  }
+
+  .note{
+    text-align:center; font-size:.82rem; color:var(--text-muted); font-family:var(--font-mono);
+    margin:14px 0 -4px; padding:8px 14px; border:1px dashed var(--border-strong); border-radius:8px;
+    max-width:520px; margin-left:auto; margin-right:auto;
+  }
+
+  .divider{
+    display:flex; align-items:center; gap:14px; max-width:640px; margin:44px auto 30px;
+    color:var(--text-muted); font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  }
+  .divider::before, .divider::after{content:""; flex:1; height:1px; background:var(--border-strong);}
+
+  footer.legend{
+    margin-top:64px; padding-top:28px; border-top:1px solid var(--border);
+    font-size:.85rem; color:var(--text-muted);
+  }
+  footer.legend a{color:var(--accent); font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Coefficients to Tables</h1>
+    <p class="lede">How the C++ engine in orbitals.h/pointcloud.h turns three quantum numbers into the sampling tables every point draw consumes — the associated Legendre and Laguerre polynomials, and the inverse-CDF construction that turns each into an O(1) lookup.</p>
+    <div class="scope-note">
+      <span class="mark">Companion</span>
+      <p>This is the build side of <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>, whose pipelines start from the OrbitalSampler / OrbitalAngularTables this one produces. Same three-axis split (radial, colatitude, azimuthal); this diagram covers how each axis's density is sampled and inverted.</p>
+    </div>
+  </header>
+
+  <section class="pipeline">
+    <h2>Building one OrbitalSampler(n, ℓ, m)</h2>
+    <p class="subtitle">src/physics/orbitals.h · pointcloud.h — one run per library entry (36 hydrogen presets)</p>
+
+    <div class="flow">
+
+      <div class="stage given">
+        <p class="kicker">Given — three quantum numbers</p>
+        <div class="fstack">
+          <div class="f">(<i class="v">n</i>, <i class="v">ℓ</i>, <i class="v">m</i>), &nbsp; 0 ≤ <i class="v">ℓ</i> ≤ <i class="v">n</i>−1, &nbsp; −<i class="v">ℓ</i> ≤ <i class="v">m</i> ≤ <i class="v">ℓ</i></div>
+          <div class="f">table resolution <i class="v">N</i> = 1001 samples per axis</div>
+        </div>
+        <span class="tag">kOrbitalTableSize</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">1 · Associated Legendre coefficients</p>
+        <div class="fstack">
+          <div class="f">P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ</i>) = (Σ<sub><i class="v">k</i></sub> <i class="v">c<sub>k</sub></i> <i class="v">u</i><sup><i class="v">k</i></sup>) · sin<sup>|<i class="v">m</i>|</sup><i class="v">θ</i>, &nbsp; <i class="v">u</i> = cos<i class="v">θ</i></div>
+          <div class="f small">seed <i class="v">c</i><sub>0</sub> = (−1)<sup><i class="v">ℓ</i></sup>; downward recurrence <i class="v">i</i> = <i class="v">ℓ</i> … |<i class="v">m</i>|+1</div>
+        </div>
+        <p class="caption"><i class="v">D<sub>i</sub></i> = √(<i class="v">ℓ</i>(<i class="v">ℓ</i>+1) − <i class="v">i</i>(<i class="v">i</i>−1)); each step folds one degree of the ladder relation into the coefficient array: <i class="v">c<sub>k−1</sub></i> += <i class="v">k</i>·<i class="v">c<sub>k</sub></i>/<i class="v">D<sub>i</sub></i>, then <i class="v">c<sub>k+1</sub></i> = −(<i class="v">k</i>+2<i class="v">i</i>)·<i class="v">c<sub>k</sub></i>/<i class="v">D<sub>i</sub></i> — a closed-form polynomial, not a per-angle recursion, so it's built once and evaluated cheaply afterward.</p>
+        <span class="tag">legendreCoeffs()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">c_k (unnormalized)</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">2 · Normalize to unit peak</p>
+        <div class="fstack">
+          <div class="f">max = max<sub>θ∈[0,π/2), 100 steps</sub> |P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ</i>)|</div>
+          <div class="f"><i class="v">c<sub>k</sub></i> ← <i class="v">c<sub>k</sub></i> / max, &nbsp; for every <i class="v">k</i></div>
+        </div>
+        <p class="caption">Sampled at the exact same 100 steps in every port (C++/MicroPython/JS), so all three land on the identical normalization constant instead of three slightly different ones.</p>
+        <span class="tag">legendreCoeffs() / computePLM()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">c_k (normalized)</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">3 · Associated Laguerre coefficients</p>
+        <div class="fstack">
+          <div class="f">R<sub><i class="v">nℓ</i></sub>(<i class="v">r</i>) = (Σ<sub><i class="v">k</i></sub> <i class="v">b<sub>k</sub></i> <i class="v">r</i><sup><i class="v">k</i></sup>) · <i class="v">r</i><sup><i class="v">ℓ</i></sup> · e<sup>−<i class="v">r</i>/<i class="v">n</i></sup>, &nbsp; degree = <i class="v">n</i>−<i class="v">ℓ</i>−1</div>
+          <div class="f small"><i class="v">b</i><sub>0</sub> = 1; &nbsp; <i class="v">b<sub>k+1</sub></i> = <span class="frac"><span class="num">−2(1 − (<i class="v">ℓ</i>+<i class="v">k</i>+1)/<i class="v">n</i>)</span><span class="den">(<i class="v">k</i>+1)(2<i class="v">ℓ</i>+<i class="v">k</i>+2)</span></span> · <i class="v">b<sub>k</sub></i></div>
+        </div>
+        <p class="caption">Forward recurrence this time, k = 0 up to degree−2 — the polynomial part of the radial wavefunction, expressed directly in n and ℓ rather than the generic Laguerre index.</p>
+        <span class="tag">laguerreCoeffs()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">b_k, c_k</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">4 · Sample the radial density</p>
+        <div class="fstack">
+          <div class="f"><i class="v">w<sub>r</sub></i>(<i class="v">r<sub>i</sub></i>) = [<i class="v">r<sub>i</sub></i> · R<sub><i class="v">nℓ</i></sub>(<i class="v">r<sub>i</sub></i>)]², &nbsp; <i class="v">r<sub>i</sub></i> = <i class="v">i</i>·Δ<i class="v">r</i>, &nbsp; Δ<i class="v">r</i> = <i class="v">maxR</i>/(<i class="v">N</i>−1)</div>
+          <div class="f small"><i class="v">maxR</i> = 6<i class="v">n</i>² &nbsp; (heuristic — covers essentially all of the wavefunction)</div>
+        </div>
+        <p class="caption">Squaring <i class="v">r</i>·R rather than R alone folds in the r² Jacobian of the spherical volume element, so w<sub>r</sub> is already the correctly-weighted radial density, not just |R|².</p>
+        <span class="tag">buildRadialTable() weight loop</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">5 · Sample the colatitude density</p>
+        <div class="fstack">
+          <div class="f"><i class="v">w<sub>θ</sub></i>(<i class="v">θ<sub>i</sub></i>) = P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ<sub>i</sub></i>)² · sin<i class="v">θ<sub>i</sub></i>, &nbsp; <i class="v">θ<sub>i</sub></i> = <i class="v">i</i>·Δ<i class="v">θ</i>, &nbsp; Δ<i class="v">θ</i> = <i class="v">π</i>/(<i class="v">N</i>−1)</div>
+        </div>
+        <p class="caption">sinθ is the colatitude factor of the solid-angle element dΩ = sinθ dθ dφ — without it, points would bunch up near the poles.</p>
+        <span class="tag">buildOrbitalSamplerConstexpr() θ-loop</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">6 · Sample the azimuthal density</p>
+        <div class="fstack">
+          <div class="f"><i class="v">w<sub>φ</sub></i>(<i class="v">φ<sub>i</sub></i>) = Φ<sub><i class="v">m</i></sub>(<i class="v">φ<sub>i</sub></i>)², &nbsp; <i class="v">φ<sub>i</sub></i> = <i class="v">i</i>·Δ<i class="v">φ</i>, &nbsp; Δ<i class="v">φ</i> = 2<i class="v">π</i>/(<i class="v">N</i>−1)</div>
+          <div class="f"><span class="cases">Φ<sub><i class="v">m</i></sub>(<i class="v">φ</i>) = <span class="cases-list"><div>cos(<i class="v">mφ</i>) &nbsp;&nbsp;<i class="v">m</i> ≥ 0</div><div>sin(|<i class="v">m</i>|<i class="v">φ</i>) &nbsp;&nbsp;<i class="v">m</i> &lt; 0</div></span></span></div>
+        </div>
+        <p class="caption">m = 0 makes Φ ≡ 1 everywhere, so w<sub>φ</sub> is flat — an s orbital's azimuthal symmetry falls out for free, no special case needed.</p>
+        <span class="tag">buildOrbitalSamplerConstexpr() φ-loop</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">w_r, w_θ, w_φ</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">7 · Invert each into a quantile table</p>
+        <div class="fstack">
+          <div class="f">cumulative<sub><i class="v">i</i></sub> = cumulative<sub><i class="v">i</i>−1</sub> + <i class="v">w<sub>i</sub></i> &nbsp;<span class="f small">(running sum, cumulative<sub>−1</sub>=0)</span></div>
+          <div class="f">C<sub><i class="v">i</i></sub> = cumulative<sub><i class="v">i</i></sub> / cumulative<sub><i class="v">N</i>−1</sub> &nbsp;<span class="f small">(normalized CDF)</span></div>
+          <div class="f">F<sup>−1</sup>(<i class="v">u<sub>k</sub></i>) = (<i class="v">j</i>₀ + <i class="v">t</i>·(<i class="v">j</i>₁−<i class="v">j</i>₀))·Δ, &nbsp; <i class="v">t</i> = <span class="frac"><span class="num"><i class="v">u<sub>k</sub></i> − C<sub><i class="v">j</i>₀</sub></span><span class="den">C<sub><i class="v">j</i>₁</sub> − C<sub><i class="v">j</i>₀</sub></span></span></div>
+          <div class="f small">for <i class="v">u<sub>k</sub></i> = <i class="v">k</i>/(<i class="v">N</i>−1), where C<sub><i class="v">j</i>₀</sub> ≤ <i class="v">u<sub>k</sub></i> &lt; C<sub><i class="v">j</i>₁</sub> bracket it</div>
+        </div>
+        <p class="caption">One monotonic forward sweep per axis, O(N) — the CDF only ever increases, and the target quantile only ever increases, so no index is ever revisited. This is the exact mirror of the runtime lookup in <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>'s step 2: there, an index interpolates a value; here, a probability interpolates an index.</p>
+        <span class="tag">buildInverseCdf()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">invRTable, invThetaTable, invPhiTable</span>
+      </div>
+
+      <div class="stage given">
+        <p class="kicker">Deliverable — OrbitalSampler(n, ℓ, m)</p>
+        <div class="fstack">
+          <div class="f">{ <i class="v">maxR</i>, invRTable[<i class="v">N</i>], invThetaTable[<i class="v">N</i>], invPhiTable[<i class="v">N</i>] }</div>
+        </div>
+        <p class="caption">This is exactly the dashed "Given" box at the top of the hydrogen pipeline in <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>.</p>
+        <span class="tag">buildOrbitalSamplerConstexpr()</span>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="divider">Reduced variant</div>
+
+  <section class="pipeline">
+    <h2>Angular-only tables, reused by the atom model</h2>
+    <p class="subtitle">src/physics/pointcloud.h · angular_library.h — one run per (ℓ, m), independent of n and Z</p>
+
+    <div class="flow">
+      <div class="stage">
+        <p class="kicker">Steps 1, 2, 5, 6, 7 only</p>
+        <div class="fstack">
+          <div class="f">Legendre coefficients → normalize → sample <i class="v">w<sub>θ</sub></i>, <i class="v">w<sub>φ</sub></i> → invert both</div>
+        </div>
+        <p class="caption">Steps 3–4 (the Laguerre/radial half) are skipped entirely: an orbital's angular shape never depends on n or the effective nuclear charge Z<sub>eff</sub>, only its radial extent does (see the atom pipeline's own r → Z<sub>eff</sub>·r substitution) — so the θ and φ tables alone are reusable across every element and every n that shares an (ℓ, m).</p>
+        <span class="tag">buildAngularTablesConstexpr()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+      </div>
+
+      <div class="stage given">
+        <p class="kicker">Deliverable — OrbitalAngularTables(ℓ, m)</p>
+        <div class="fstack">
+          <div class="f">{ invThetaTable[<i class="v">N</i>], invPhiTable[<i class="v">N</i>] }</div>
+        </div>
+        <p class="caption">16 entries, ℓ ≤ 3 — one of the "Given" inputs in the atom pipeline in <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>.</p>
+        <span class="tag">kAngularLibrary</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider">Where this actually executes</div>
+
+  <section class="pipeline" style="margin-top:0;">
+    <div class="flow">
+      <div class="stage">
+        <div class="split">
+          <div class="split-half">
+            <p class="half-label">16 angular tables</p>
+            <div class="f">Run inside the C++ compiler itself, building the firmware image</div>
+            <p class="caption" style="margin-top:8px;">Genuinely compile-time: kAngularLibrary is a <code>constexpr</code> array, baked straight into .rodata — zero runtime cost to build, ~128KB of flash.</p>
+          </div>
+          <div class="split-half">
+            <p class="half-label">36 full hydrogen samplers</p>
+            <div class="f">Run host-side, in Python, when the firmware image is packaged</div>
+            <p class="caption" style="margin-top:8px;">Same math, ported to micropython/orbitals.py + pointcloud.py — kept off the compiled image (would cost ~423KB) and written to data/orbital_samplers.bin instead, flashed to SPIFFS, read on demand at runtime.</p>
+          </div>
+        </div>
+        <p class="caption" style="margin-top:14px; text-align:center;">Bit-identical either way — the C++, MicroPython, and JS implementations are cross-checked against each other by tools/orbitals_host/run_crosscheck.sh.</p>
+        <span class="tag" style="margin-top:8px;">tools/orbital_table_gen.py</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="legend">
+    See also: <a href="tables_to_pointclouds.html">Tables to Point Clouds</a> — how these tables get consumed, per point, on device.
+  </footer>
+
+</div>
+</body>
+</html>
