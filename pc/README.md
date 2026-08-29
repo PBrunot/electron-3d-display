@@ -48,8 +48,9 @@ python3 pc/main.py
 ```
 
 A window opens on a 2s boot splash -- the atomic-cube image
-(`img/atomic_cube.jpg`, the same image the device embeds as a packed RGB565
-array in `src/render/splash_bitmap.h/.cpp`; the PC just loads the JPEG directly) --
+(`img/atomic_cube.jpg` / `data/atomic_cube.jpg`, the same image the device decodes
+on-device from the "storage" partition in `src/render/splash_bitmap.cpp`; the PC
+just loads the JPEG directly) --
 then a chooser screen (`pc/launcher.py`) over that SAME static image as its
 background: an electric-blue "ATOM CUBE" title and two bigger options, "UP:
 Orbitals" vs "DOWN: Elements" (port of the device's chooser: same fixed

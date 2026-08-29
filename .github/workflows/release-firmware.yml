@@ -1,0 +1,77 @@
+name: Build & Release Firmware
+
+# Manual-only: builds the CYD and Waveshare ESP32-S3 firmware and publishes
+# each as a single merged flashable .bin (bootloader + partition table + app
+# + SPIFFS data, see tools/build_merged_bin.py) attached to a GitHub Release.
+# Not tied to every push -- firmware releases are cut deliberately, by
+# running this from the Actions tab with a tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.3.0)'
+        required: true
+        type: string
+      draft:
+        description: 'Create as a draft release (review before publishing)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'dependencies.lock') }}
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Build merged CYD image
+        run: python3 tools/build_merged_bin.py CYD
+
+      - name: Build merged Waveshare S3 image
+        run: python3 tools/build_merged_bin.py WS_ESP32_S3_LCD_1_3
+
+      - name: Stage release assets
+        run: |
+          set -e
+          mkdir -p release
+          cp .pio/build/CYD/merged-flash.bin \
+            "release/electron-3d-display-cyd-${{ inputs.tag }}.bin"
+          cp .pio/build/WS_ESP32_S3_LCD_1_3/merged-flash.bin \
+            "release/electron-3d-display-waveshare-s3-${{ inputs.tag }}.bin"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          notes="Merged single-file flash images (bootloader + partition table + app + SPIFFS data), built from ${{ github.sha }}.
+
+          Flash with:
+            esptool.py --chip esp32   write_flash 0x0 electron-3d-display-cyd-${{ inputs.tag }}.bin
+            esptool.py --chip esp32s3 write_flash 0x0 electron-3d-display-waveshare-s3-${{ inputs.tag }}.bin
+
+          See CYD-branch.md / README.md for details."
+          args=(release/*.bin --title "${{ inputs.tag }}" --notes "$notes" --target "${{ github.sha }}")
+          if [ "${{ inputs.draft }}" = "true" ]; then
+            args+=(--draft)
+          fi
+          gh release create "${{ inputs.tag }}" "${args[@]}"

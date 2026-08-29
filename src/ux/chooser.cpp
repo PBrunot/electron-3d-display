@@ -94,13 +94,31 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
     ESP_LOGI(kChooserTag, "direction calibration complete");
 }
 
-static void drawChooserScreen(Display &display)
+/**
+ * @brief Draw the menu screen -- background + the two blinking option lines.
+ *
+ * `fullRedraw` gates the (comparatively expensive, ~60-90ms) background decode-and-draw: false
+ * on every steady-state poll, since the background never changes on its own between polls --
+ * only the option text (recolored, same shape/position every time, so no erase-first needed:
+ * font.cpp's glyph rasterizer only ever writes "on" pixels, see drawCharImpl(), so redrawing
+ * the same glyphs in a new color can't leave stale pixels behind) and the tilt arrow (handled
+ * separately by runChooser() via restoreArrowBackground(), since erasing it needs to know its
+ * own last-drawn rectangle, not the whole screen) ever change. true only on the first frame
+ * after entering the menu or returning from a viewer, when the frame buffer holds whatever
+ * that other screen left.
+ *
+ * Also re-captures the tilt-arrow-sized background cache (captureArrowBackgrounds()) whenever
+ * it redraws the background -- must happen AFTER the background is freshly painted and BEFORE
+ * any arrow is drawn on top of it, or the cache would capture stale/arrow pixels instead of
+ * the real background.
+ */
+static void drawChooserScreen(Display &display, bool fullRedraw)
 {
-    // Static splash image (same one main.cpp shows at boot), blitted in first at full
-    // brightness so the menu text composites on top of it (plain overwrite, no blending,
-    // matching every other draw function in this project). No per-frame animation, so this
-    // is just a blit straight out of the generated array every frame.
-    display.blit(0, 0, kSplashBitmapData, kSplashBitmapWidth, kSplashBitmapHeight);
+    if (fullRedraw)
+    {
+        drawSplashScreen(display); // no-op (logged) on mount/decode failure, not a crash
+        captureArrowBackgrounds(display);
+    }
 
     // Alternate between two colors each half-period (rather than blinking on/off) so the
     // text stays put and flashy the whole time instead of periodically vanishing.
@@ -123,15 +141,32 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
 
     int64_t lastActivityUs = esp_timer_get_time();
 
+    // needsFullRedraw: true only right after entering this loop or returning from a viewer,
+    // when the frame buffer holds something other than the chooser background -- every other
+    // iteration, the background is already sitting there from the last full redraw and only
+    // the option text (self-erasing, see drawChooserScreen()) and the tilt arrow (erased below
+    // via its own last-drawn rect, not a full redraw) need touching. lastArrowDir tracks what's
+    // currently drawn so the arrow is only touched on an actual state change (appear/disappear/
+    // change direction), not every poll.
+    bool needsFullRedraw = true;
+    TiltDirection lastArrowDir = TiltDirection::kNone;
+
     while (true)
     {
         screenshot_pause::checkpoint(); // see screenshot_pause.h -- lets a screenshot capture happen safely
         display.waitForFlushDone();
-        drawChooserScreen(display);
+        drawChooserScreen(display, needsFullRedraw);
+        needsFullRedraw = false;
 
         TiltEvent ev = tilt.poll();
-        if (ev.phase != TiltPhase::kIdle)
-            drawTiltArrow(display, ev.direction, kAccentColor);
+        TiltDirection arrowDir = ev.phase != TiltPhase::kIdle ? ev.direction : TiltDirection::kNone;
+        if (arrowDir != lastArrowDir)
+        {
+            restoreArrowBackground(display, lastArrowDir); // no-op if lastArrowDir is kNone
+            if (arrowDir != TiltDirection::kNone)
+                drawTiltArrow(display, arrowDir, kAccentColor);
+            lastArrowDir = arrowDir;
+        }
         display.presentFrame();
 
         if (ev.phase == TiltPhase::kConfirmed)
@@ -150,6 +185,8 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
                 ESP_LOGI(kChooserTag, "back to menu");
             }
             lastActivityUs = esp_timer_get_time();
+            needsFullRedraw = true;
+            lastArrowDir = TiltDirection::kNone; // the viewer's own screens drew over any arrow too
         }
         else if (esp_timer_get_time() - lastActivityUs > kChooserIdleJumpUs)
         {
@@ -165,6 +202,8 @@ void runChooser(Display &display, TiltGestureDetector &tilt)
             }
             ESP_LOGI(kChooserTag, "back to menu");
             lastActivityUs = esp_timer_get_time();
+            needsFullRedraw = true;
+            lastArrowDir = TiltDirection::kNone; // the viewer's own screens drew over any arrow too
         }
 
         vTaskDelay(pdMS_TO_TICKS(kChooserPollDelayMs));

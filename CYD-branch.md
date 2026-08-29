@@ -278,7 +278,8 @@ non da un calcolo puramente teorico.
   sdkconfig dedicati per i 4 MB flash della CYD (`sdkconfig.defaults`
   esistente resta specifico per i 16 MB + PSRAM della S3, i due file NON si
   sommano).
-- **Partizione `storage` (SPIFFS, 1 MB)** aggiunta a `partitions_cyd.csv`:
+- **Partizione `storage` (SPIFFS, 1.5 MB)** aggiunta a `partitions_cyd.csv`
+  (`factory` 0x10000–0x270000, `storage` 0x280000–0x400000):
   `src/physics/hfs_radial.cpp`/`src/physics/orbital_library.cpp` caricano
   `hfs_tables.bin`/`orbital_samplers.bin` da questa partizione a runtime (lo
   stesso meccanismo della S3, `partitions_16M.csv`'s `storage`, 7 MB). Senza
@@ -286,15 +287,37 @@ non da un calcolo puramente teorico.
   un modello approssimato (atomi: fallback idrogenoide; orbitali: singolo
   punto nell'origine) — non un crash, ma un default visibile rotto proprio
   sulla vista in cui la CYD atterra automaticamente dopo il boot (vedi sopra,
-  auto-avvio orbitali). 1 MB copre comodamente il payload attuale di `data/`
-  (~900 KiB). Deploy con `pio run -e CYD -t uploadfs_cyd` (non `uploadfs`
-  come sulla S3 — quel target shella fuori a `mkspiffs`, il cui binario
-  precompilato per questa piattaforma è armhf-only e non gira su un host
-  di build aarch64; `uploadfs_cyd` costruisce la stessa `data/` via lo
-  `spiffsgen.py` puro-Python di ESP-IDF e la scrive via `esptool`, vedi il
-  commento in `platformio.ini`). Manuale, non incatenato a ogni `upload` —
-  **verificato funzionante su hardware reale (2026-08-22)**, vedi
-  §"Cosa NON è ancora fatto" sotto.
+  auto-avvio orbitali). 1.5 MB copre comodamente il payload attuale di `data/`
+  (~900 KiB): `mkspiffs` non è mai pieno-al-100% utilizzabile, l'overhead di
+  pagina/blocco (page=256, block=4096) mangia circa il 15% della dimensione
+  nominale, quindi la partizione va dimensionata oltre il payload grezzo, non
+  a pari misura (una versione precedente a 1 MB/1.125 MB falliva la build con
+  `SPIFFS_write error(-10001): File system is full` pur avendo spazio
+  nominale sufficiente sulla carta). Deploy con `pio run -e CYD -t
+  uploadfs_cyd` (non `uploadfs` come sulla S3 — quel target shella fuori a
+  `mkspiffs`, il cui binario precompilato per questa piattaforma è armhf-only
+  e non gira su un host di build aarch64; `uploadfs_cyd` costruisce la stessa
+  `data/` via lo `spiffsgen.py` puro-Python di ESP-IDF e la scrive via
+  `esptool`, vedi il commento in `platformio.ini`). Manuale, non incatenato a
+  ogni `upload` — **verificato funzionante su hardware reale (2026-08-22)**,
+  vedi §"Cosa NON è ancora fatto" sotto.
+
+  Per produrre un **singolo file `.bin`** pronto da flashare in un colpo solo
+  (bootloader + tabella partizioni + app + `storage`), ad es. per un tool di
+  flashing esterno o per distribuire un'immagine senza PlatformIO installato:
+  `python3 tools/build_merged_bin.py CYD` (o `WS_ESP32_S3_LCD_1_3` per la
+  S3) — compila l'app e l'immagine SPIFFS via `pio run`/`buildfs`, poi le
+  unisce con `esptool merge_bin`. Legge gli offset direttamente dal CSV delle
+  partizioni dell'ambiente (stesso approccio di `uploadfs_cyd` sopra) e
+  calcola `--flash_size` dall'estensione reale della tabella partizioni
+  invece di fidarsi del flash_size generato da PlatformIO in
+  `flasher_args.json` — per la CYD quel file riporta 16 MB anche se la
+  scheda ha 4 MB flash, perché `sdkconfig.defaults` (16 MB, pensato per la
+  S3) si somma comunque a `sdkconfig.defaults.CYD` nonostante il commento
+  d'intestazione di quest'ultimo dica il contrario (bug di configurazione
+  aperto, non ancora corretto). Output in
+  `.pio/build/<env>/merged-flash.bin`; flash con
+  `esptool.py --chip <esp32|esp32s3> write_flash 0x0 <file>`.
 
 **Build CYD verificata con `pio run -e CYD`: compila, linka, E flasha/boota
 su hardware reale** (2026-08-22, vedi §"Budget RAM interna" sopra per il

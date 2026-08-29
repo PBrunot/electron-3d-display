@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Convert img/atomic_cube.jpg into a generated C header+source (src/render/splash_bitmap.h/.cpp)
+"""RETIRED -- no longer regenerates anything. src/render/splash_bitmap.h/.cpp are hand-written
+now: the device decodes img/atomic_cube.jpg (mirrored at data/atomic_cube.jpg, deployed to the
+"storage" SPIFFS partition) on-device at runtime via the ROM's TJpgDec decoder, instead of
+embedding the pre-decoded pixels this script used to produce. Kept only as a record of that old
+approach -- do not run this against the current splash_bitmap.h/.cpp, it will overwrite the
+hand-written decoder with a stale generated array.
+
+Original docstring, for the old approach's rationale:
+
+Convert img/atomic_cube.jpg into a generated C header+source (src/render/splash_bitmap.h/.cpp)
 holding it as a raw, already-panel-packed RGB565 pixel array -- the boot splash screen shown
 by main.cpp before the tilt calibration/chooser flow starts.
 

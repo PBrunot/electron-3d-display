@@ -652,6 +652,12 @@ pio run -t upload  # flash (vedi CLAUDE.md per il setup della scheda e il
                    # pinout verificato + le correzioni del pannello)
 ```
 
+Per un'immagine flash "tutto in uno" (bootloader + tabella partizioni + app +
+dati, un solo `.bin` per tool di flashing esterni o distribuzione senza
+PlatformIO): `python3 tools/build_merged_bin.py CYD` (o
+`WS_ESP32_S3_LCD_1_3`), poi `esptool.py --chip <esp32|esp32s3> write_flash
+0x0 .pio/build/<env>/merged-flash.bin` — vedi `CYD-branch.md` per i dettagli.
+
 ---
 
 ### Mappa del repository

@@ -179,3 +179,40 @@ private:
 /// (kNone draws nothing). Plain/static -- no animation or text; kTiltArrow*Px above are the
 /// only tuning knobs needed to add either later without touching the rasterizer.
 void drawTiltArrow(Display &display, TiltDirection dir, uint16_t color);
+
+/// Axis-aligned pixel rectangle, [x, x+w) x [y, y+h). An empty rect (w == 0 or h == 0) means
+/// "nothing to draw/erase".
+struct PixelRect
+{
+    int x = 0, y = 0, w = 0, h = 0;
+};
+
+/**
+ * @brief Bounding box of drawTiltArrow(dir)'s triangle, clipped to the display -- computed
+ *        from the exact same vertices drawTiltArrow() rasterizes, so the two can never
+ *        disagree about where the arrow actually lands.
+ *
+ * Lets a caller that draws its own static background (ux/chooser.cpp's menu loop) erase a
+ * previously-drawn arrow by restoring just this rectangle instead of redrawing the whole
+ * screen every frame. kNone returns an empty rect.
+ */
+PixelRect tiltArrowBounds(TiltDirection dir);
+
+/**
+ * @brief Snapshot the display's current pixels under each direction's arrow bounding box
+ *        (tiltArrowBounds()) into a small internal cache (well under 1KB per direction --
+ *        nowhere near the size of a whole-background cache, see splash_bitmap.cpp's header
+ *        comment for why THAT doesn't fit the CYD's internal RAM), so a later
+ *        restoreArrowBackground() can erase a drawn arrow without redrawing -- or re-decoding
+ *        -- anything bigger.
+ *
+ * Call this once right after the background an arrow might be drawn over is freshly painted
+ * (e.g. ux/chooser.cpp's menu redraw), before any arrow is drawn on top of it -- capturing
+ * after an arrow was drawn would cache the arrow itself instead of what's behind it.
+ */
+void captureArrowBackgrounds(Display &display);
+
+/// Restore the cached background (see captureArrowBackgrounds()) under `dir`'s arrow -- the
+/// erase counterpart to drawTiltArrow(). No-op for kNone or if captureArrowBackgrounds() was
+/// never called.
+void restoreArrowBackground(Display &display, TiltDirection dir);
