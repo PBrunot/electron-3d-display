@@ -13,8 +13,7 @@
 // ============================================================================================
 
 // kOrbitalColorMinLevel/kOrbitalLevelGamma/orbitalLevelFromRankFraction() now live in
-// orbital_presets.h (public), so orbital_slice.cpp's static slice build can share the exact
-// same rank->level curve -- see that header's comment.
+// orbital_presets.h (public) -- see that header's comment.
 
 /// Projection scale target: the p90-radius point should land this far out from center, in
 /// pixels. Measured per preset (scaleFromRadii()) rather than applied as a flat constant,

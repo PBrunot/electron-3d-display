@@ -230,8 +230,8 @@ static void fillTriangle(Display &display, int x0, int y0, int x1, int y1, int x
 
 namespace
 {
-    /// Shared by drawTiltArrow()/tiltArrowBounds() so the two can never disagree about where
-    /// the arrow actually is -- returns false (vertices untouched) for kNone.
+    /// Screen-edge-anchored vertices for drawTiltArrow() -- returns false (vertices untouched)
+    /// for kNone.
     bool arrowTriangle(TiltDirection dir, int &x0, int &y0, int &x1, int &y1, int &x2, int &y2)
     {
         constexpr int kCx = Display::kDisplayWidth / 2, kCy = Display::kDisplayHeight / 2;
@@ -282,72 +282,55 @@ void drawTiltArrow(Display &display, TiltDirection dir, uint16_t color)
         fillTriangle(display, x0, y0, x1, y1, x2, y2, color);
 }
 
-PixelRect tiltArrowBounds(TiltDirection dir)
-{
-    int x0, y0, x1, y1, x2, y2;
-    if (!arrowTriangle(dir, x0, y0, x1, y1, x2, y2))
-        return PixelRect{};
-
-    int minX = std::max(std::min({x0, x1, x2}), 0);
-    int minY = std::max(std::min({y0, y1, y2}), 0);
-    int maxX = std::min(std::max({x0, x1, x2}), Display::kDisplayWidth - 1);
-    int maxY = std::min(std::max({y0, y1, y2}), Display::kDisplayHeight - 1);
-    if (minX > maxX || minY > maxY)
-        return PixelRect{};
-    return PixelRect{minX, minY, maxX - minX + 1, maxY - minY + 1};
-}
-
 namespace
 {
-    // Exact upper bound on tiltArrowBounds()'s pixel count for any direction, given the fixed
-    // kTiltArrowLengthPx/HalfWidthPx constants above: one axis spans kTiltArrowLengthPx + 1
-    // (tip to base), the other 2*kTiltArrowHalfWidthPx + 1 (base's full width), whichever way
-    // the triangle is oriented. Small enough (currently ~1.4KB across all 4 directions) to keep
-    // unconditionally on both targets -- see captureArrowBackgrounds()'s docstring for why this
-    // is deliberately NOT sized to cache the whole background instead.
-    constexpr int kMaxArrowPixels = (kTiltArrowLengthPx + 1) * (2 * kTiltArrowHalfWidthPx + 1);
-
-    struct ArrowBackground
+    /// Like arrowTriangle() above, but centered at an arbitrary point with its own size instead
+    /// of anchored to a screen edge via the shared kTiltArrow*Px constants -- see
+    /// drawTiltArrowAt()'s header comment.
+    bool arrowTriangleAt(TiltDirection dir, int cx, int cy, int length, int halfWidth, int &x0, int &y0, int &x1,
+                        int &y1, int &x2, int &y2)
     {
-        PixelRect rect; // rect.w == 0 means "not captured" or "too big to have fit" -- skip
-        uint16_t pixels[kMaxArrowPixels];
-    };
-    // Indexed by int(TiltDirection) - 1, same convention as
-    // TiltGestureDetector::directionRefs_ (kNone has no arrow, so no slot).
-    ArrowBackground sArrowBg[kTiltDirectionCount];
+        int half = length / 2;
+        switch (dir)
+        {
+        case TiltDirection::kRight:
+            x0 = cx + half;
+            y0 = cy;
+            x1 = x2 = cx - half;
+            y1 = cy - halfWidth;
+            y2 = cy + halfWidth;
+            return true;
+        case TiltDirection::kLeft:
+            x0 = cx - half;
+            y0 = cy;
+            x1 = x2 = cx + half;
+            y1 = cy - halfWidth;
+            y2 = cy + halfWidth;
+            return true;
+        case TiltDirection::kUp:
+            x0 = cx;
+            y0 = cy - half;
+            y1 = y2 = cy + half;
+            x1 = cx - halfWidth;
+            x2 = cx + halfWidth;
+            return true;
+        case TiltDirection::kDown:
+            x0 = cx;
+            y0 = cy + half;
+            y1 = y2 = cy - half;
+            x1 = cx - halfWidth;
+            x2 = cx + halfWidth;
+            return true;
+        case TiltDirection::kNone:
+            return false;
+        }
+        return false;
+    }
 } // namespace
 
-void captureArrowBackgrounds(Display &display)
+void drawTiltArrowAt(Display &display, TiltDirection dir, int cx, int cy, int length, int halfWidth, uint16_t color)
 {
-    constexpr TiltDirection kDirs[kTiltDirectionCount] = {TiltDirection::kLeft, TiltDirection::kRight,
-                                                           TiltDirection::kUp, TiltDirection::kDown};
-    for (TiltDirection dir : kDirs)
-    {
-        ArrowBackground &bg = sArrowBg[int(dir) - 1];
-        bg.rect = tiltArrowBounds(dir);
-        if (bg.rect.w * bg.rect.h > kMaxArrowPixels)
-        {
-            // Only possible if kTiltArrow*Px above changed without updating kMaxArrowPixels --
-            // disable restore for this direction rather than overflow sArrowBg's fixed buffer.
-            ESP_LOGE(kTiltTag, "arrow bounds %dx%d exceed cache capacity (%d px)", bg.rect.w, bg.rect.h,
-                     kMaxArrowPixels);
-            bg.rect = PixelRect{};
-            continue;
-        }
-        for (int y = 0; y < bg.rect.h; y++)
-            for (int x = 0; x < bg.rect.w; x++)
-                bg.pixels[y * bg.rect.w + x] = display.readPx(bg.rect.x + x, bg.rect.y + y);
-    }
-}
-
-void restoreArrowBackground(Display &display, TiltDirection dir)
-{
-    if (dir == TiltDirection::kNone)
-        return;
-    const ArrowBackground &bg = sArrowBg[int(dir) - 1];
-    if (bg.rect.w == 0 || bg.rect.h == 0)
-        return;
-    for (int y = 0; y < bg.rect.h; y++)
-        for (int x = 0; x < bg.rect.w; x++)
-            display.writePx(bg.rect.x + x, bg.rect.y + y, bg.pixels[y * bg.rect.w + x]);
+    int x0, y0, x1, y1, x2, y2;
+    if (arrowTriangleAt(dir, cx, cy, length, halfWidth, x0, y0, x1, y1, x2, y2))
+        fillTriangle(display, x0, y0, x1, y1, x2, y2, color);
 }

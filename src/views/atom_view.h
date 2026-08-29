@@ -19,7 +19,9 @@
  *    subshellDissectionPlan()) -- one hold automatically peels through every occupied
  *    subshell outer to inner, easing the camera in to frame each newly-revealed outermost
  *    remaining shell and holding briefly before moving to the next, then easing back to the
- *    full atom. Simplified relative to pc/atom_view_pc.py's PC dissection: whole shells are
+ *    full atom (holding there briefly before control returns). A second Right tilt-hold
+ *    during the sequence cancels it early, easing straight back to the full atom the same
+ *    way. Simplified relative to pc/atom_view_pc.py's PC dissection: whole shells are
  *    dropped as they're peeled away (rather than a camera-space half-clip cutaway -- no
  *    per-frame clip-plane test needed, and arguably clearer on a 240x240 panel), and there's
  *    no phase/sign coloring.

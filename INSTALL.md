@@ -163,7 +163,7 @@ firmware image, so a normal `pio run -t upload` picks it up.
 `src/main.cpp`'s top-of-file `#define` toggles switch between the
 default chooser app and standalone test builds — `ATOM_VALIDATION_TEST`,
 `ATOM_VIEW_TEST`, `ATOM_VIEW`, `COLOR_TEST`, `BENCHMARK_TEST`,
-`SLICE_TEST`. Exactly one may be active at a time; with none defined,
+`GIF_CAPTURE_TEST`. Exactly one may be active at a time; with none defined,
 `app_main()` boots the real chooser menu. Edit the file, uncomment one,
 rebuild, reflash.
 

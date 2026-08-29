@@ -153,9 +153,9 @@ inline constexpr uint32_t kSplashHoldMs = 2000;
 //
 // CYD (plain ESP32, no PSRAM) needs a much smaller count than the S3: every array sized off
 // this constant (here, atom_cloud.h's kAtomNumPoints below, and every EXT_RAM_BSS_ATTR buffer
-// derived from either -- orbital_view.cpp, atom_view.cpp, orbital_slice.cpp, benchmark_test.cpp,
-// screenshot_batch.cpp, orbital_slice_test.cpp, orbital_library.cpp, atom_cloud.cpp,
-// orbital_presets.cpp) falls back from PSRAM to internal DRAM with no PSRAM to fall back to,
+// derived from either -- orbital_view.cpp, atom_view.cpp, benchmark_test.cpp,
+// screenshot_batch.cpp, orbital_library.cpp, atom_cloud.cpp, orbital_presets.cpp) falls back
+// from PSRAM to internal DRAM with no PSRAM to fall back to,
 // and ESP-IDF/PlatformIO link the "main" component whole-archive, so even code never called at
 // runtime (e.g. benchmark_test.cpp when BENCHMARK_TEST isn't defined) still reserves its own
 // static buffers in that same budget. See CYD-branch.md for the measured link-time headroom
@@ -171,64 +171,6 @@ inline constexpr orb_real_t kOrbitalCullFraction = orb_real_t(0.01);
 inline constexpr int kOrbitalCullRefreshFrames = 3;
 // Per-frame "buzz" flicker fraction lives in kHiddenPointsFraction above, shared with
 // atom_view.cpp -- see that constant's comment.
-
-// ============================================================================================
-// Orbital slice view (views/orbital_slice.h, runSliceSequence() in views/orbital_view.cpp)
-// ============================================================================================
-
-/// Heatmap grid resolution: kSliceGridSize x kSliceGridSize cells, one per screen pixel --
-/// full panel resolution (240 x 240) so the heatmap is smooth, imshow-style, with no block
-/// artifacts (the earlier 2x2-cell version looked blocky). kSliceCellPx stays derived (== 1).
-inline constexpr int kSliceGridSize = Display::kDisplayWidth;
-inline constexpr int kSliceCellPx = Display::kDisplayWidth / kSliceGridSize;
-
-/// Grid half-extent as a multiple of the preset's own p90 reference radius (rRef) -- >1 so
-/// the outer lobes have a little margin instead of touching the panel edge.
-inline constexpr orb_real_t kSliceFramingFactor = orb_real_t(1.2);
-
-/// Real-time hold on the finished heatmap before auto-fading back to the 3D view (D3, see
-/// SLICE.md) -- any tilt movement aborts sooner. Same real-time-not-frame-count convention as
-/// atom_view.cpp's kDissectHoldUs.
-inline constexpr int64_t kSliceHoldUs = 12 * 1000 * 1000;
-
-/// How long the static "Sezione" intro card (D4) holds before the heatmap build starts.
-inline constexpr uint32_t kSliceIntroHoldMs = 900;
-
-/// Fade-in/fade-out duration, frames -- the plane itself is static (D2); this is the only
-/// motion in the whole sequence.
-inline constexpr int kSliceIntroFrames = 30;
-inline constexpr int kSliceFadeOutFrames = 20;
-
-/// Brightness mapping for the slice heatmap (orbital_slice.cpp's buildSliceTable()):
-/// level = 255 * min(1, |psi|^2 / v99)^gamma, with v99 = the grid's own
-/// kSliceDensityPercentile-th percentile of |psi|^2. Deliberately NOT the 3D cloud's rank
-/// curve (orbitalLevelFromRankFraction): a uniform grid has no empty screen space, so
-/// rank-equalizing it lights half the screen to ~83% brightness by construction (median level
-/// 212 for every orbital, 0% dark cells -- see SLICE.md's contrast note); density
-/// normalization preserves the real falloff instead (bright lobe cores, near-black tails).
-inline constexpr orb_real_t kSliceDensityPercentile = orb_real_t(0.999);
-
-/// Auto-exposure, per orbital -- mirrors the reference repo's (ssebastianmag/
-/// hydrogen-wavefunctions, hwf_plots.py) hand-tuned exposure knob: gamma =
-/// max(kSliceMinGamma, 1/(1+exposure)), vmax = the 99.9th percentile of |psi|^2. There, a
-/// human picked `exposure` per image by eye (0 for orbitals that already filled the frame,
-/// up to 1.5 for tightly-peaked ones) because a flat gamma washes out/saturates the
-/// already-bright ones. We compute the equivalent automatically per orbital instead of a
-/// hand-picked table: our real orbitals have genuine lobe structure even for m != 0
-/// (SLICE.md's phi-dependence note), unlike the reference's azimuthally-uniform complex
-/// harmonics, so its per-(n,l,m) choices don't transfer over.
-///
-/// brightFraction = (cells with density >= kSliceBrightFrac*v99) /
-///                  (cells with density >= kSliceVisibleFrac*v99)
-/// i.e. what fraction of the visible cloud (density above a small v99-relative floor) is
-/// already near-max. A concentrated orbital (small hot core, most of the visible cloud far
-/// dimmer than its own peak) gets a low brightFraction -> exposure lift; a broad orbital
-/// (density already near v99 across much of its visible footprint) gets a high
-/// brightFraction -> little to no lift, avoiding the saturation a flat gamma caused.
-inline constexpr orb_real_t kSliceVisibleFrac = orb_real_t(0.01);
-inline constexpr orb_real_t kSliceBrightFrac = orb_real_t(0.5);
-inline constexpr orb_real_t kSliceExposureScale = orb_real_t(1.5);
-inline constexpr orb_real_t kSliceMinGamma = orb_real_t(0.10);
 
 // ============================================================================================
 // Atom point-cloud density/shading/scale (physics/atom_cloud.h)
@@ -253,6 +195,12 @@ inline constexpr int kAtomNumPoints = 12000;
 // than "the valence shell stands out from a colored core" once actually seen on this panel.
 inline constexpr orb_real_t kAtomOuterShellBrighten = orb_real_t(0.4); // lerp toward white
 inline constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale toward black
+
+/// Brighten factor for the actively-dissected shell in atom_view.cpp's buildDissectGroups()
+/// -- stronger than kAtomOuterShellBrighten above so the one shell currently being examined
+/// reads as clearly "lit up" against the flat kDissectDimColor peeled-away shells around it,
+/// not just its own plain shell color.
+inline constexpr orb_real_t kDissectActiveBrighten = orb_real_t(0.7); // lerp toward white
 
 // --- Scale (M4, revised) ---
 //
@@ -298,13 +246,24 @@ inline constexpr int kCalibLineSpacing = 36; ///< Vertical gap between calibrati
 /// the longer "DOWN: Elements" line (186px unscaled) inside the 240px panel width -- scale 2
 /// (372px) ran off both edges.
 inline constexpr int kChooserOptionScale = 1;
-/// Both lines sit in the lower part of the panel (below the splash's own focal art, which
-/// occupies the upper/middle area) rather than the previous vertically-centered placement.
-inline constexpr int kChooserOption1Y = 180; ///< Y of the "UP: Orbitals" line.
-inline constexpr int kChooserOption2Y = 205; ///< Y of the "DOWN: Elements" line.
+
+/// Fixed-color toolbar band across the bottom of the splash screen, painted flat every poll
+/// (cheap -- a plain rect fill, unlike the ~60-90ms JPEG background decode) so the option
+/// text and the tilt-direction cluster below never sit on top of the splash artwork and never
+/// need to know or preserve whatever pixels were under them: the whole band is reserved,
+/// graphics-free UI chrome, redrawn from scratch each time. This replaces the old per-arrow
+/// pixel capture/restore cache (ux/tilt_gesture.cpp's captureArrowBackgrounds()/
+/// restoreArrowBackground(), removed) entirely.
+inline constexpr int kChooserBandY = 150; ///< Top of the band; spans the full width down to the screen bottom.
+inline constexpr uint16_t kChooserBandColor = Display::kColorBlack;
+
+/// Option lines sit near the top of the band; the tilt-direction cluster (below) gets the
+/// rest of the band's height to itself.
+inline constexpr int kChooserOption1Y = 158; ///< Y of the "UP: Orbitals" line.
+inline constexpr int kChooserOption2Y = 182; ///< Y of the "DOWN: Elements" line.
 
 /// Bright, high-contrast colors the menu options blink between (rather than blinking
-/// on/off) so they read clearly over the splash backdrop (unlike kColorOrbitalRed, which is
+/// on/off) so they read clearly over the flat band (unlike kColorOrbitalRed, which is
 /// tuned for orbital-lobe shading, not on-screen text legibility) and stay flashy even
 /// during the "off" half of the cycle instead of disappearing.
 inline constexpr uint16_t kChooserOptionColorA = Display::packColor565(255, 255, 0); // yellow
@@ -313,6 +272,16 @@ inline constexpr uint16_t kChooserOptionColorB = Display::packColor565(255, 0, 2
 /// Blink half-period for the menu options (color-swap cadence) -- fast enough to read as an
 /// attention-grabbing flash without being so fast it flickers illegibly.
 inline constexpr uint32_t kChooserBlinkHalfPeriodMs = 400;
+
+/// Compact Left/Right/Up/Down indicator cluster inside the band, off to the right of the
+/// option text (which spans most of the band's width) and well clear of it vertically too --
+/// only the currently-held direction is drawn (drawTiltArrowAt(), ux/tilt_gesture.h), same
+/// "appears while tilting" feedback the old screen-edge arrow gave, just relocated into the
+/// reserved band instead of wherever the splash artwork happened to be.
+inline constexpr int kChooserArrowClusterCx = Display::kDisplayWidth - 40;
+inline constexpr int kChooserArrowClusterCy = 222;
+inline constexpr int kChooserArrowLengthPx = 16; ///< Tip-to-base along the pointing direction.
+inline constexpr int kChooserArrowHalfWidthPx = 10; ///< Half the base width.
 
 // ============================================================================================
 // Orbital-view intro/switch pacing (views/orbital_view.cpp)
@@ -378,11 +347,19 @@ inline constexpr int64_t kDissectHoldUs = 2 * 1000 * 1000;                      
 inline constexpr int kDissectOccMarginPx = 1;                                   ///< Margin for the small electron-count corner note.
 inline constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(30);          ///< Camera-ease speed between shells, picometers per real second.
 inline constexpr uint32_t kDissectFlyMinMs = 700;                               ///< Floor on ease duration so a near-zero hop still eases briefly instead of cutting instantly.
+/// Real-time hold on the full atom after a dissection sequence finishes (or is cancelled)
+/// easing back out, before runAtomView()'s main loop is free to act on another tilt/idle
+/// transition -- so a completed dissection never runs straight into another element switch or
+/// idle jump with no breathing room in between.
+inline constexpr int64_t kDissectPostReturnHoldUs = 1 * 1000 * 1000;
 
 // --- Dissection intro title card (showElectronConfigIntro()) ---
-inline constexpr int kDissectIntroWordScale = 2;                                    ///< Text scale for "Configurazione" / "elettronica" / the element name.
-inline constexpr int kDissectIntroLineGapPx = 50;                                   ///< Vertical start-to-start spacing between the 3 title lines.
-inline constexpr uint32_t kDissectIntroHoldMs = 900;                                ///< How long the static title card holds before dissection starts.
+inline constexpr int kDissectIntroMaxWordScale = 2;                                 ///< Largest text scale tried for the 3-line reveal (falls back smaller if a line doesn't fit).
+inline constexpr int kDissectIntroMarginPx = 10;                                    ///< Horizontal margin each revealed line must fit within.
+inline constexpr int kDissectIntroFirstLineY = 40;                                  ///< Y of the first revealed line.
+inline constexpr int kDissectIntroLineGapPx = 10;                                   ///< Extra vertical gap between revealed lines, on top of the scaled line height.
+inline constexpr uint32_t kDissectIntroStageHoldMs = 900;                           ///< Hold after each of the first two lines appears.
+inline constexpr uint32_t kDissectIntroHoldMs = 3000;                               ///< Total time the card is shown (all 3 stages) before dissection starts.
 inline constexpr uint16_t kDissectIntroBgColor = Display::packColor565(55, 55, 55); ///< Dim color for the tiled electron-symbol backdrop.
 inline constexpr int kDissectIntroBgSpacingX = 44;                                  ///< Backdrop tile spacing, px.
 inline constexpr int kDissectIntroBgSpacingY = 34;

@@ -151,6 +151,14 @@ const uint8_t *shellBaseRgb(int n);
 // kAtomOuterShellBrighten/kAtomInnerShellDim now live in config/visual_constants.h.
 
 /**
+ * Lerp one 0..255 RGB channel toward white by `factor` (0 = no change, 1 = pure white).
+ * Shared by colorizeAtomSubshells() below (kAtomOuterShellBrighten) and atom_view.cpp's
+ * buildDissectGroups() (kDissectActiveBrighten), so both "make this shell stand out" spots
+ * use the exact same formula.
+ */
+uint8_t brightenChannel(uint8_t c, orb_real_t factor);
+
+/**
  * Which subshell (n, ell) has the largest measured p90 radius in THIS specific point
  * cloud, and that radius -- this is what actually defines an atom's on-screen size and
  * which subshell gets brightened by colorizeAtomSubshells(), NOT the whole cloud's own p90
@@ -185,7 +193,7 @@ struct DissectionEntry
  * Port of atom_cloud.subshell_dissection_plan(), device-path subset: p90 radius only, no
  * phase/sign recomputation (this project's on-device dissection has no phase coloring, same
  * "not worth the effort" call this file's header comment already makes about that). Used by
- * atom_view.cpp's on-device shell-by-shell dissection (Down-tilt gesture) both for the
+ * atom_view.cpp's on-device shell-by-shell dissection (Right-tilt gesture) both for the
  * outer-to-inner peel order and, via each entry's startIndex/count, to build that level's
  * render groups directly -- no point data ever needs to move (see camera.h's PointGroup).
  *

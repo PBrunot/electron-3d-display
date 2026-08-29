@@ -10,7 +10,6 @@
 // #define ATOM_VIEW
 // #define COLOR_TEST
 // #define BENCHMARK_TEST
-// #define SLICE_TEST
 // #define GIF_CAPTURE_TEST
 
 #include "ux/chooser.h"
@@ -38,7 +37,6 @@
 #endif
 
 #include "debug/atom_view_test.h"
-#include "debug/orbital_slice_test.h"
 #include "views/atom_view.h"
 
 static const char *kMainTag = "main";
@@ -70,9 +68,6 @@ extern "C" void app_main(void)
                        "watch for GIF,DONE; reflash without GIF_CAPTURE_TEST to return to normal boot");
     while (1)
         vTaskDelay(pdMS_TO_TICKS(1000));
-#elif defined(SLICE_TEST) && !CONFIG_IDF_TARGET_ESP32
-    Display display{};
-    runOrbitalSliceTest(display); // never returns -- see orbital_slice_test.h
 #else
     Display display{};
 #if !CONFIG_IDF_TARGET_ESP32
@@ -80,8 +75,8 @@ extern "C" void app_main(void)
 #endif
     // CYD: screenshot console skipped entirely (not just its batch command) -- no reachable
     // call site left into screenshot_console.cpp/screenshot.cpp/screenshot_batch.cpp, so the
-    // linker's --gc-sections drops all three translation units, same mechanism as
-    // views/orbital_slice.cpp (CYD-branch.md). Recovers the ~53KB of internal SRAM that
+    // linker's --gc-sections drops all three translation units (CYD-branch.md). Recovers the
+    // ~53KB of internal SRAM that
     // screenshot_batch.cpp's captureOrbitals()/captureAllPresets() static scratch (tens of KB
     // of OrbitalPresetState/AtomPresetState duplicates of the live view's own) reserved for a
     // batch-capture feature that was already a no-op here (it heap_caps_mallocs with

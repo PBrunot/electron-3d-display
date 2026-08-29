@@ -174,9 +174,9 @@ solo più byte liberi da cui attingere) riuscisse:
    `firmware.elf` collegato: i simboli `captureOrbitals()::preset`
    (36232 byte) e `captureAllPresets()::atomPreset` (12920 byte) erano
    presenti in `.dram0.bss`, non ottimizzati via. Escludere l'intera
-   console (stesso meccanismo di esclusione di `orbital_slice.cpp`: nessun
-   call site vivo → `--gc-sections` scarta l'intera unità di traduzione,
-   incluso `screenshot.cpp`/`screenshot_batch.cpp`/`png_writer.cpp`) ha
+   console (nessun call site vivo → `--gc-sections` scarta l'intera unità
+   di traduzione, incluso `screenshot.cpp`/`screenshot_batch.cpp`/
+   `png_writer.cpp`) ha
    liberato **76952 byte** di RAM statica (167176→90224 byte, misurato,
    più della somma dei soli due simboli sopra: la console portava con sé
    anche i propri buffer di riga/protocollo).
@@ -245,32 +245,12 @@ il framebuffer" è vero in prima approssimazione ma va ri-verificato via
 il punto scelto dopo aver ri-misurato su hardware reale con questo numero,
 non da un calcolo puramente teorico.
 
-### Vista plane-slice heatmap: **esclusa dalla build CYD**
+### Vista plane-slice heatmap: **rimossa dal progetto**
 
-- `src/views/orbital_slice.cpp` dichiara due array di scratch a livello di
-  file (`sliceMag`/`sliceOrder`, dimensionati `kSliceGridSize² = kDisplayWidth²
-  = 240×240 = 57600` elementi da 4 byte ciascuno) usati una volta per ogni
-  build della tabella — **~450 KiB da soli**, indipendentemente da qualunque
-  tuning dei contatori punti sopra. Su CYD (niente PSRAM) questo overflowava
-  da solo il budget di link della SRAM interna (misurato: overflow di
-  ~493 KiB al primo tentativo di build CYD).
-- **Decisione presa**: escludere l'intera feature dalla build CYD invece di
-  riscrivere questi array come scratch heap-allocata temporanea. Motivazione:
-  il gesto che raggiunge questa sequenza (Right tilt-hold, sia manuale che
-  auto-idle) richiede comunque l'IMU, che su CYD non esiste — il costo reale
-  di *non* riscriverla è zero, dato che la feature sarebbe comunque
-  irraggiungibile a runtime su questo target.
-- Meccanismo: `platformio.ini`'s `[env:CYD]` ha un `build_src_filter` che
-  esclude `views/orbital_slice.cpp` e `debug/orbital_slice_test.cpp` dalla
-  compilazione. I call site in `src/views/orbital_view.cpp` (branch Right
-  tilt-hold, branch idle-slice, `#include "views/orbital_slice.h"`) e il
-  toggle `SLICE_TEST` in `src/main.cpp` sono dietro
-  `#if !CONFIG_IDF_TARGET_ESP32` corrispondenti, così il codice compila
-  pulito su entrambi i target senza simboli mancanti.
-- `kSliceGridSize`/`kSliceCellPx` (`config/visual_constants.h`) restano
-  invariate e non gated: sono `constexpr int` puri, senza storage, innocue
-  di per sé — il problema era solo negli array che le usavano come
-  dimensione.
+La vista plane-slice heatmap (`views/orbital_slice.h/.cpp`, gesto Right
+tilt-hold nel visore orbitali) è stata rimossa interamente dal progetto, non
+solo esclusa dalla build CYD -- non serve più alcuna nota di esclusione
+per-board qui.
 
 ### Partizioni e storage dati
 
@@ -355,12 +335,6 @@ cambiano il comportamento sulla S3).
   sopra. Serve una vera decisione di design su come navigare (touch
   resistivo, pin già documentati sotto; pulsante BOOT IO0; o nessuna
   navigazione/vista fissa). **Da decidere con l'utente, non assumere.**
-- **Plane-slice heatmap non disponibile su questo target** (vedi sopra) —
-  se in futuro servisse anche su CYD, la strada è riscrivere
-  `buildSliceTable()`'s scratch (`sliceMag`/`sliceOrder`) come allocazione
-  heap temporanea invece di array statici, e verificare che ~460 KiB di
-  picco heap siano davvero disponibili a runtime sulla CYD (non ovvio: è
-  quasi metà della RAM interna totale del chip).
 - ~~`data/hfs_tables.bin`/`orbital_samplers.bin` non ancora deployati su
   hardware CYD reale~~ **Risolto/verificato (2026-08-22)**: la partizione
   `storage` è flashata (con `pio run -e CYD -t uploadfs_cyd` — non

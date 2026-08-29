@@ -9,10 +9,6 @@
  *    camera.h's kSwitchStartScaleFactor/kSwitchTransitionFrames plus a quantum-number
  *    reveal (scrollOrbitalIntro() in orbital_view.cpp).
  *  - Left tilt-hold: return to chooser.h's menu (runOrbitalView() returns).
- *  - Right tilt-hold: starts a self-contained, auto-playing plane-slice heatmap sequence for
- *    the current preset (runSliceSequence() in orbital_view.cpp, built on orbital_slice.h) --
- *    same gesture and one-shot-sequence contract as atom_view.h's shell dissection, since
- *    hydrogen orbitals have no subshell structure to dissect. See SLICE.md.
  *  - Also auto-advances to a random preset after kViewIdleJumpUs (config/visual_constants.h)
  *    of no tilt input.
  *
@@ -45,7 +41,7 @@ struct OrbitalPresetState
     char title[12];
     char orbital_numbers[32];
     orb_real_t baseScale, zoomAmplitude;
-    orb_real_t rRef; ///< p90 reference radius (bohr) from scaleFromRadii() -- orbital_slice.h's buildSliceTable() framing.
+    orb_real_t rRef; ///< p90 reference radius (bohr) from scaleFromRadii().
     int64_t loadMs = 0; ///< Wall-clock time load() took to build the cloud above, for debug/frame_stats.h's log line.
     /// This preset's phase-color pair (see orbital_library.h's OrbitalDescriptor), kept here
     /// so resamplePoints() re-encodes turned-over points in the same colors.

@@ -180,39 +180,14 @@ private:
 /// only tuning knobs needed to add either later without touching the rasterizer.
 void drawTiltArrow(Display &display, TiltDirection dir, uint16_t color);
 
-/// Axis-aligned pixel rectangle, [x, x+w) x [y, y+h). An empty rect (w == 0 or h == 0) means
-/// "nothing to draw/erase".
-struct PixelRect
-{
-    int x = 0, y = 0, w = 0, h = 0;
-};
-
 /**
- * @brief Bounding box of drawTiltArrow(dir)'s triangle, clipped to the display -- computed
- *        from the exact same vertices drawTiltArrow() rasterizes, so the two can never
- *        disagree about where the arrow actually lands.
+ * @brief Like drawTiltArrow(), but centered at an arbitrary (cx, cy) with its own tip-to-base
+ *        `length`/`halfWidth` instead of the shared screen-edge kTiltArrow*Px geometry.
  *
- * Lets a caller that draws its own static background (ux/chooser.cpp's menu loop) erase a
- * previously-drawn arrow by restoring just this rectangle instead of redrawing the whole
- * screen every frame. kNone returns an empty rect.
+ * Used by ux/chooser.cpp's compact toolbar-band direction cluster, which groups all 4
+ * directions together in one small reserved (flat-color) area instead of spreading them
+ * across the screen edges -- since that whole area is repainted flat every poll (see
+ * chooser.cpp's kChooserBandColor), there's no background to preserve/restore here, unlike
+ * drawTiltArrow()'s screen-edge placements over live artwork/render frames.
  */
-PixelRect tiltArrowBounds(TiltDirection dir);
-
-/**
- * @brief Snapshot the display's current pixels under each direction's arrow bounding box
- *        (tiltArrowBounds()) into a small internal cache (well under 1KB per direction --
- *        nowhere near the size of a whole-background cache, see splash_bitmap.cpp's header
- *        comment for why THAT doesn't fit the CYD's internal RAM), so a later
- *        restoreArrowBackground() can erase a drawn arrow without redrawing -- or re-decoding
- *        -- anything bigger.
- *
- * Call this once right after the background an arrow might be drawn over is freshly painted
- * (e.g. ux/chooser.cpp's menu redraw), before any arrow is drawn on top of it -- capturing
- * after an arrow was drawn would cache the arrow itself instead of what's behind it.
- */
-void captureArrowBackgrounds(Display &display);
-
-/// Restore the cached background (see captureArrowBackgrounds()) under `dir`'s arrow -- the
-/// erase counterpart to drawTiltArrow(). No-op for kNone or if captureArrowBackgrounds() was
-/// never called.
-void restoreArrowBackground(Display &display, TiltDirection dir);
+void drawTiltArrowAt(Display &display, TiltDirection dir, int cx, int cy, int length, int halfWidth, uint16_t color);

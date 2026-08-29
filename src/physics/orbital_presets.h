@@ -30,9 +30,8 @@ inline constexpr float kOrbitalLevelGamma = 0.4f;
  * Shapes a 0..1 rank fraction (can exceed 1, see resampleOneOrbitalPoint()'s docstring) into
  * a brightness level via kOrbitalLevelGamma. Public (not orbital_presets.cpp-local) so any
  * rank-normalized brightness in this project -- the 3D cloud's computeOrbitalLevels()/
- * resampleOneOrbitalPoint() below, and orbital_slice.cpp's static slice build -- lands on the
- * exact same curve: a cell/point at density-rank q always ends up as bright as any other at
- * the same rank, regardless of which one built it.
+ * resampleOneOrbitalPoint() below -- lands on the exact same curve: a point at density-rank q
+ * always ends up as bright as any other at the same rank, regardless of which one built it.
  */
 inline int orbitalLevelFromRankFraction(float frac)
 {

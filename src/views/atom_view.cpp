@@ -143,12 +143,14 @@ namespace
     }
 } // namespace
 
-// --- On-device shell dissection (Down tilt-hold) -- see atom_view.h's header comment ---
+// --- On-device shell dissection (Right tilt-hold) -- see atom_view.h's header comment ---
 //
 // Runs as one self-contained blocking sequence once triggered, not one dissect step per
-// hold: a single Down-hold peels through every occupied subshell automatically (eased zoom +
+// hold: a single Right-hold peels through every occupied subshell automatically (eased zoom +
 // a real-time hold on each, continuously tumbling throughout) and returns to the full atom at
-// the end, with no further gesture needed mid-sequence.
+// the end, with no further gesture needed mid-sequence. A second Right tilt-hold (confirmed,
+// same ~1s threshold as any other gesture) cancels early and eases straight back to the full
+// atom instead -- any other direction is ignored while a dissection is in progress.
 
 namespace
 {
@@ -191,8 +193,14 @@ namespace
             uint16_t color;
             if (rank == level - 1)
             {
+                // Brightened well past the shell's plain color (kDissectActiveBrighten, more
+                // than colorizeAtomSubshells()'s own kAtomOuterShellBrighten) so the actively
+                // dissected shell reads as clearly "lit up" against the flat-gray peeled-away
+                // shells around it.
                 const uint8_t *base = shellBaseRgb(e.n);
-                color = Display::packColor565(base[0], base[1], base[2]);
+                color = Display::packColor565(brightenChannel(base[0], kDissectActiveBrighten),
+                                              brightenChannel(base[1], kDissectActiveBrighten),
+                                              brightenChannel(base[2], kDissectActiveBrighten));
             }
             else
             {
@@ -258,11 +266,12 @@ namespace
      * Templated on the title-drawing callable for the same reason flyOver() is (needs to be
      * visible at each call site); kept .cpp-local since every call site is in this file.
      *
-     * If `tilt` is non-null, it's polled every frame; any non-idle phase (the device starting
-     * to tip, not necessarily a full confirmed hold) aborts immediately and returns false, so a
-     * dissection in progress can be cancelled by movement. The default nullptr is used for the
-     * sequence's own final "back to full view" leg, which is the closing action and should not
-     * itself be interruptible.
+     * If `tilt` is non-null, it's polled every frame; a confirmed Right tilt-hold (the same
+     * gesture that starts a dissection, ~1s) aborts immediately and returns false, cancelling
+     * the dissection in progress and sending it back to the full atom -- any other direction is
+     * ignored so an incidental nudge mid-sequence doesn't cut it short. The default nullptr is
+     * used for the sequence's own final "back to full view" leg, which is the closing action
+     * and should not itself be interruptible.
      */
     template <typename TitleDrawFn>
     bool easeScaleTimed(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
@@ -275,8 +284,12 @@ namespace
         uint32_t frameSalt = 0; // real-time loop, not a fixed frame count -- own counter, see camera.h's flyOver()
         for (;;)
         {
-            if (tilt && tilt->poll().phase != TiltPhase::kIdle)
-                return false;
+            if (tilt)
+            {
+                TiltEvent ev = tilt->poll();
+                if (ev.phase == TiltPhase::kConfirmed && ev.direction == TiltDirection::kRight)
+                    return false;
+            }
 
             int64_t elapsedUs = esp_timer_get_time() - startUs;
             orb_real_t t = durationUs > 0 ? orb_real_t(double(elapsedUs) / double(durationUs)) : orb_real_t(1);
@@ -312,27 +325,59 @@ namespace
                 drawText(display, x, y, kGlyphElectron, kDissectIntroBgColor, kFontSmall);
     }
 
-    /// Static 3-line "Configurazione / elettronica / <nameIt>" title card over the electron
-    /// backdrop, held for kDissectIntroHoldMs before the dissection sequence itself starts.
+    /// Largest scale (up to kDissectIntroMaxWordScale) that keeps all three of `line1`/`line2`/
+    /// `name` inside the panel width -- same fallback-by-shrinking approach as pickNameScale()
+    /// above, just checked against all three strings at once so the reveal never jumps to a
+    /// different size between stages.
+    int pickDissectIntroScale(const char *line1, const char *line2, const char *name)
+    {
+        int maxWidth = Display::kDisplayWidth - 2 * kDissectIntroMarginPx;
+        for (int scale = kDissectIntroMaxWordScale; scale > 1; scale--)
+            if (textWidthScaled(line1, kFontLarge, scale) <= maxWidth &&
+                textWidthScaled(line2, kFontLarge, scale) <= maxWidth &&
+                textWidthScaled(name, kFontLarge, scale) <= maxWidth)
+                return scale;
+        return 1;
+    }
+
+    /// 3-line "Configurazione / elettronica / <nameIt>" title card over the electron backdrop,
+    /// revealed one line at a time (same staged-reveal technique as orbital_view.cpp's
+    /// scrollOrbitalIntro()) so it reads as building up rather than flashing on all at once --
+    /// the 3 stages together span kDissectIntroHoldMs before the dissection sequence starts.
     void showElectronConfigIntro(Display &display, const char *nameIt)
     {
         constexpr const char *kLine1 = "Configurazione";
         constexpr const char *kLine2 = "elettronica";
 
-        int y1 = 50, y2 = y1 + kDissectIntroLineGapPx, y3 = y2 + kDissectIntroLineGapPx;
-        int x1 = (Display::kDisplayWidth - textWidth(kLine1, kFontLarge)) / 2;
-        int x2 = (Display::kDisplayWidth - textWidth(kLine2, kFontLarge)) / 2;
-        int x3 = (Display::kDisplayWidth - textWidth(nameIt, kFontLarge)) / 2;
+        int scale = pickDissectIntroScale(kLine1, kLine2, nameIt);
+        int lineH = kFontLarge.height * scale;
+        int y1 = kDissectIntroFirstLineY;
+        int y2 = y1 + lineH + kDissectIntroLineGapPx;
+        int y3 = y2 + lineH + kDissectIntroLineGapPx;
+        int x1 = (Display::kDisplayWidth - textWidthScaled(kLine1, kFontLarge, scale)) / 2;
+        int x2 = (Display::kDisplayWidth - textWidthScaled(kLine2, kFontLarge, scale)) / 2;
+        int x3 = (Display::kDisplayWidth - textWidthScaled(nameIt, kFontLarge, scale)) / 2;
 
-        display.waitForFlushDone();
-        display.clearScreen();
-        drawElectronBackdrop(display);
-        drawText(display, x1, y1, kLine1, kAccentColor, kFontLarge);
-        drawText(display, x2, y2, kLine2, kAccentColor, kFontLarge);
-        drawText(display, x3, y3, nameIt, kAccentColor, kFontLarge);
-        display.presentFrame();
+        auto renderStage = [&](int linesShown)
+        {
+            display.waitForFlushDone();
+            display.clearScreen();
+            drawElectronBackdrop(display);
+            if (linesShown >= 1)
+                drawTextScaled(display, x1, y1, kLine1, kAccentColor, kFontLarge, scale);
+            if (linesShown >= 2)
+                drawTextScaled(display, x2, y2, kLine2, kAccentColor, kFontLarge, scale);
+            if (linesShown >= 3)
+                drawTextScaled(display, x3, y3, nameIt, kAccentColor, kFontLarge, scale);
+            display.presentFrame();
+        };
 
-        vTaskDelay(pdMS_TO_TICKS(kDissectIntroHoldMs));
+        renderStage(1);
+        vTaskDelay(pdMS_TO_TICKS(kDissectIntroStageHoldMs));
+        renderStage(2);
+        vTaskDelay(pdMS_TO_TICKS(kDissectIntroStageHoldMs));
+        renderStage(3);
+        vTaskDelay(pdMS_TO_TICKS(kDissectIntroHoldMs - 2 * kDissectIntroStageHoldMs));
     }
 
     /**
@@ -340,13 +385,15 @@ namespace
      *
      * For each level: ease the camera in (easeScaleTimed(), paced by real time) to frame that
      * subshell with its label, hold for kDissectHoldUs while continuing to tumble, then move to
-     * the next level. `tilt` is polled every eased and held frame; any movement breaks out of
-     * the level loop early. Either way (completed or interrupted) execution falls through to
-     * the same tail: ease back out to preset.baseScale using preset's own unmodified render
-     * groups. Unlike an earlier revision of this function, `preset.points`/`preset.groups` are
-     * never touched during the loop -- buildDissectGroups() only ever reads dissectPlan's
-     * point ranges into a level-local group list, so there's nothing to rebuild/undo here, and
-     * an interrupted dissection lands back on the full element exactly like a finished one does.
+     * the next level. `tilt` is polled every eased and held frame; a confirmed Right tilt-hold
+     * breaks out of the level loop early (the same gesture that started the dissection cancels
+     * it). Either way (completed or cancelled) execution falls through to the same tail: ease
+     * back out to preset.baseScale using preset's own unmodified render groups, then hold there
+     * for kDissectPostReturnHoldUs so the sequence never runs straight into another transition.
+     * Unlike an earlier revision of this function, `preset.points`/`preset.groups` are never
+     * touched during the loop -- buildDissectGroups() only ever reads dissectPlan's point
+     * ranges into a level-local group list, so there's nothing to rebuild/undo here, and a
+     * cancelled dissection lands back on the full element exactly like a finished one does.
      */
     void runDissectionSequence(Display &display, AtomPresetState &preset, CameraState &camera, uint16_t protonColor,
                                uint16_t textColor, uint16_t scaleBarColor, TiltGestureDetector &tilt)
@@ -390,7 +437,7 @@ namespace
             prevRRef = active.rRef;
             if (!completed)
             {
-                ESP_LOGI(kAtomViewTag, "dissection aborted -- movement detected mid-fly");
+                ESP_LOGI(kAtomViewTag, "dissection cancelled -- tilt RIGHT confirmed mid-fly");
                 break;
             }
 
@@ -399,9 +446,10 @@ namespace
             bool aborted = false;
             while (esp_timer_get_time() - holdStartUs < kDissectHoldUs)
             {
-                if (tilt.poll().phase != TiltPhase::kIdle)
+                TiltEvent ev = tilt.poll();
+                if (ev.phase == TiltPhase::kConfirmed && ev.direction == TiltDirection::kRight)
                 {
-                    ESP_LOGI(kAtomViewTag, "dissection aborted -- movement detected during hold");
+                    ESP_LOGI(kAtomViewTag, "dissection cancelled -- tilt RIGHT confirmed during hold");
                     aborted = true;
                     break;
                 }
@@ -427,6 +475,23 @@ namespace
         easeScaleTimed(display, preset.points, preset.groups, preset.groupCount, fullTitle, protonColor, textColor,
                        scaleBarColor, camera, scale, preset.baseScale, preset.rRef, returnFlyMs, nullptr,
                        kHiddenPointsThreshold);
+
+        // Brief settle hold on the full atom (still tumbling) before returning control, so a
+        // completed or cancelled dissection never runs straight into another element switch or
+        // idle jump -- at least kDissectPostReturnHoldUs of real time between the zoom-out
+        // finishing and whatever runAtomView() does next. Not itself interruptible, same as the
+        // return leg above -- it's the sequence's own closing beat, not a gesture-reactive one.
+        int64_t postHoldStartUs = esp_timer_get_time();
+        uint32_t postHoldFrameSalt = 0;
+        while (esp_timer_get_time() - postHoldStartUs < kDissectPostReturnHoldUs)
+        {
+            display.waitForFlushDone();
+            renderAtomFrame(display, preset, camera, preset.baseScale, postHoldFrameSalt, kHiddenPointsThreshold);
+            display.presentFrame();
+            stepCamera(&camera);
+            postHoldFrameSalt++;
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
     }
 
     /// Like camera.h's flyOver(), but calls renderAtomFrame() (proton marker redrawn opaque
