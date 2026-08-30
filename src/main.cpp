@@ -24,6 +24,7 @@
 #include "config/hardware_constants.h"
 #include "config/visual_constants.h" // kSplashHoldMs
 #include "ux/tilt_gesture.h"
+#include "util/storage_mount.h"
 #include "views/orbital_view.h" // CYD boot fallback -- see the CONFIG_IDF_TARGET_ESP32 branch below
 #include "debug/benchmark_test.h"
 #include "debug/gif_capture_test.h"
@@ -44,6 +45,13 @@ static const char *kMainTag = "main";
 extern "C" void app_main(void)
 {
     logMemory("startup");
+    // Mount /storage before any Display is constructed: Display's frame buffer allocation
+    // fragments the DMA-capable heap into many small blocks (display.cpp), and SPIFFS's own
+    // cache buffer allocation was landing in that fragmented heap and failing every time
+    // (CYD-branch.md). Mounting here, while the heap is still whole, makes every later
+    // ensureStorageMounted() call (splash_bitmap.cpp, orbital_library.cpp, hfs_radial.cpp) a
+    // cheap no-op (ESP_ERR_INVALID_STATE) instead of a retry that fails the same way.
+    ensureStorageMounted();
 #ifdef ATOM_VALIDATION_TEST
     while (1)
     {
