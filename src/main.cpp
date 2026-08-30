@@ -19,13 +19,14 @@
 #include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
 
 #include "ux/imu.h"
+#include "ux/touch.h"
+#include "ux/touch_gesture.h"
 #include "debug/screenshot_console.h"
 #include "render/splash_bitmap.h"
 #include "config/hardware_constants.h"
 #include "config/visual_constants.h" // kSplashHoldMs
 #include "ux/tilt_gesture.h"
 #include "util/storage_mount.h"
-#include "views/orbital_view.h" // CYD boot fallback -- see the CONFIG_IDF_TARGET_ESP32 branch below
 #include "debug/benchmark_test.h"
 #include "debug/gif_capture_test.h"
 
@@ -38,7 +39,6 @@
 #endif
 
 #include "debug/atom_view_test.h"
-#include "views/atom_view.h"
 
 static const char *kMainTag = "main";
 
@@ -97,36 +97,21 @@ extern "C" void app_main(void)
     display.presentFrame();
     vTaskDelay(pdMS_TO_TICKS(kSplashHoldMs));
 
+#if CONFIG_IDF_TARGET_ESP32
+    // CYD has no IMU (Qmi8658 is a no-op shim, see ux/imu.cpp) -- navigation is driven by the
+    // XPT2046 touch panel instead (touch.h/touch_gesture.h). TouchGestureDetector implements
+    // the same GestureSource interface as TiltGestureDetector (poll() -> TiltEvent), so
+    // runChooser()/runOrbitalView()/runAtomView() below are unmodified from the tilt-driven
+    // path -- see tilt_gesture.h's GestureSource doc comment. No calibration step: unlike tilt,
+    // touch swipes need no learned direction mapping (config/hardware_constants.h's
+    // kTouchSwapXY/kTouchInvertDx/kTouchInvertDy handle orientation instead).
+    ESP_LOGI(kMainTag, "CYD build: no IMU, using touch panel for navigation");
+    Xpt2046 touchPanel{};
+    TouchGestureDetector tilt{touchPanel};
+#else
     Qmi8658 imu{};
     TiltGestureDetector tilt{imu};
 
-#if CONFIG_IDF_TARGET_ESP32
-    // CYD has no IMU (Qmi8658 is a no-op shim here, see ux/imu.cpp) -- skip planar
-    // check/calibration entirely rather than falling into the "not planar" branch below:
-    // checkPlanarAtBoot() would always read zero samples and report "not planar", and
-    // calibrateDirections() (ux/chooser.cpp) waits in an unbounded loop for a tilt gesture
-    // that can never arrive on this board, hanging boot forever instead of just failing to
-    // navigate. Tilt-based menu navigation is a known non-functional gap on CYD until a
-    // replacement input (touch/BOOT button) is decided -- see CYD-branch.md.
-    ESP_LOGW(kMainTag, "CYD build: no IMU, skipping tilt calibration -- chooser will not respond to tilt");
-    logMemory("startup: chooser");
-    // TEMPORARY testing convenience while CYD has no working input (see the tilt-skip note
-    // above): the real chooser menu is inert here (nothing can ever confirm a tilt gesture),
-    // so jump straight into the orbital viewer after a short delay instead of sitting on an
-    // unusable menu screen. Remove once a real input method (touch/BOOT button) replaces
-    // tilt navigation on this board -- see CYD-branch.md.
-    ESP_LOGW(kMainTag, "CYD build: chooser has no working input -- auto-launching orbital viewer in 5s");
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    // Neither view can ever return via its normal left-tilt-hold exit here (no IMU), so this
-    // loop -- not chooser.cpp's -- is what stands in for its idle orbital/element coin-flip:
-    // each view's own idle jump has a kViewCrossSwitchProbability chance to return instead of
-    // picking another preset, which is what actually alternates the two below.
-    while (true)
-    {
-        runOrbitalView(display, tilt);
-        runAtomView(display, tilt);
-    }
-#else
     if (imu.checkPlanarAtBoot())
     {
         ESP_LOGI(kMainTag, "boot: planar check OK, using hardcoded calibration");
@@ -144,8 +129,8 @@ extern "C" void app_main(void)
         calibrateDirections(display, tilt);
         tilt.logCalibrationForHardcode();
     }
+#endif
     logMemory("startup: chooser");
     runChooser(display, tilt);
-#endif
 #endif
 }

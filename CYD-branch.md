@@ -114,12 +114,52 @@ non verificato (colori/mirror).
   soli fallimenti di lettura: `calibrateDirections()` (ux/chooser.cpp) ha un
   loop **senza timeout** in attesa di un gesto di tilt confermato — su un
   device senza IMU sarebbe un hang di boot permanente.
-- **Auto-avvio orbitali dopo 5s** (`main.cpp`, `#if CONFIG_IDF_TARGET_ESP32`):
-  convenienza **temporanea** per testare senza input funzionante — salta
-  `runChooser()` (inerte, nessun gesto di tilt può mai essere confermato) e
-  chiama `runOrbitalView(display, tilt)` direttamente dopo un `vTaskDelay`
-  di 5s. Da rimuovere quando un input reale (touch/pulsante BOOT) sostituirà
-  la navigazione a tilt.
+- ~~Auto-avvio orbitali dopo 5s~~ **Rimosso (2026-08-30)**: sostituito dalla
+  navigazione a touch, vedi sezione "Touch (XPT2046)" sotto — `main.cpp`
+  chiama `runChooser()` su CYD esattamente come sulla S3.
+
+### Touch (`src/ux/touch.h`/`.cpp`, `src/ux/touch_gesture.h`/`.cpp`) -- 2026-08-30
+
+Sostituisce l'IMU come input di navigazione su CYD (deciso con l'utente:
+swipe direzionali che rispecchiano i tilt, non zone di tap né tap+hold; vedi
+sopra "Navigazione a tilt non sostituita" -- ora risolto).
+
+- `Xpt2046` (`src/ux/touch.h`/`.cpp`): driver bit-banged (nessun bus SPI
+  hardware libero -- HSPI sul display, VSPI sulla SD, l'ESP32 classica non ne
+  ha un terzo) sui pin documentati sotto (CLK 25, MOSI 32, CS 33, IRQ 36,
+  MISO 39). `isTouched()` legge il pin IRQ (basso quando il pannello è
+  premuto); `readRaw()` restituisce campioni ADC 12-bit grezzi (0..4095), non
+  calibrati su pixel schermo -- non serve, vedi sotto. No-op sulla S3, stesso
+  pattern di `Qmi8658`.
+- `TouchGestureDetector` (`src/ux/touch_gesture.h`/`.cpp`) implementa la
+  stessa interfaccia `GestureSource::poll() -> TiltEvent` di
+  `TiltGestureDetector` (nuova classe base astratta, `src/ux/tilt_gesture.h`)
+  -- ogni call site esistente (`chooser.cpp`, `orbital_view.cpp`,
+  `atom_view.cpp`) prende `GestureSource&` invece di `TiltGestureDetector&`
+  e funziona invariato. Stesso modello di interazione del tilt: tocco,
+  trascinamento oltre una soglia (`kTouchSwipeThresholdRaw`, unità ADC
+  grezze) in una direzione, poi HOLD di `kTouchHoldConfirmMs` (1000ms, come
+  il default del tilt) per confermare -- stessa freccia di progresso
+  (`drawTiltArrow[At]()`), stesso `TiltPhase::kHolding/kConfirmed`. Nessuna
+  calibrazione delle direzioni come per il tilt: l'orientamento degli assi
+  grezzi del pannello è fissato a compile-time da
+  `kTouchSwapXY`/`kTouchInvertDx`/`kTouchInvertDy`
+  (`config/hardware_constants.h`).
+- `main.cpp`: su CYD costruisce `Xpt2046`+`TouchGestureDetector` e chiama
+  `runChooser()` esattamente come la S3 -- il loop di boot diretto
+  `runOrbitalView()`/`runAtomView()` e `kViewCrossSwitchProbability` (il
+  workaround che aggirava l'assenza di un modo per tornare al menu) sono
+  stati rimossi, non più necessari ora che lo swipe SINISTRA-e-hold torna al
+  chooser su entrambe le board.
+- **Non verificato su hardware reale** (nessun device disponibile per il
+  test): il protocollo bit-banged XPT2046 (byte di comando 0xD0/0xD0 per
+  X/Y, 16 clock di risposta) segue lo schema standard usato da praticamente
+  ogni libreria XPT2046, ma non è stato provato su QUESTA unità. Se lo swipe
+  non viene rilevato affatto, il sospetto principale è il pin IRQ (polarità/
+  pull-up) o il timing del bit-bang; se viene rilevato ma la direzione è
+  ruotata/specchiata, aggiustare `kTouchSwapXY`/`kTouchInvertDx`/
+  `kTouchInvertDy` guardando i log `ESP_LOGI` (tag `touch_gesture`) di
+  dx/dy grezzi durante uno swipe noto.
 
 ### Punti nuvola (`src/config/visual_constants.h`)
 
@@ -442,11 +482,10 @@ cambiano il comportamento sulla S3).
 - **Landscape (320×240, come si tiene normalmente in mano la CYD) non
   cablato** — resta ritratto (240×320 nativo). Richiederebbe
   `esp_lcd_panel_swap_xy()`, non testato.
-- **Navigazione a tilt non sostituita** (deciso: rimandato) — su CYD il menu
-  chooser non risponde a nulla; per ora si aggira con l'auto-avvio dopo 5s
-  sopra. Serve una vera decisione di design su come navigare (touch
-  resistivo, pin già documentati sotto; pulsante BOOT IO0; o nessuna
-  navigazione/vista fissa). **Da decidere con l'utente, non assumere.**
+- ~~Navigazione a tilt non sostituita~~ **Risolto (2026-08-30, non ancora
+  verificato su hardware)**: touch resistivo XPT2046, swipe direzionali —
+  vedi §"Touch (XPT2046)" sopra. Il bit-banging e l'orientamento
+  X/Y restano da confermare su un device reale.
 - ~~`data/hfs_tables.bin`/`orbital_samplers.bin` non ancora deployati su
   hardware CYD reale~~ **Risolto/verificato (2026-08-22)**: la partizione
   `storage` è flashata (con `pio run -e CYD -t uploadfs_cyd` — non

@@ -142,7 +142,7 @@ static void drawChooserScreen(Display &display, bool fullRedraw, TiltEvent ev)
  * this function is ever entered -- see checkPlanarAtBoot()/calibrateDirections() there; this
  * loop does not repeat it.
  */
-void runChooser(Display &display, TiltGestureDetector &tilt)
+void runChooser(Display &display, GestureSource &tilt)
 {
     ESP_LOGI(kChooserTag, "menu ready");
 

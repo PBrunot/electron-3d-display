@@ -26,9 +26,11 @@
  *    per-frame clip-plane test needed, and arguably clearer on a 240x240 panel), and there's
  *    no phase/sign coloring.
  *  - Also auto-advances to a random element after kViewIdleJumpUs (config/visual_constants.h)
- *    of no tilt input -- on CYD (no IMU, see main.cpp's CYD boot branch), that same idle
- *    timeout instead has a kViewCrossSwitchProbability chance to return to main.cpp's loop
- *    for the orbital viewer, since CYD can never reach chooser.cpp's own idle coin-flip.
+ *    of no tilt/touch input.
+ *
+ * On CYD (no IMU -- see touch_gesture.h), the same gestures above are driven by
+ * TouchGestureDetector's swipes instead of TiltGestureDetector's tilt-and-hold; see
+ * tilt_gesture.h's GestureSource for the shared interface both implement.
  */
 #pragma once
 
@@ -110,8 +112,8 @@ void renderAtomFrame(Display &display, const AtomPresetState &preset, const Came
 int renderAtomDissectFrame(Display &display, const AtomPresetState &preset, const CameraState &camera, int level);
 
 /**
- * @brief Run the atom viewer until a Left tilt-hold confirms.
+ * @brief Run the atom viewer until a Left tilt-hold (or touch-swipe, on CYD) confirms.
  * @param display Target display; frames are rendered and presented each loop iteration.
- * @param tilt Gesture source for navigation input.
+ * @param tilt Gesture source for navigation input -- TiltGestureDetector or TouchGestureDetector.
  */
-void runAtomView(Display &display, TiltGestureDetector &tilt);
+void runAtomView(Display &display, GestureSource &tilt);

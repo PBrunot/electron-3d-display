@@ -65,6 +65,18 @@ struct TiltEvent
     uint32_t holdMs = 0; ///< Elapsed hold time -- for a future progress animation on the arrow.
 };
 
+/// Common interface for anything that drives the direction-and-hold navigation events consumed
+/// by chooser.cpp/orbital_view.cpp/atom_view.cpp, all of which only ever call poll() -- lets a
+/// board swap in a different physical input without touching any of those call sites. Besides
+/// TiltGestureDetector below (IMU tilt-and-hold), see ux/touch_gesture.h's TouchGestureDetector
+/// (swipe-and-hold on the CYD's touch panel, which has no IMU).
+class GestureSource
+{
+public:
+    virtual ~GestureSource() = default;
+    virtual TiltEvent poll() = 0;
+};
+
 /**
  * @brief Like TiltEvent, but the raw normalized deviation-from-baseline direction (a unit
  *        vector in board-local accelerometer axes) instead of a mapped TiltDirection.
@@ -105,7 +117,7 @@ struct TiltGestureConfig
     orb_real_t minDirectionSimilarity = orb_real_t(0.7);
 };
 
-class TiltGestureDetector
+class TiltGestureDetector : public GestureSource
 {
 public:
     explicit TiltGestureDetector(Qmi8658 &imu, const TiltGestureConfig &cfg = TiltGestureConfig());
@@ -153,7 +165,7 @@ public:
     /// (setMapping(), cosine similarity -- see cfg.minDirectionSimilarity) into a
     /// TiltDirection -- what every other caller in this project should use. No close-enough
     /// match reports TiltDirection::kNone (and never kConfirmed).
-    TiltEvent poll();
+    TiltEvent poll() override;
 
 private:
     Qmi8658 &imu_;

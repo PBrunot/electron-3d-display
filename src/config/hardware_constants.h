@@ -80,3 +80,27 @@ inline constexpr orb_real_t kDefaultDirRefUpZ = orb_real_t(-0.4158);
 inline constexpr orb_real_t kDefaultDirRefDownX = orb_real_t(0.0109);
 inline constexpr orb_real_t kDefaultDirRefDownY = orb_real_t(-0.9807);
 inline constexpr orb_real_t kDefaultDirRefDownZ = orb_real_t(0.1952);
+
+// ============================================================================================
+// Touch swipe gesture tuning (ux/touch_gesture.cpp, CYD only -- see ux/touch.h)
+// ============================================================================================
+//
+// Raw XPT2046 ADC units (0..4095, uncalibrated -- see touch.h) the touch point must move from
+// its down-point before a direction candidate arms, and the hysteresis floor it must stay above
+// to remain armed -- same shape as TiltGestureConfig's thresholdG/releaseG above, just in raw
+// touch units since there's no calibrated screen-pixel mapping.
+inline constexpr int kTouchSwipeThresholdRaw = 350;
+inline constexpr int kTouchSwipeReleaseRaw = 200;
+// Sustained-hold duration required to confirm a swipe -- matches TiltGestureConfig's default
+// holdConfirmMs so the two input methods feel the same.
+inline constexpr uint32_t kTouchHoldConfirmMs = 1000;
+
+// Orientation of the touch panel's raw X/Y axes relative to the display's on-screen up/down/
+// left/right. UNVERIFIED -- there is no hardware available to test against (see CYD-branch.md's
+// other "not verified on real hardware" notes for this board). If swipes come out
+// rotated/mirrored on real hardware, adjust these three: watch the raw dx/dy logged by
+// ux/touch_gesture.cpp (ESP_LOGI, tag "touch_gesture") while swiping a known direction, and
+// flip whichever constant makes the logged direction match the physical swipe.
+inline constexpr bool kTouchSwapXY = false;
+inline constexpr bool kTouchInvertDx = false;
+inline constexpr bool kTouchInvertDy = false;

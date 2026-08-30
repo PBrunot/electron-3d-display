@@ -15,7 +15,6 @@
 #include "debug/frame_stats.h"
 #include "debug/screenshot_pause.h"
 #include "physics/slater.h"
-#include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
 #include "config/visual_constants.h" // kAccentColor, kViewIdleJumpUs, kAtomProtonMarkerSize, kBoundingCircleColor, kElementIntro*, kDissect*, kFpsUpdateInterval
 #include "physics/view_steady_arena.h" // shared points storage, see that header
 
@@ -278,7 +277,7 @@ namespace
     bool easeScaleTimed(Display &display, const AtomPoint *points, const PointGroup *groups, int groupCount,
                         TitleDrawFn drawTitle, uint16_t protonColor, uint16_t textColor, uint16_t scaleBarColor,
                         CameraState &camera, orb_real_t startScale, orb_real_t endScale, orb_real_t rRef,
-                        uint32_t durationMs, TiltGestureDetector *tilt = nullptr, uint32_t buzzThreshold = 0)
+                        uint32_t durationMs, GestureSource *tilt = nullptr, uint32_t buzzThreshold = 0)
     {
         int64_t startUs = esp_timer_get_time();
         int64_t durationUs = int64_t(durationMs) * 1000;
@@ -397,7 +396,7 @@ namespace
      * cancelled dissection lands back on the full element exactly like a finished one does.
      */
     void runDissectionSequence(Display &display, AtomPresetState &preset, CameraState &camera, uint16_t protonColor,
-                               uint16_t textColor, uint16_t scaleBarColor, TiltGestureDetector &tilt)
+                               uint16_t textColor, uint16_t scaleBarColor, GestureSource &tilt)
     {
         showElectronConfigIntro(display, elementNameIt(preset.z));
 
@@ -544,7 +543,7 @@ int renderAtomDissectFrame(Display &display, const AtomPresetState &preset, cons
     return planCount;
 }
 
-void runAtomView(Display &display, TiltGestureDetector &tilt)
+void runAtomView(Display &display, GestureSource &tilt)
 {
     ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxDisplayZ);
 
@@ -659,17 +658,6 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         // to dissect), idle timeouts always jump.
         if (esp_timer_get_time() - lastActivityUs > kViewIdleJumpUs)
         {
-#if CONFIG_IDF_TARGET_ESP32
-            // CYD has no tilt input to leave this view and reach chooser.cpp's own idle
-            // orbital/element coin-flip (see kViewCrossSwitchProbability's doc comment) --
-            // main.cpp's CYD boot path loops this view and runOrbitalView() directly, so
-            // returning here is what lets idle browsing reach the orbital viewer at all.
-            if (randomUnit() < kViewCrossSwitchProbability)
-            {
-                ESP_LOGI(kAtomViewTag, "CYD: idle 60s+ -- crossing over to orbital viewer");
-                return;
-            }
-#endif
             bool canDissect = !idleDissectedThisElement && dissectPlanCount > 0;
             if (canDissect && randomUnit() < orb_real_t(0.5))
             {
