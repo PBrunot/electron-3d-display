@@ -59,6 +59,48 @@ using FontHuge = FontBase<uint64_t>;
 constexpr char kGlyphElectron[] = "\x7F"; // electron symbol: e with superscript minus
 constexpr char kGlyphScriptL[] = "\x80";  // script small l (U+2113): orbital angular-momentum quantum number l
 
+/**
+ * Superscript 2/3 (U+00B2/U+00B3), baked alongside kGlyphElectron/kGlyphScriptL above for
+ * the same reason (Jersey10 has neither). Meant to be dropped straight into a kScriptSub
+ * span as a plain glyph -- e.g. "d" kScriptSub "z" kGlyphSup2 kScriptEnd for d_z2 -- rather
+ * than nested inside a second kScriptSuper span: the span is already drawn in the
+ * next-size-down font (see kScriptSub's doc comment), and shrinking a second time would be
+ * illegible at these pixel sizes, whereas a real superscript-digit glyph is already
+ * visually "raised small" by its own shape, so no further vertical offset is needed either.
+ */
+constexpr char kGlyphSup2[] = "\x81"; // superscript two: orbital exponent, e.g. d_z2, d_x2-y2
+constexpr char kGlyphSup3[] = "\x82"; // superscript three: orbital exponent, e.g. f_z3
+
+/**
+ * Inline markup recognized by drawText()/textWidth() (and their Scaled siblings): everything
+ * between a kScriptSub/kScriptSuper and the next kScriptEnd is drawn in the paired
+ * next-size-down baked font (kFontHuge's span font is kFontLarge, kFontLarge's is
+ * kFontSmall) so it reads as visibly smaller than the surrounding text, per the usual
+ * subscript/superscript convention -- e.g. "2p" kScriptSub "z" kScriptEnd for the orbital
+ * label p_z, or kOrbitalLibrary's fuller d/f angular labels (see orbital_library.cpp's
+ * formatOrbitalTitle()). kFontSmall is already this font system's smallest baked size, so a
+ * span drawn while already inside kFontSmall text has no smaller font to drop to and is left
+ * at kFontSmall's own size (just vertically offset) rather than attempting to shrink further.
+ *
+ * Subscript is bottom-aligned to the surrounding line (its own top pinned to
+ * mainFont.height - spanFont.height below the main text's y, so it sits low like a real
+ * subscript); superscript is top-aligned to the surrounding line's own top. Neither marker
+ * nests inside the other or inside itself -- opening a second span before the first
+ * kScriptEnd just switches the current one, it does not stack -- which is all
+ * kOrbitalLibrary's labels need: at most one span per label, with any exponent inside it
+ * spelled as a plain kGlyphSup2/kGlyphSup3 glyph rather than a nested span (see those
+ * constants' own doc comment above).
+ *
+ * These are control bytes, not glyphs: none of the three is in any baked font's glyph range
+ * (0x20-0x82), so drawText()/textWidth() must intercept them before glyph lookup -- passing
+ * one to a caller that doesn't (e.g. an ESP_LOGI("%s", ...) of a label containing them) would
+ * print/measure it wrong, so keep these out of any string that isn't going straight to
+ * drawText()/textWidth().
+ */
+constexpr char kScriptSub[] = "\x01";
+constexpr char kScriptSuper[] = "\x02";
+constexpr char kScriptEnd[] = "\x03";
+
 /** Secondary/readout text: the tiled electron-symbol backdrop behind the dissection intro card. */
 extern const FontSmall kFontSmall;
 

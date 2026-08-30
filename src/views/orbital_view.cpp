@@ -132,7 +132,7 @@ void OrbitalPresetState::load(int index)
     for (int i = 0; i < kOrbitalNumPoints; i++)
         colors[i] = orbitalLevelToColor565(levels[i], signs[i], d.posRgb565, d.negRgb565);
 
-    std::snprintf(title, sizeof(title), "%s", d.label);
+    formatOrbitalTitle(title, sizeof(title), d.n, d.ell, d.m);
     std::snprintf(orbital_numbers, sizeof(orbital_numbers), "n=%d %s=%d m=%d", d.n, kGlyphScriptL, d.ell, d.m);
 
     OrbitalScale scale = scaleFromRadii(points, kOrbitalNumPoints);
@@ -244,6 +244,17 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
         // kViewIdleJumpUs is shared with atom_view.cpp.
         if (esp_timer_get_time() - lastActivityUs > kViewIdleJumpUs)
         {
+#if CONFIG_IDF_TARGET_ESP32
+            // CYD has no tilt input to leave this view and reach chooser.cpp's own idle
+            // orbital/element coin-flip (see kViewCrossSwitchProbability's doc comment) --
+            // main.cpp's CYD boot path loops this view and runAtomView() directly, so
+            // returning here is what lets idle browsing reach the element viewer at all.
+            if (randomUnit() < kViewCrossSwitchProbability)
+            {
+                ESP_LOGI(kOrbitalViewTag, "CYD: idle 60s+ -- crossing over to element viewer");
+                return;
+            }
+#endif
             int newIndex = randomIndexExcluding(presetIndex, kOrbitalLibraryCount);
             ESP_LOGI(kOrbitalViewTag, "idle 60s+ -- jumping to random preset %d", newIndex);
             switchToPreset(newIndex);

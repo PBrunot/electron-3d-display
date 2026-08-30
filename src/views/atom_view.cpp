@@ -16,6 +16,7 @@
 #include "debug/frame_stats.h"
 #include "debug/screenshot_pause.h"
 #include "physics/slater.h"
+#include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
 #include "config/visual_constants.h" // kAccentColor, kViewIdleJumpUs, kAtomProtonMarkerSize, kBoundingCircleColor, kElementIntro*, kDissect*, kFpsUpdateInterval
 
 static const char *kAtomViewTag = "atom_view";
@@ -645,6 +646,17 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
         // to dissect), idle timeouts always jump.
         if (esp_timer_get_time() - lastActivityUs > kViewIdleJumpUs)
         {
+#if CONFIG_IDF_TARGET_ESP32
+            // CYD has no tilt input to leave this view and reach chooser.cpp's own idle
+            // orbital/element coin-flip (see kViewCrossSwitchProbability's doc comment) --
+            // main.cpp's CYD boot path loops this view and runOrbitalView() directly, so
+            // returning here is what lets idle browsing reach the orbital viewer at all.
+            if (randomUnit() < kViewCrossSwitchProbability)
+            {
+                ESP_LOGI(kAtomViewTag, "CYD: idle 60s+ -- crossing over to orbital viewer");
+                return;
+            }
+#endif
             bool canDissect = !idleDissectedThisElement && dissectPlanCount > 0;
             if (canDissect && randomUnit() < orb_real_t(0.5))
             {

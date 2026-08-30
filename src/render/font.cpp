@@ -18,6 +18,58 @@
 
 namespace
 {
+    /**
+     * Maps a baked font's row type to the next-size-down font used to draw a kScriptSub/
+     * kScriptSuper span within it (see font.h's doc comment on those). The primary template
+     * is the "no smaller font available" fallback (span text just stays at `font`'s own
+     * size) -- correct for kFontSmall (RowT = uint16_t), this font system's smallest baked
+     * size. kFontLarge (uint32_t) and kFontHuge (uint64_t) each specialize to name their
+     * real companion.
+     */
+    template <typename RowT>
+    struct ScriptFont
+    {
+        static const FontBase<RowT> &get(const FontBase<RowT> &font) { return font; }
+    };
+
+    template <>
+    struct ScriptFont<uint32_t> // kFontLarge's span font
+    {
+        static const FontBase<uint16_t> &get(const FontBase<uint32_t> &) { return kFontSmall; }
+    };
+
+    template <>
+    struct ScriptFont<uint64_t> // kFontHuge's span font
+    {
+        static const FontBase<uint32_t> &get(const FontBase<uint64_t> &) { return kFontLarge; }
+    };
+
+    enum class ScriptMode
+    {
+        kNormal,
+        kSub,
+        kSuper
+    };
+
+    /**
+     * If `c` is one of font.h's three script-markup control bytes, applies it to `*mode` and
+     * returns true (caller must draw/advance nothing for it -- these are control bytes, not
+     * glyphs, see kScriptSub's doc comment). Returns false for any ordinary character,
+     * `*mode` untouched.
+     */
+    inline bool applyScriptMarker(char c, ScriptMode *mode)
+    {
+        if (c == kScriptSub[0])
+            *mode = ScriptMode::kSub;
+        else if (c == kScriptSuper[0])
+            *mode = ScriptMode::kSuper;
+        else if (c == kScriptEnd[0])
+            *mode = ScriptMode::kNormal;
+        else
+            return false;
+        return true;
+    }
+
     template <typename RowT>
     void drawCharImpl(Display &display, int x, int y, char c, uint16_t color, const FontBase<RowT> &font)
     {
@@ -50,11 +102,26 @@ namespace
     template <typename RowT>
     int drawTextImpl(Display &display, int x, int y, const char *text, uint16_t color, const FontBase<RowT> &font)
     {
+        const auto &scriptFont = ScriptFont<RowT>::get(font);
+        ScriptMode mode = ScriptMode::kNormal;
         int cursorX = x;
         for (const char *p = text; *p; p++)
         {
-            drawCharImpl(display, cursorX, y, *p, color, font);
-            cursorX += glyphAdvanceImpl(font, *p);
+            if (applyScriptMarker(*p, &mode))
+                continue;
+            if (mode == ScriptMode::kNormal)
+            {
+                drawCharImpl(display, cursorX, y, *p, color, font);
+                cursorX += glyphAdvanceImpl(font, *p);
+            }
+            else
+            {
+                // Subscript sits low (bottom-aligned to the main line), superscript sits
+                // high (top-aligned to it) -- see font.h's kScriptSub doc comment.
+                int scriptY = mode == ScriptMode::kSub ? y + (font.height - scriptFont.height) : y;
+                drawCharImpl(display, cursorX, scriptY, *p, color, scriptFont);
+                cursorX += glyphAdvanceImpl(scriptFont, *p);
+            }
         }
         return cursorX;
     }
@@ -62,9 +129,15 @@ namespace
     template <typename RowT>
     int textWidthImpl(const char *text, const FontBase<RowT> &font)
     {
+        const auto &scriptFont = ScriptFont<RowT>::get(font);
+        ScriptMode mode = ScriptMode::kNormal;
         int total = 0;
         for (const char *p = text; *p; p++)
-            total += glyphAdvanceImpl(font, *p);
+        {
+            if (applyScriptMarker(*p, &mode))
+                continue;
+            total += mode == ScriptMode::kNormal ? glyphAdvanceImpl(font, *p) : glyphAdvanceImpl(scriptFont, *p);
+        }
         return total;
     }
 
@@ -104,11 +177,24 @@ namespace
     {
         if (scale <= 1)
             return drawTextImpl(display, x, y, text, color, font);
+        const auto &scriptFont = ScriptFont<RowT>::get(font);
+        ScriptMode mode = ScriptMode::kNormal;
         int cursorX = x;
         for (const char *p = text; *p; p++)
         {
-            drawCharScaledImpl(display, cursorX, y, *p, color, font, scale);
-            cursorX += glyphAdvanceImpl(font, *p) * scale;
+            if (applyScriptMarker(*p, &mode))
+                continue;
+            if (mode == ScriptMode::kNormal)
+            {
+                drawCharScaledImpl(display, cursorX, y, *p, color, font, scale);
+                cursorX += glyphAdvanceImpl(font, *p) * scale;
+            }
+            else
+            {
+                int scriptY = mode == ScriptMode::kSub ? y + (font.height - scriptFont.height) * scale : y;
+                drawCharScaledImpl(display, cursorX, scriptY, *p, color, scriptFont, scale);
+                cursorX += glyphAdvanceImpl(scriptFont, *p) * scale;
+            }
         }
         return cursorX;
     }

@@ -10,7 +10,9 @@
  *    reveal (scrollOrbitalIntro() in orbital_view.cpp).
  *  - Left tilt-hold: return to chooser.h's menu (runOrbitalView() returns).
  *  - Also auto-advances to a random preset after kViewIdleJumpUs (config/visual_constants.h)
- *    of no tilt input.
+ *    of no tilt input -- on CYD (no IMU, see main.cpp's CYD boot branch), that same idle
+ *    timeout instead has a kViewCrossSwitchProbability chance to return to main.cpp's loop
+ *    for the element viewer, since CYD can never reach chooser.cpp's own idle coin-flip.
  *
  * Everything else is full parity with the original viewer: boot fly-in, breathing zoom,
  * random zoom excursions, point turnover ("buzz"), phase coloring.
@@ -21,6 +23,7 @@
 
 #include "render/camera.h"
 #include "render/display.h"
+#include "physics/orbital_library.h" // kMaxOrbitalTitleLen, sizing OrbitalPresetState::title below
 #include "physics/orbital_presets.h"
 #include "ux/tilt_gesture.h"
 
@@ -38,7 +41,7 @@ struct OrbitalPresetState
     OrbitalPoint points[kOrbitalNumPoints];
     uint16_t colors[kOrbitalNumPoints];
     OrbitalResampleState resample;
-    char title[12];
+    char title[kMaxOrbitalTitleLen]; // scientific-notation title (formatOrbitalTitle()), e.g. "3d" + a subscript "xy"
     char orbital_numbers[32];
     orb_real_t baseScale, zoomAmplitude;
     orb_real_t rRef; ///< p90 reference radius (bohr) from scaleFromRadii().

@@ -12,6 +12,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "render/display.h" // Display::kColorOrbitalRed/kColorOrbitalBlue, used by kOrbitalLibrary below
@@ -97,3 +98,29 @@ inline constexpr int kOrbitalDefaultPresetIndex = 4; // 2pz
  *       per sampled point.
  */
 [[nodiscard]] const OrbitalSampler *findOrbitalSampler(int n, int ell, int m);
+
+/// Longest string formatOrbitalTitle() below can produce (n + shell letter + a kScriptSub
+/// span around the longest angular part, "y(3x2-y2)", + kScriptEnd + the null terminator),
+/// sized off kOrbitalLibrary's actual worst case rather than a round guess -- see that
+/// function's own doc comment.
+inline constexpr int kMaxOrbitalTitleLen = 16;
+
+/**
+ * @brief Formats an (n, ell, m) orbital's on-screen title in scientific notation -- e.g.
+ *        (3, 2, 2) -> "3d" followed by a font.h kScriptSub span containing "x2-y2" (drawn
+ *        subscript, with each exponent as font.h's kGlyphSup2 glyph), matching the
+ *        literature's d_{x^2-y^2} convention instead of this library's plain-ASCII
+ *        OrbitalDescriptor::label ("3dx2-y2"). label itself is left alone -- it's also used
+ *        as a log identifier (orbital_view.cpp) and a screenshot filename
+ *        (screenshot_batch.cpp), both of which want ordinary text, not markup control bytes
+ *        a non-drawText() consumer would mishandle (see font.h's kScriptSub doc comment).
+ *
+ *        s orbitals (ell == 0) have no angular part in the literature (plain "1s", "2s", ...)
+ *        so this writes just the prefix for them, no subscript span.
+ *
+ * @param out      [out] Null-terminated on return.
+ * @param outSize  Must be >= kMaxOrbitalTitleLen for every (n, ell, m) kOrbitalLibrary
+ *                 actually contains to not truncate (std::snprintf() truncates safely, still
+ *                 null-terminated, if it's ever smaller).
+ */
+void formatOrbitalTitle(char *out, size_t outSize, int n, int ell, int m);

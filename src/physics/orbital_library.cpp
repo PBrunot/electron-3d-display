@@ -30,6 +30,7 @@
 
 #include "esp_attr.h" // EXT_RAM_BSS_ATTR
 #include "esp_log.h"
+#include "render/font.h" // kScriptSub/kScriptEnd/kGlyphSup2/kGlyphSup3, for formatOrbitalTitle() below
 #include "util/storage_mount.h"
 
 // data/orbital_samplers.bin's tables are fixed at float32 (see tools/orbital_table_gen.py)
@@ -42,6 +43,95 @@ static_assert(sizeof(orb_real_t) == sizeof(float), "data/orbital_samplers.bin st
 
 namespace
 {
+    /// s/p/d/f shell-letter lookup, duplicated from slater.h's identical subshellLabelChar()
+    /// rather than pulling in that whole multi-electron-atom subsystem (Clementi-Raimondi
+    /// tables etc.) just for a one-line char mapping this file's formatOrbitalTitle() below
+    /// also needs -- kOrbitalLibrary's hydrogen-orbital model is otherwise independent of
+    /// slater.h's approximation for heavier elements.
+    char shellLetter(int ell)
+    {
+        static const char kLabels[] = "spdf";
+        return (ell >= 0 && ell <= 3) ? kLabels[ell] : '?';
+    }
+
+    /// Writes the angular part of an orbital's scientific-notation subscript (the
+    /// axis/combination after the s/p/d/f shell letter) into `out`, or an empty string for
+    /// ell == 0 (s orbitals have no angular part) or any (ell, m) this switch doesn't
+    /// recognize -- see formatOrbitalTitle()'s doc comment in orbital_library.h. Every
+    /// (ell, m) kOrbitalLibrary actually contains is covered below, matched 1:1 against
+    /// psiReal()'s m>=0 -> cos(m*phi) / m<0 -> sin(|m|*phi) convention (see
+    /// orbital_library.h's header comment), the same convention OrbitalDescriptor::label's
+    /// plain-ASCII spelling already follows. Built with snprintf's %s (not adjacent-literal
+    /// concatenation) since kGlyphSup2/kGlyphSup3 are constexpr char arrays, not literal
+    /// tokens the preprocessor can paste together.
+    void formatAngularLabel(char *out, size_t outSize, int ell, int m)
+    {
+        switch (ell)
+        {
+        case 1: // p
+            switch (m)
+            {
+            case 1:
+                std::snprintf(out, outSize, "x");
+                return;
+            case -1:
+                std::snprintf(out, outSize, "y");
+                return;
+            case 0:
+                std::snprintf(out, outSize, "z");
+                return;
+            }
+            break;
+        case 2: // d
+            switch (m)
+            {
+            case 0:
+                std::snprintf(out, outSize, "z%s", kGlyphSup2);
+                return;
+            case 1:
+                std::snprintf(out, outSize, "xz");
+                return;
+            case -1:
+                std::snprintf(out, outSize, "yz");
+                return;
+            case 2:
+                std::snprintf(out, outSize, "x%s-y%s", kGlyphSup2, kGlyphSup2);
+                return;
+            case -2:
+                std::snprintf(out, outSize, "xy");
+                return;
+            }
+            break;
+        case 3: // f
+            switch (m)
+            {
+            case 0:
+                std::snprintf(out, outSize, "z%s", kGlyphSup3);
+                return;
+            case 1:
+                std::snprintf(out, outSize, "xz%s", kGlyphSup2);
+                return;
+            case -1:
+                std::snprintf(out, outSize, "yz%s", kGlyphSup2);
+                return;
+            case 2:
+                std::snprintf(out, outSize, "z(x%s-y%s)", kGlyphSup2, kGlyphSup2);
+                return;
+            case -2:
+                std::snprintf(out, outSize, "xyz");
+                return;
+            case 3:
+                std::snprintf(out, outSize, "x(x%s-3y%s)", kGlyphSup2, kGlyphSup2);
+                return;
+            case -3:
+                std::snprintf(out, outSize, "y(3x%s-y%s)", kGlyphSup2, kGlyphSup2);
+                return;
+            }
+            break;
+        }
+        out[0] = '\0';
+    }
+
     constexpr auto kTag = "orbital";
     constexpr auto kMountPoint = "/storage"; // for log messages only, see util/storage_mount.h
     constexpr auto kPath = "/storage/orbital_samplers.bin";
@@ -162,4 +252,14 @@ const OrbitalSampler *findOrbitalSampler(int n, int ell, int m)
     sSampler.ell = ell;
     sSampler.m = m;
     return &sSampler;
+}
+
+void formatOrbitalTitle(char *out, size_t outSize, int n, int ell, int m)
+{
+    char angular[12];
+    formatAngularLabel(angular, sizeof(angular), ell, m);
+    if (angular[0] == '\0')
+        std::snprintf(out, outSize, "%d%c", n, shellLetter(ell));
+    else
+        std::snprintf(out, outSize, "%d%c%s%s%s", n, shellLetter(ell), kScriptSub, angular, kScriptEnd);
 }

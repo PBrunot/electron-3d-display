@@ -174,6 +174,8 @@ namespace
         stats.points = count;
 
         const OrbitalDescriptor &d = kOrbitalLibrary[kBenchOrbitalPreset];
+        char title[kMaxOrbitalTitleLen];
+        formatOrbitalTitle(title, sizeof(title), d.n, d.ell, d.m);
         char orbitalNumbers[32];
         std::snprintf(orbitalNumbers, sizeof(orbitalNumbers), "n=%d %s=%d m=%d", d.n, kGlyphScriptL, d.ell, d.m);
 
@@ -203,7 +205,7 @@ namespace
             renderScene(display, points, colors, count, kProtonColor, camera, scale.baseScale, uint32_t(f),
                        kHiddenPointsThreshold);
             drawProtonMarker(display, kProtonColor, kOrbitalProtonMarkerSize);
-            drawText(display, kTitleTextX, kTitleTextY, d.label, kTextColor, kFontHuge);
+            drawText(display, kTitleTextX, kTitleTextY, title, kTextColor, kFontHuge);
             int width = textWidth(orbitalNumbers, kFontLarge);
             drawText(display, Display::kDisplayWidth - width,
                     Display::kDisplayHeight - kFontLarge.height - 15, orbitalNumbers, kTextColor, kFontLarge);

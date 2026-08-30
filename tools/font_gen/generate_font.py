@@ -71,18 +71,25 @@ SIZES = [
 FIRST_CHAR = 0x20
 LAST_ASCII_CHAR = 0x7E  # printable ASCII, space..~
 
-# Two extra glyphs appended right after printable ASCII, so firstChar/glyphCount in font.h
-# stays a single contiguous range. Sourced from DejaVuSans.ttf (Jersey10 has no physics
-# symbols) instead of the main typeface. See font.h for the char constants strings use to
-# reach these.
+# Extra glyphs appended right after printable ASCII, so firstChar/glyphCount in font.h stays
+# a single contiguous range. Sourced from DejaVuSans.ttf (Jersey10 has no physics symbols or
+# superscript digits) instead of the main typeface. See font.h for the char constants strings
+# use to reach these.
 ELECTRON_CHAR = 0x7F  # electron symbol: e + superscript minus
 SCRIPT_L_CHAR = 0x80  # script small l (U+2113): orbital angular-momentum quantum number
+# Superscript 2/3 (U+00B2/U+00B3): orbital exponents (d_z2 -> d subscript "z<sup2>", etc.),
+# drawn as a normal glyph inside a kScriptSub span rather than a further-nested superscript
+# -- see font.h's kGlyphSup2 doc comment for why one shrink step is enough.
+SUP2_CHAR = 0x81
+SUP3_CHAR = 0x82
 DEJAVU_GLYPHS = {
     ELECTRON_CHAR: "e⁻",
     SCRIPT_L_CHAR: "ℓ",
+    SUP2_CHAR: "²",
+    SUP3_CHAR: "³",
 }
 
-LAST_CHAR = SCRIPT_L_CHAR
+LAST_CHAR = SUP3_CHAR
 CHAR_CODES = list(range(FIRST_CHAR, LAST_CHAR + 1))
 
 # Each SIZES entry has its own FontBase<RowT> alias in font.h, named for the size that
@@ -134,6 +141,8 @@ def char_name(code):
         0x7E: "tilde",
         ELECTRON_CHAR: "electron",
         SCRIPT_L_CHAR: "script_l",
+        SUP2_CHAR: "sup2",
+        SUP3_CHAR: "sup3",
     }
     if code in names:
         return names[code]
@@ -214,13 +223,14 @@ def rasterize_glyph(
 def fit_dejavu_font(target_size, row_bits, jersey_ascent, ink_top):
     """Largest DejaVu instance (point size <= target_size) that (a) fits every DEJAVU_GLYPHS
     string inside row_bits px, and (b) once baseline-aligned to Jersey10 (see emit_size's
-    baseline_offset), doesn't poke ink above ink_top. The electron glyph ("e" + superscript
-    minus) is wider than Jersey10's own widest glyph at kFontSmall/kFontLarge's point sizes;
-    script-l's ascender loop is *taller* than Jersey10's own tallest glyph at every size,
-    DejaVu being a conventional typeface where an ascender reaches close to true ascent,
-    unlike pixel-font Jersey10's own shorter glyphs -- so shrinking DejaVu until its ascender
-    clears ink_top (rather than growing the ASCII-derived window, see below) is what keeps
-    script-l's loop intact without reflowing the other 95 glyphs.
+    baseline_offset), doesn't poke ink above ink_top for ANY of them. The electron glyph ("e"
+    + superscript minus) is wider than Jersey10's own widest glyph at kFontSmall/kFontLarge's
+    point sizes; script-l's ascender loop and the superscript-2/3 digits all sit *taller*
+    than Jersey10's own tallest glyph at every size, DejaVu being a conventional typeface
+    where an ascender/superscript reaches close to true ascent, unlike pixel-font Jersey10's
+    own shorter glyphs -- so shrinking DejaVu until the tallest of them clears ink_top (rather
+    than growing the ASCII-derived window, see below) is what keeps every DejaVu glyph intact
+    without reflowing the other 95 glyphs.
     """
     for s in range(target_size, 0, -1):
         f = ImageFont.truetype(str(DEJAVU_PATH), s)
@@ -231,12 +241,9 @@ def fit_dejavu_font(target_size, row_bits, jersey_ascent, ink_top):
         canvas = Image.new(
             "1", (row_bits + 8, f.getmetrics()[0] + f.getmetrics()[1] + 2 * Y_ORIGIN), 0
         )
-        ImageDraw.Draw(canvas).text(
-            (0, Y_ORIGIN + baseline_offset),
-            DEJAVU_GLYPHS[SCRIPT_L_CHAR],
-            font=f,
-            fill=1,
-        )
+        draw = ImageDraw.Draw(canvas)
+        for text in DEJAVU_GLYPHS.values():
+            draw.text((0, Y_ORIGIN + baseline_offset), text, font=f, fill=1)
         bbox = canvas.getbbox()
         if bbox is None or bbox[1] >= ink_top:
             return f

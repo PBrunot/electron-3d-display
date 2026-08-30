@@ -26,7 +26,9 @@
  *    per-frame clip-plane test needed, and arguably clearer on a 240x240 panel), and there's
  *    no phase/sign coloring.
  *  - Also auto-advances to a random element after kViewIdleJumpUs (config/visual_constants.h)
- *    of no tilt input.
+ *    of no tilt input -- on CYD (no IMU, see main.cpp's CYD boot branch), that same idle
+ *    timeout instead has a kViewCrossSwitchProbability chance to return to main.cpp's loop
+ *    for the orbital viewer, since CYD can never reach chooser.cpp's own idle coin-flip.
  */
 #pragma once
 

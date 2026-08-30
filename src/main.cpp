@@ -117,7 +117,15 @@ extern "C" void app_main(void)
     // tilt navigation on this board -- see CYD-branch.md.
     ESP_LOGW(kMainTag, "CYD build: chooser has no working input -- auto-launching orbital viewer in 5s");
     vTaskDelay(pdMS_TO_TICKS(5000));
-    runOrbitalView(display, tilt);
+    // Neither view can ever return via its normal left-tilt-hold exit here (no IMU), so this
+    // loop -- not chooser.cpp's -- is what stands in for its idle orbital/element coin-flip:
+    // each view's own idle jump has a kViewCrossSwitchProbability chance to return instead of
+    // picking another preset, which is what actually alternates the two below.
+    while (true)
+    {
+        runOrbitalView(display, tilt);
+        runAtomView(display, tilt);
+    }
 #else
     if (imu.checkPlanarAtBoot())
     {
