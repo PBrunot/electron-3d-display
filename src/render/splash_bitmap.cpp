@@ -65,13 +65,22 @@ namespace
     // around after the one decode that needs it.
     constexpr size_t kWorkPoolSize = 3900;
 
-    /// TJpgDec input/output callback context -- just the open file (for jpegInput()) and the
-    /// Display to draw into (for jpegOutput()), threaded through JDEC::device by jd_prepare()'s
-    /// last argument.
+    /// TJpgDec input/output callback context -- the open file (for jpegInput()), the Display to
+    /// draw into and the pixel offset to draw it at (for jpegOutput(), so the image can be
+    /// centered on displays whose size doesn't match kSplashBitmapWidth/Height), threaded
+    /// through JDEC::device by jd_prepare()'s last argument. jpegOutput() also samples the
+    /// image's own top-left pixel into bgColor565 the first time it runs -- that pixel is always
+    /// part of atomic_cube.jpg's flat background (never the centered subject), so it doubles as
+    /// "the background color of the loading jpg" for filling the letterbox/pillarbox bars left
+    /// over when the display is bigger than the image (see drawSplashScreen()).
     struct DecodeCtx
     {
         FILE *file;
         Display *display;
+        int offsetX;
+        int offsetY;
+        bool sampledBg = false;
+        uint16_t bgColor565 = 0;
     };
 
     /// TJpgDec input callback: streams compressed bytes straight from the open file instead of
@@ -96,16 +105,43 @@ namespace
     {
         auto *ctx = static_cast<DecodeCtx *>(jd->device);
         const auto *rgb888 = static_cast<const uint8_t *>(bitmap);
+        if (!ctx->sampledBg)
+        {
+            ctx->bgColor565 = Display::packColor565(rgb888[0], rgb888[1], rgb888[2]);
+            ctx->sampledBg = true;
+        }
         for (int y = rect->top; y <= rect->bottom; y++)
         {
             for (int x = rect->left; x <= rect->right; x++)
             {
                 uint8_t r = rgb888[0], g = rgb888[1], b = rgb888[2];
                 rgb888 += 3;
-                ctx->display->writePx(x, y, Display::packColor565(r, g, b));
+                ctx->display->writePx(ctx->offsetX + x, ctx->offsetY + y, Display::packColor565(r, g, b));
             }
         }
         return 1;
+    }
+
+    /// Fills every display pixel outside the centered [offsetX, offsetX+w) x [offsetY,
+    /// offsetY+h) image rect with `color` -- the letterbox/pillarbox bars left over when the
+    /// display doesn't exactly match kSplashBitmapWidth/Height. A no-op region when the display
+    /// matches the image size exactly (offsets both 0, w/h covering the whole screen), which is
+    /// the common case on the S3.
+    void fillBorder(Display &display, int offsetX, int offsetY, int w, int h, uint16_t color)
+    {
+        for (int y = 0; y < Display::kDisplayHeight; y++)
+        {
+            if (y < offsetY || y >= offsetY + h)
+            {
+                for (int x = 0; x < Display::kDisplayWidth; x++)
+                    display.writePx(x, y, color);
+                continue;
+            }
+            for (int x = 0; x < offsetX; x++)
+                display.writePx(x, y, color);
+            for (int x = offsetX + w; x < Display::kDisplayWidth; x++)
+                display.writePx(x, y, color);
+        }
     }
 } // namespace
 
@@ -132,7 +168,9 @@ void drawSplashScreen(Display &display)
     static uint8_t workPool[kWorkPoolSize]; // static: kept off the caller's stack, see
                                              // kWorkPoolSize's comment for why its lifetime
                                              // doesn't need to outlive this call
-    DecodeCtx ctx{f, &display};
+    int offsetX = (Display::kDisplayWidth - kSplashBitmapWidth) / 2;
+    int offsetY = (Display::kDisplayHeight - kSplashBitmapHeight) / 2;
+    DecodeCtx ctx{f, &display, offsetX, offsetY};
     JDEC jd;
 
     JRESULT res = jd_prepare(&jd, jpegInput, workPool, UINT(kWorkPoolSize), &ctx);
@@ -160,6 +198,8 @@ void drawSplashScreen(Display &display)
         ESP_LOGE(kTag, "%s: jd_decomp failed (JRESULT %d)", kPath, int(res));
         return;
     }
+
+    fillBorder(display, offsetX, offsetY, kSplashBitmapWidth, kSplashBitmapHeight, ctx.bgColor565);
 
     int64_t elapsedUs = esp_timer_get_time() - startUs;
     ESP_LOGI(kTag, "%s decoded in %lld us (expected ~60000-90000)", kPath,

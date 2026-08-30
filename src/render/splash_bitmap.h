@@ -12,11 +12,12 @@ inline constexpr int kSplashBitmapWidth = 240;
 inline constexpr int kSplashBitmapHeight = 240;
 
 /**
- * @brief Decode data/atomic_cube.jpg and blit it at (0, 0), opaque (no blending) -- caller
- *        presents the frame afterward. Clipped against Display::kDisplayWidth/Height like
- *        every other draw function in this project; on a panel taller than
- *        kSplashBitmapHeight (e.g. the CYD's 320px) the rest of the screen is left whatever it
- *        already held -- caller clears first if that matters.
+ * @brief Decode data/atomic_cube.jpg and blit it centered on the display, opaque (no blending)
+ *        -- caller presents the frame afterward. Clipped against Display::kDisplayWidth/Height
+ *        like every other draw function in this project; on a panel whose size doesn't match
+ *        kSplashBitmapWidth/Height (e.g. the CYD's 240x320 vs. the image's 240x240) the
+ *        letterbox/pillarbox bars left over are filled with the image's own background color
+ *        (sampled from its top-left pixel), not left holding whatever the screen had before.
  *
  * Decodes straight into the Display's own frame buffer via writePx() -- no intermediate RGB565
  * buffer for the whole image (that would be 240*240*2 = 115200 bytes; an early version of this
