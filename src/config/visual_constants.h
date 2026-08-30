@@ -42,17 +42,6 @@ inline constexpr int kFpsUpdateInterval = 1000;
 /// preset/element. Same value for both viewers (orbital_view.cpp, atom_view.cpp).
 inline constexpr int64_t kViewIdleJumpUs = 60'000'000;
 
-/// CYD only: at each view's own kViewIdleJumpUs idle timeout, the chance that idle browsing
-/// crosses over to the sibling view (orbital <-> element) and returns, instead of jumping to
-/// another preset within the current view. CYD has no IMU (ux/imu.cpp's shim), so it can
-/// never tilt back to chooser.cpp's menu and land on its own idle 50/50 orbital/element
-/// coin-flip (kChooserIdleJumpUs) the way the tilt-capable board does -- main.cpp's CYD boot
-/// path instead loops runOrbitalView()/runAtomView() directly at the top level, and this is
-/// the probability each view's own idle jump uses to hand control back to that loop. Kept
-/// well under 0.5 so idle browsing still mostly explores each view's own preset library
-/// (that's the point of being IN it) rather than bouncing between viewers every timeout.
-inline constexpr orb_real_t kViewCrossSwitchProbability = orb_real_t(0.25);
-
 // ============================================================================================
 // Tumble camera pacing + point rendering (render/camera.h)
 // ============================================================================================
@@ -175,9 +164,10 @@ inline constexpr uint32_t kSplashHoldMs = 2000;
 // defined) still reserves its own static buffers in that same budget. See CYD-branch.md for
 // the measured link-time headroom this value was tuned against.
 #if CONFIG_IDF_TARGET_ESP32
-// main.cpp's CYD boot loop runs both runOrbitalView() and runAtomView() (idle browsing
-// crosses over between them, see kViewCrossSwitchProbability), so both views' static state is
-// permanently resident regardless of which is actually on screen. Four internal-SRAM
+// Both runOrbitalView() and runAtomView() (and their static preset state) are always linked
+// into the CYD binary regardless of which is on screen at any given moment -- chooser.cpp's
+// menu can reach either one -- so both views' static state is permanently resident. Four
+// internal-SRAM
 // reclamation passes (2026-08-30) made room to raise this back up from an earlier 1800/500
 // low point without shrinking the framebuffer or risking boot failure, each verified via a
 // real serial boot log's `total free DMA` line (Display::Display(), display.cpp) against the

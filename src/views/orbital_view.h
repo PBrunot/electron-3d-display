@@ -10,9 +10,11 @@
  *    reveal (scrollOrbitalIntro() in orbital_view.cpp).
  *  - Left tilt-hold: return to chooser.h's menu (runOrbitalView() returns).
  *  - Also auto-advances to a random preset after kViewIdleJumpUs (config/visual_constants.h)
- *    of no tilt input -- on CYD (no IMU, see main.cpp's CYD boot branch), that same idle
- *    timeout instead has a kViewCrossSwitchProbability chance to return to main.cpp's loop
- *    for the element viewer, since CYD can never reach chooser.cpp's own idle coin-flip.
+ *    of no tilt/touch input.
+ *
+ * On CYD (no IMU -- see touch_gesture.h), the same gestures above are driven by
+ * TouchGestureDetector's swipes instead of TiltGestureDetector's tilt-and-hold; see
+ * tilt_gesture.h's GestureSource for the shared interface both implement.
  *
  * Everything else is full parity with the original viewer: boot fly-in, breathing zoom,
  * random zoom excursions, point turnover ("buzz"), phase coloring.
@@ -79,8 +81,8 @@ void renderOrbitalFrame(Display &display, const OrbitalPresetState &preset, cons
                         orb_real_t scale, uint32_t frameSalt, uint32_t buzzThreshold);
 
 /**
- * @brief Run the orbital viewer until a Left tilt-hold confirms.
+ * @brief Run the orbital viewer until a Left tilt-hold (or touch-swipe, on CYD) confirms.
  * @param display Target display; frames are rendered and presented each loop iteration.
- * @param tilt Gesture source for navigation input.
+ * @param tilt Gesture source for navigation input -- TiltGestureDetector or TouchGestureDetector.
  */
-void runOrbitalView(Display &display, TiltGestureDetector &tilt);
+void runOrbitalView(Display &display, GestureSource &tilt);
