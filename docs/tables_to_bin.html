@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tables to BIN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=STIX+Two+Text:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#F3F4FA;
+    --surface:#FFFFFF;
+    --surface-2:#ECEBFC;
+    --border:#D9DBEA;
+    --border-strong:#B9BCD9;
+    --text:#1B1E2E;
+    --text-muted:#5A5F78;
+    --accent:#4B4FD1;
+    --accent-soft:#EDEDFB;
+    --phase-pos:#D22828;
+    --phase-neg:#2850D2;
+    --shell-1:#8C3CFF; --shell-2:#466EFF; --shell-3:#3CC8DC; --shell-4:#5ADC5A;
+    --shell-5:#FFD23C; --shell-6:#FF8C28; --shell-7:#E63C3C; --shell-x:#A0A0A0;
+    --font-display:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-mono:'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --font-math:'STIX Two Text', 'Cambria Math', Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0C0E1A; --surface:#141727; --surface-2:#1B1E38;
+      --border:#2B2F4C; --border-strong:#3C4166;
+      --text:#E7E8F5; --text-muted:#9CA0C4;
+      --accent:#9497FF; --accent-soft:#232752;
+      --phase-pos:#E05555; --phase-neg:#5F7FE8;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0C0E1A; --surface:#141727; --surface-2:#1B1E38;
+    --border:#2B2F4C; --border-strong:#3C4166;
+    --text:#E7E8F5; --text-muted:#9CA0C4;
+    --accent:#9497FF; --accent-soft:#232752;
+    --phase-pos:#E05555; --phase-neg:#5F7FE8;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:var(--font-display);
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:840px; margin:0 auto; padding:48px 24px 80px;}
+
+  header.page h1{
+    font-family:var(--font-display); font-weight:700; font-size:clamp(1.7rem,4vw,2.35rem);
+    letter-spacing:-0.01em; margin:0 0 10px; text-wrap:balance;
+  }
+  header.page .lede{
+    font-family:var(--font-math); font-size:1.05rem; line-height:1.6; color:var(--text-muted);
+    max-width:66ch; margin:0 0 22px;
+  }
+  .scope-note{
+    display:flex; gap:12px; align-items:flex-start;
+    background:var(--accent-soft); border:1px solid var(--border);
+    border-radius:10px; padding:14px 16px; margin-bottom:8px;
+  }
+  .scope-note .mark{
+    font-family:var(--font-mono); font-weight:600; color:var(--accent);
+    font-size:11px; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; padding-top:2px;
+  }
+  .scope-note p{margin:0; font-size:.92rem; line-height:1.55; color:var(--text);}
+  .scope-note code{font-family:var(--font-mono); font-size:.85em; color:var(--accent);}
+  .scope-note a{color:var(--accent); font-weight:600;}
+
+  section.pipeline{margin-top:56px;}
+  section.pipeline h2{
+    font-family:var(--font-display); font-weight:700; font-size:1.45rem;
+    margin:0 0 4px; letter-spacing:-.005em;
+  }
+  section.pipeline .subtitle{
+    font-size:.88rem; color:var(--text-muted); margin:0 0 26px; font-family:var(--font-mono);
+  }
+
+  .flow{display:flex; flex-direction:column; align-items:stretch; max-width:640px; margin:0 auto;}
+
+  .connector{display:flex; flex-direction:column; align-items:center; gap:1px; margin:0 auto; color:var(--accent);}
+  .connector svg{width:18px; height:30px; display:block;}
+  .connector .clabel{
+    font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted);
+    letter-spacing:.02em; white-space:nowrap; margin-top:1px;
+  }
+
+  .stage{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 20px 15px; box-shadow:0 1px 2px rgba(20,20,50,.04);
+  }
+  .stage.given{
+    background:var(--surface-2); border-style:dashed; border-color:var(--border-strong);
+    box-shadow:none;
+  }
+  .kicker{
+    font-family:var(--font-mono); font-size:10.5px; font-weight:600; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 6px;
+  }
+  .given .kicker{color:var(--text-muted);}
+  .stage-title{font-family:var(--font-display); font-weight:600; font-size:1rem; margin:0 0 10px;}
+
+  .fstack{display:flex; flex-direction:column; align-items:center; gap:7px; margin-bottom:10px;}
+  .f{
+    font-family:var(--font-math); font-size:1.02rem; text-align:center;
+    display:block; line-height:1.7;
+  }
+  .f.small{font-size:.86rem; color:var(--text-muted);}
+  .f.bullet{text-align:left;}
+  .given .fstack{align-items:flex-start;}
+  .given .f{text-align:left;}
+
+  .caption{font-size:.86rem; line-height:1.5; color:var(--text-muted); margin:0;}
+  .caption a{color:var(--accent);}
+  .tag{
+    display:inline-block; font-family:var(--font-mono); font-size:10.5px; color:var(--accent);
+    background:var(--accent-soft); border-radius:5px; padding:2px 7px; margin-top:10px;
+  }
+  .given .tag{background:transparent; border:1px solid var(--border-strong); color:var(--text-muted);}
+
+  i.v{font-style:italic; font-family:var(--font-math);}
+  .frac{display:inline-flex; flex-direction:column; align-items:center; vertical-align:middle; margin:0 .12em; line-height:1.15;}
+  .frac .num{padding:0 .15em .1em; border-bottom:1.4px solid currentColor;}
+  .frac .den{padding:.1em .15em 0;}
+  .sqrt{display:inline-flex; align-items:flex-start;}
+  .sqrt::before{content:"\221A"; font-size:1.1em; transform:translateY(1px); margin-right:-1px;}
+  .sqrt .rad{border-top:1.4px solid currentColor; padding:0 .18em;}
+  .cases{display:inline-flex; align-items:center; gap:.4em;}
+  .cases::before{content:"{"; font-size:1.9em; font-weight:300; line-height:.6; transform:scaleY(1.25);}
+  .cases-list{display:flex; flex-direction:column; gap:.12em; font-size:.9em; text-align:left;}
+
+  .split{
+    display:grid; grid-template-columns:1fr 1fr; gap:0; margin-bottom:6px;
+    border:1px solid var(--border); border-radius:10px; overflow:hidden;
+  }
+  .split-half{padding:13px 14px; background:var(--surface);}
+  .split-half:first-child{border-right:1px dashed var(--border-strong);}
+  .split-half .half-label{
+    font-family:var(--font-mono); font-size:10px; font-weight:600; color:var(--text-muted);
+    text-transform:uppercase; letter-spacing:.06em; margin:0 0 8px;
+  }
+  .split-half .f{font-size:.92rem; text-align:left;}
+  .split-share{
+    padding:12px 20px 2px; border-top:1px dashed var(--border-strong);
+    background:var(--surface); text-align:center;
+  }
+  @media (max-width:560px){
+    .split{grid-template-columns:1fr;}
+    .split-half:first-child{border-right:none; border-bottom:1px dashed var(--border-strong);}
+  }
+
+  .note{
+    text-align:center; font-size:.82rem; color:var(--text-muted); font-family:var(--font-mono);
+    margin:14px 0 -4px; padding:8px 14px; border:1px dashed var(--border-strong); border-radius:8px;
+    max-width:520px; margin-left:auto; margin-right:auto;
+  }
+
+  .divider{
+    display:flex; align-items:center; gap:14px; max-width:640px; margin:44px auto 30px;
+    color:var(--text-muted); font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  }
+  .divider::before, .divider::after{content:""; flex:1; height:1px; background:var(--border-strong);}
+
+  footer.legend{
+    margin-top:64px; padding-top:28px; border-top:1px solid var(--border);
+  }
+  footer.legend h3{
+    font-family:var(--font-display); font-weight:600; font-size:.95rem; margin:0 0 16px;
+    color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; font-size:.78rem;
+  }
+  .legend-grid{display:flex; flex-wrap:wrap; gap:28px 40px; margin-bottom:22px;}
+  .legend-group{display:flex; flex-direction:column; gap:8px;}
+  .legend-group-title{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:2px;}
+  .box-key{display:flex; align-items:center; gap:8px; font-size:.85rem;}
+  .box-key .mini{width:28px; height:16px; border-radius:4px; flex:none;}
+  .mini.given-mini{background:var(--surface-2); border:1.4px dashed var(--border-strong);}
+  .mini.solid-mini{background:var(--surface); border:1.4px solid var(--border);}
+  footer.legend a{color:var(--accent); font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Tables to BIN</h1>
+    <p class="lede">How the PC-side toolchain turns validated orbital math and atomSFE solutions into the two binary blobs the firmware reads from flash — <span class="tag" style="margin-top:0;">data/orbital_samplers.bin</span> and <span class="tag" style="margin-top:0;">data/hfs_tables.bin</span> — and how those blobs get from the repo onto the device's SPIFFS "storage" partition.</p>
+    <div class="scope-note">
+      <span class="mark">Build side</span>
+      <p>This is the build side of <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>: the two blobs produced here are exactly the flash-resident "given" tables that page's pipelines consume (the hydrogen samplers and the atomSFE radial rows). The math behind the hydrogen samplers is the subject of <a href="coefficients_to_tables.html">Coefficients to Tables</a>; the atomSFE model's design and the full regenerate/flash runbook live in <a href="ATOMS.md">ATOMS.md</a> (§5) and <a href="../pc/RUN_HFS.md">pc/RUN_HFS.md</a>.</p>
+    </div>
+  </header>
+
+  <!-- ======================= ORBITAL SAMPLERS ======================= -->
+  <section class="pipeline">
+    <h2>Hydrogen sampler blob — data/orbital_samplers.bin</h2>
+    <p class="subtitle">tools/orbital_table_gen.py · micropython/pointcloud.py — one run per library entry (36 hydrogen presets), host-side in Python (double precision)</p>
+
+    <div class="flow">
+
+      <div class="stage given">
+        <p class="kicker">Given — the preset list and the math</p>
+        <div class="fstack">
+          <div class="f bullet">• kOrbitalLibrary — 36 descriptors {n, ℓ, m, label, phase colors}, compiled into the firmware (src/physics/orbital_library.h): the preset order IS the record order</div>
+          <div class="f bullet">• cloud_common.ORBITAL_PRESETS — the same 36 (n, ℓ, m, label) tuples in the same order, index-matched to kOrbitalLibrary (keep both lists appended identically)</div>
+          <div class="f bullet">• micropython/orbitals.py + pointcloud.py — the validated math, imported unmodified under CPython via pc/micropython_shim.py</div>
+        </div>
+        <p class="caption">Same code path already cross-validated bit-identical against the C++/JS ports by <a href="../tools/orbitals_host/run_crosscheck.sh">tools/orbitals_host/run_crosscheck.sh</a> — this generator is not a third reimplementation, it reuses the MicroPython port itself.</p>
+        <span class="tag">kOrbitalLibrary / ORBITAL_PRESETS / micropython_shim</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">36 × (n, ℓ, m)</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">1 · Sample each preset's inverse-CDF tables</p>
+        <div class="fstack">
+          <div class="f">for each (n, ℓ, m): &nbsp; pointcloud.init_orbital_sampler(n, ℓ, m)</div>
+          <div class="f">→ OrbitalSampler { n, ℓ, m, maxR, invRTable[1001], invThetaTable[1001], invPhiTable[1001] }</div>
+        </div>
+        <p class="caption">Exactly the three quantile tables <a href="coefficients_to_tables.html">Coefficients to Tables</a> describes buildOrbitalSamplerConstexpr() produces in C++ — same 1001-point resolution, same math, just executed on the PC instead of inside the compiler.</p>
+        <span class="tag">init_orbital_sampler()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">36 OrbitalSamplers</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">2 · Flatten to little-endian records</p>
+        <div class="fstack">
+          <div class="f">header &lt;HH&gt; &nbsp;count = 36, &nbsp;tableSize = 1001</div>
+          <div class="f">per preset: &nbsp;&lt;iii&gt; n, ℓ, m &nbsp;+&nbsp; &lt;f&gt; maxR &nbsp;+&nbsp; 3 × &lt;1001f&gt; invR / invTheta / invPhi</div>
+        </div>
+        <p class="caption">Tables are fixed at float32 on disk regardless of the generator's own precision — the C++ reader static_asserts <code style="font-family:var(--font-mono);font-size:.85em;">sizeof(orb_real_t) == sizeof(float)</code> so the fread() sizes can never silently drift. A missing or stale blob is caught by the 2-value header check and degrades to a single point at the origin, never a crash (see orbital_library.cpp).</p>
+        <span class="tag">emit_binary()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">flat little-endian records</span>
+      </div>
+
+      <div class="stage given">
+        <p class="kicker">Deliverable — data/orbital_samplers.bin</p>
+        <div class="fstack">
+          <div class="f">433,012 bytes &nbsp;(~423 KB)</div>
+        </div>
+        <p class="caption">Regenerate with <code style="font-family:var(--font-mono);font-size:.85em;">python3 tools/orbital_table_gen.py</code> whenever kOrbitalLibrary / ORBITAL_PRESETS changes. No offset table: a preset's record index IS its index in kOrbitalLibrary, which stays compiled into the firmware.</p>
+        <span class="tag">tools/orbital_table_gen.py</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ======================= HFS / atomSFE ======================= -->
+  <section class="pipeline">
+    <h2>AtomSFE radial rows — data/hfs_tables.bin</h2>
+    <p class="subtitle">pc/hfs_atomsfe.py → pc/hfs_tables.py --compact → tools/hfs_table_gen.py</p>
+
+    <div class="flow">
+
+      <div class="stage given">
+        <p class="kicker">Given — the solved wavefunctions</p>
+        <div class="fstack">
+          <div class="f bullet">• SPARC-atomSFE — all-electron Kohn–Sham solver (LDA_SVWN, spectral finite elements), vendored in pc/_atomsfe_vendor; solves every occupied (n, ℓ) subshell of Z = 1..92 (the library's hard cap)</div>
+          <div class="f bullet">• pc/hfs_tables_atomsfe.npz — the solver's output on a 2001-point log-uniform grid (r = 1e-6..100 Bohr), committed as pc/hfs_tables.npz (8.1 MB)</div>
+        </div>
+        <p class="caption">Eigenvalues reproduce the NIST dftdata LDA reference to ≤7×10⁻⁶ Ha across all 915 subshells, ground-state configurations 92/92 (pc/nist_compare_atomsfe.py, tolerance 2e-5 Ha/subshell). Non-relativistic — no Dirac pass for Z ≥ 55 (see ATOMS.md §5.2).</p>
+        <span class="tag">pc/hfs_atomsfe.py</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">npz — 2001 pts/subshell</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">1 · Reduce to device resolution</p>
+        <div class="fstack">
+          <div class="f">python pc/hfs_tables.py --compact hfs_tables.npz hfs_tables_reduced.npz 128</div>
+          <div class="f small">→ 128 points per subshell on the log-uniform grid (r = 1e-6..100 Bohr) — the committed pc/hfs_tables_reduced.npz (1.2 MB)</div>
+        </div>
+        <p class="caption">The radial density is smooth in log-r, so downsampling keeps the shape: hfs_tables.compact()'s docstring measures the mode radius accurate to ~0.1% at its 513-point setting; 128 is the device reference. E/occ values ride along in the npz but are dropped in the blob.</p>
+        <span class="tag">hfs_tables.compact()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">reduced npz — 128 pts/subshell</span>
+      </div>
+
+      <div class="stage">
+        <p class="kicker">2 · Pack into one flat blob</p>
+        <div class="fstack">
+          <div class="f">header &lt;HHH&gt; &nbsp;gridSize = 128, &nbsp;elementCount = 92, &nbsp;subshellCount = 915</div>
+          <div class="f">r grid — 128 × f32 &nbsp;(shared log-uniform Bohr grid)</div>
+          <div class="f">element index — 92 × &lt;HB (offset, count)&gt; &nbsp;per Z = 1..92</div>
+          <div class="f">subshell index — 915 × &lt;BB (n, ℓ)&gt;</div>
+          <div class="f">u(r) rows — 915 × 128 f32, back to back</div>
+        </div>
+        <p class="caption">u = r·R, the same quantity the atom pipeline consumes as R(r) = u(r)/r. E/occ are dropped — occupancy already comes from each port's own configuration source (slater.h / slater.py), which the NIST cross-check matches 92/92 anyway.</p>
+        <span class="tag">build_flat() / emit_binary()</span>
+      </div>
+
+      <div class="connector">
+        <svg viewBox="0 0 18 30"><line x1="9" y1="1" x2="9" y2="21" stroke="currentColor" stroke-width="2"/><polygon points="9,29 3,18 15,18" fill="currentColor"/></svg>
+        <span class="clabel">471,104-byte blob</span>
+      </div>
+
+      <div class="stage given">
+        <p class="kicker">Deliverable — data/hfs_tables.bin</p>
+        <div class="fstack">
+          <div class="f">471,104 bytes &nbsp;(~460 KB)</div>
+          <div class="f small">+ byte-identical micropython/hfs_tables.bin</div>
+          <div class="f small">+ generated src/physics/hfs_tables.h (the three size constants only)</div>
+        </div>
+        <p class="caption">Readers (src/physics/hfs_radial.cpp, micropython/hfs_radial_tables.py) sanity-check the file's own header against those constants at load. hfs_radial.cpp keeps its FILE* open across lookups — re-opening SPIFFS once per subshell measured ~800–980 ms for Fe's 7 subshells vs ~30–60 ms hydrogenic, so the open cost is paid once, not per row.</p>
+        <span class="tag">tools/hfs_table_gen.py</span>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="divider">How the blobs reach the device</div>
+
+  <section class="pipeline" style="margin-top:0;">
+    <div class="flow">
+      <div class="stage">
+        <div class="split">
+          <div class="split-half">
+            <p class="half-label">ESP32 C++ (S3 / CYD)</p>
+            <div class="f">data/ is staged into the PlatformIO SPIFFS image; `pio run -t uploadfs` writes the "storage" partition</div>
+            <p class="caption" style="margin-top:8px;">partitions_16M.csv: spiffs, 7M at 0x810000. Chained onto every `pio run -t upload` by <a href="../tools/extra_script_uploadfs.py">tools/extra_script_uploadfs.py</a> (the CYD env uses tools/extra_script_uploadfs_cyd.py's pure-Python spiffsgen target instead). Both blobs are read on demand — once per preset/element switch, never per frame. Note: uploadfs reformats the whole partition, so it also wipes on-device screenshots.</p>
+          </div>
+          <div class="split-half">
+            <p class="half-label">MicroPython</p>
+            <div class="f">only the HFS blob travels: micropython/hfs_tables.bin, deployed with `mpremote ... fs cp -r micropython/. :`</div>
+            <p class="caption" style="margin-top:8px;">Read by micropython/hfs_radial_tables.py (header/index resident in RAM, rows via open/seek). The hydrogen samplers are NOT a blob here — cloud_common.build_point_cloud() builds them at runtime with init_orbital_sampler(), memoized in a per-(n,ℓ,m) cache.</p>
+          </div>
+        </div>
+        <p class="caption" style="margin-top:14px; text-align:center;">Missing or stale blob never crashes: the C++ readers return nullptr and the pipelines fall back (hydrogenic radii / single point at the origin) — a board that never ran `uploadfs` still boots and renders with the old math.</p>
+        <span class="tag" style="margin-top:8px;">extra_script_uploadfs.py / mpremote fs cp</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider">Sibling artifacts (not blobs)</div>
+
+  <section class="pipeline" style="margin-top:0;">
+    <div class="flow">
+      <div class="stage">
+        <p class="kicker">tools/atom_size_calib_gen.py — the κ_Z size-calibration tables</p>
+        <div class="fstack">
+          <div class="f bullet">• src/physics/atom_size_calib.h — C++, table-based (CR literature valence radius ÷ HFS-table valence mode, the same tables this page packs), 92 entries — consumed by buildAtomPointCloud()'s per-element multiply (Tables to Point Clouds, atom step 9)</div>
+          <div class="f bullet">• micropython/hfs_atom_size_calib.py — table-based, same factors, used only by micropython/atom_view.py</div>
+          <div class="f bullet">• micropython/atom_size_calib.py — hydrogenic variant, kept for the PC/web hydrogenic paths (pc/atom_view_pc.py --model hydrogenic)</div>
+        </div>
+        <p class="caption">Elements without a CR literature value (Fr, Ra) get 1.0. Unlike the two blobs, these are generated source (headers/modules) compiled or copied into each port, not read from flash.</p>
+        <span class="tag">tools/atom_size_calib_gen.py</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="legend">
+    <h3>Reading key</h3>
+    <div class="legend-grid">
+      <div class="legend-group">
+        <p class="legend-group-title">Box style</p>
+        <div class="box-key"><span class="mini given-mini"></span> given — an existing artifact, read as input</div>
+        <div class="box-key"><span class="mini solid-mini"></span> computed — an operation this pipeline performs</div>
+      </div>
+    </div>
+    <p>See also: <a href="coefficients_to_tables.html">Coefficients to Tables</a> — the math behind the hydrogen samplers · <a href="tables_to_pointclouds.html">Tables to Point Clouds</a> — how these blobs get consumed, per point, on device · <a href="ATOMS.md">ATOMS.md</a> §5 / <a href="../pc/RUN_HFS.md">pc/RUN_HFS.md</a> — the atomSFE model and the regenerate/flash runbook.</p>
+  </footer>
+
+</div>
+</body>
+</html>

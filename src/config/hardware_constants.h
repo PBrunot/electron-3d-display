@@ -65,19 +65,18 @@ inline constexpr orb_real_t kPlanarMaxMagnitudeDeltaG = orb_real_t(0.15);
 // completes, and paste it in below, replacing every constant here. Reflash; a normal
 // (right-side-up) boot then skips straight to the menu. Powering the device on upside-down
 // remains the way to force recalibration afterward (see main.cpp's boot sequence).
-
-inline constexpr orb_real_t kDefaultBaselineX = orb_real_t(-0.0334);
-inline constexpr orb_real_t kDefaultBaselineY = orb_real_t(0.3579);
-inline constexpr orb_real_t kDefaultBaselineZ = orb_real_t(0.9510);
-inline constexpr orb_real_t kDefaultDirRefLeftX = orb_real_t(0.9819);
-inline constexpr orb_real_t kDefaultDirRefLeftY = orb_real_t(-0.0903);
-inline constexpr orb_real_t kDefaultDirRefLeftZ = orb_real_t(-0.1664);
-inline constexpr orb_real_t kDefaultDirRefRightX = orb_real_t(-0.9900);
-inline constexpr orb_real_t kDefaultDirRefRightY = orb_real_t(-0.0510);
-inline constexpr orb_real_t kDefaultDirRefRightZ = orb_real_t(-0.1312);
-inline constexpr orb_real_t kDefaultDirRefUpX = orb_real_t(0.0405);
-inline constexpr orb_real_t kDefaultDirRefUpY = orb_real_t(0.8874);
-inline constexpr orb_real_t kDefaultDirRefUpZ = orb_real_t(-0.4592);
-inline constexpr orb_real_t kDefaultDirRefDownX = orb_real_t(0.0305);
-inline constexpr orb_real_t kDefaultDirRefDownY = orb_real_t(-0.9885);
-inline constexpr orb_real_t kDefaultDirRefDownZ = orb_real_t(0.1482);
+inline constexpr orb_real_t kDefaultBaselineX = orb_real_t(-0.0159);
+inline constexpr orb_real_t kDefaultBaselineY = orb_real_t(0.3526);
+inline constexpr orb_real_t kDefaultBaselineZ = orb_real_t(0.9478);
+inline constexpr orb_real_t kDefaultDirRefLeftX = orb_real_t(-0.9857);
+inline constexpr orb_real_t kDefaultDirRefLeftY = orb_real_t(-0.0088);
+inline constexpr orb_real_t kDefaultDirRefLeftZ = orb_real_t(-0.1683);
+inline constexpr orb_real_t kDefaultDirRefRightX = orb_real_t(0.9890);
+inline constexpr orb_real_t kDefaultDirRefRightY = orb_real_t(0.0028);
+inline constexpr orb_real_t kDefaultDirRefRightZ = orb_real_t(-0.1476);
+inline constexpr orb_real_t kDefaultDirRefUpX = orb_real_t(-0.1052);
+inline constexpr orb_real_t kDefaultDirRefUpY = orb_real_t(0.9033);
+inline constexpr orb_real_t kDefaultDirRefUpZ = orb_real_t(-0.4158);
+inline constexpr orb_real_t kDefaultDirRefDownX = orb_real_t(0.0109);
+inline constexpr orb_real_t kDefaultDirRefDownY = orb_real_t(-0.9807);
+inline constexpr orb_real_t kDefaultDirRefDownZ = orb_real_t(0.1952);

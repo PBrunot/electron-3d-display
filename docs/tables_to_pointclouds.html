@@ -19,8 +19,8 @@
     --text-muted:#5A5F78;
     --accent:#4B4FD1;
     --accent-soft:#EDEDFB;
-    --phase-pos:#D97C2B;
-    --phase-neg:#3A66C9;
+    --phase-pos:#D22828;
+    --phase-neg:#2850D2;
     --shell-1:#8C3CFF; --shell-2:#466EFF; --shell-3:#3CC8DC; --shell-4:#5ADC5A;
     --shell-5:#FFD23C; --shell-6:#FF8C28; --shell-7:#E63C3C; --shell-x:#A0A0A0;
     --font-display:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
@@ -33,7 +33,7 @@
       --border:#2B2F4C; --border-strong:#3C4166;
       --text:#E7E8F5; --text-muted:#9CA0C4;
       --accent:#9497FF; --accent-soft:#232752;
-      --phase-pos:#E8A15C; --phase-neg:#7B9EF2;
+      --phase-pos:#E05555; --phase-neg:#5F7FE8;
     }
   }
   :root[data-theme="dark"]{
@@ -41,7 +41,7 @@
     --border:#2B2F4C; --border-strong:#3C4166;
     --text:#E7E8F5; --text-muted:#9CA0C4;
     --accent:#9497FF; --accent-soft:#232752;
-    --phase-pos:#E8A15C; --phase-neg:#7B9EF2;
+    --phase-pos:#E05555; --phase-neg:#5F7FE8;
   }
 
   *{box-sizing:border-box;}
@@ -177,6 +177,7 @@
   .box-key .mini{width:28px; height:16px; border-radius:4px; flex:none;}
   .mini.given-mini{background:var(--surface-2); border:1.4px dashed var(--border-strong);}
   .mini.solid-mini{background:var(--surface); border:1.4px solid var(--border);}
+  footer.legend a{color:var(--accent); font-weight:600;}
 </style>
 </head>
 <body>
@@ -187,7 +188,7 @@
     <p class="lede">How the firmware turns a chosen quantum state into the (x, y, z) points a frame actually draws — every draw, lookup, and coordinate transform that runs per point or per element switch.</p>
     <div class="scope-note">
       <span class="mark">Scope</span>
-      <p>Both pipelines below start from tables that already exist — the compile-time hydrogen samplers, the flash-resident atomSFE radial rows, the Clementi–Raimondi constants. Dashed boxes mark that given data; solid boxes are operations this pipeline performs. How the hydrogen tables themselves get built is covered in the companion diagram, <a href="coefficients_to_tables.html">Coefficients to Tables</a>.</p>
+      <p>Both pipelines below start from tables that already exist — the flash-resident hydrogen samplers (built host-side in Python; see the companion diagram), the compile-time angular tables, the flash-resident atomSFE radial rows, and the Clementi–Raimondi constants. Dashed boxes mark that given data; solid boxes are operations this pipeline performs. How the hydrogen tables themselves get built is covered in <a href="coefficients_to_tables.html">Coefficients to Tables</a>; the atomSFE rows' provenance and the hydrogenic/Z_eff fallback model live in <a href="ATOMS.md">ATOMS.md</a> (§5) and <a href="../pc/RUN_HFS.md">pc/RUN_HFS.md</a>.</p>
     </div>
   </header>
 
@@ -259,12 +260,12 @@
       <div class="stage">
         <p class="kicker">4 · Evaluate ψ at that point</p>
         <div class="fstack">
-          <div class="f">R<sub><i class="v">nℓ</i></sub>(<i class="v">r</i>) = (Σ<sub><i class="v">k</i></sub> <i class="v">c<sub>k</sub></i> <i class="v">r</i><sup><i class="v">k</i></sup>) · <i class="v">r</i><sup><i class="v">ℓ</i></sup> · e<sup>−<i class="v">r</i>/<i class="v">n</i></sup></div>
-          <div class="f">P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ</i>) = (Σ<sub><i class="v">j</i></sub> <i class="v">a<sub>j</sub></i> <i class="v">u</i><sup><i class="v">j</i></sup>) · sin<sup>|<i class="v">m</i>|</sup><i class="v">θ</i>, &nbsp;<i class="v">u</i>=cos<i class="v">θ</i></div>
+          <div class="f">R<sub><i class="v">nℓ</i></sub>(<i class="v">r</i>) = (Σ<sub><i class="v">k</i></sub> <i class="v">b<sub>k</sub></i> <i class="v">r</i><sup><i class="v">k</i></sup>) · <i class="v">r</i><sup><i class="v">ℓ</i></sup> · e<sup>−<i class="v">r</i>/<i class="v">n</i></sup></div>
+          <div class="f">P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ</i>) = (Σ<sub><i class="v">j</i></sub> <i class="v">c<sub>j</sub></i> <i class="v">u</i><sup><i class="v">j</i></sup>) · sin<sup>|<i class="v">m</i>|</sup><i class="v">θ</i>, &nbsp;<i class="v">u</i>=cos<i class="v">θ</i></div>
           <div class="f"><span class="cases">Φ<sub><i class="v">m</i></sub>(<i class="v">φ</i>) = <span class="cases-list"><div>cos(<i class="v">mφ</i>) &nbsp;&nbsp;<i class="v">m</i> ≥ 0</div><div>sin(|<i class="v">m</i>|<i class="v">φ</i>) &nbsp;&nbsp;<i class="v">m</i> &lt; 0</div></span></span></div>
           <div class="f"><i class="v">ψ</i> = R<sub><i class="v">nℓ</i></sub> · P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup> · Φ<sub><i class="v">m</i></sub></div>
         </div>
-        <p class="caption"><i class="v">c<sub>k</sub></i> are the radial polynomial's coefficients (from the associated Laguerre polynomial, one fixed set per (<i class="v">n</i>,<i class="v">ℓ</i>)) and <i class="v">a<sub>j</sub></i> are the angular polynomial's coefficients (from the associated Legendre polynomial, one fixed set per (<i class="v">ℓ</i>,<i class="v">m</i>)) — the same arrays already used to build the sampler tables above, just re-evaluated at this one point instead of at every table entry.</p>
+        <p class="caption"><i class="v">b<sub>k</sub></i> are the radial polynomial's coefficients (from the associated Laguerre polynomial, one fixed set per (<i class="v">n</i>,<i class="v">ℓ</i>)) and <i class="v">c<sub>j</sub></i> are the angular polynomial's coefficients (from the associated Legendre polynomial, one fixed set per (<i class="v">ℓ</i>,<i class="v">m</i>)) — the same arrays already used to build the sampler tables above (same b/c naming as Coefficients to Tables), just re-evaluated at this one point instead of at every table entry.</p>
         <span class="tag">psiReal()</span>
       </div>
 
@@ -276,11 +277,11 @@
       <div class="stage">
         <p class="kicker">5 · Rank → brightness, sign → phase</p>
         <div class="fstack">
-          <div class="f"><i class="v">q</i> = rank(<i class="v">ψ</i>²) / (<i class="v">N</i>−1)</div>
+          <div class="f"><i class="v">q</i> = rank(<i class="v">ψ</i>²) / (<i class="v">M</i>−1)</div>
           <div class="f">level = L<sub>min</sub> + <i class="v">q</i><sup><i class="v">γ</i></sup>·(L<sub>max</sub>−L<sub>min</sub>), &nbsp;<i class="v">γ</i> = 0.4</div>
-          <div class="f">color = <span style="color:var(--phase-pos)">orange</span> if <i class="v">ψ</i> ≥ 0, else <span style="color:var(--phase-neg)">blue</span></div>
+          <div class="f">color = <span style="color:var(--phase-pos)">red</span> if <i class="v">ψ</i> ≥ 0, else <span style="color:var(--phase-neg)">blue</span></div>
         </div>
-        <p class="caption">Rank, not raw magnitude — ψ² is heavily right-skewed, so ranking spreads brightness evenly instead of crushing most points into the dim end.</p>
+        <p class="caption">Rank, not raw magnitude — ψ² is heavily right-skewed, so ranking spreads brightness evenly instead of crushing most points into the dim end. M is the cloud's point count (kOrbitalNumPoints), not the 1001-entry table size N; L<sub>min</sub> = 80, L<sub>max</sub> = 255.</p>
         <span class="tag">computeOrbitalLevels() / orbitalLevelToColor565()</span>
       </div>
 
@@ -294,11 +295,11 @@
           <div class="f"><i class="v">r</i><sub>ref</sub> = P90({<i class="v">r<sub>i</sub></i>}) &nbsp;<span class="f small">(90th-percentile sampled radius)</span></div>
           <div class="f">scale = <span class="frac"><span class="num"><i class="v">p</i><sub>target</sub></span><span class="den"><i class="v">r</i><sub>ref</sub></span></span></div>
         </div>
-        <p class="caption">Every preset — 1s or 6p — fills the same on-screen radius, so switching orbitals never means "just a dot far away".</p>
+        <p class="caption">p<sub>target</sub> = 100 px. Every preset — 1s or 6p — fills the same on-screen radius, so switching orbitals never means "just a dot far away".</p>
         <span class="tag">scaleFromRadii()</span>
       </div>
 
-      <div class="note">Steps 1–5 also re-run continuously, one round-robin point at a time, to keep the cloud slowly turning over — resampleOneOrbitalPoint()</div>
+      <div class="note">Steps 1–5 also re-run continuously, one round-robin point at a time (1% of the cloud every 3 frames — kOrbitalCullFraction / kOrbitalCullRefreshFrames), to keep the cloud slowly turning over. A fresh point's rank is bisected against the frozen sorted-ψ² snapshot and can exceed the initial max, so callers clamp to 255 — resampleOneOrbitalPoint()</div>
 
     </div>
   </section>
@@ -315,9 +316,10 @@
         <div class="fstack">
           <div class="f bullet">• OrbitalAngularTables(<i class="v">ℓ</i>,<i class="v">m</i>), <i class="v">ℓ</i>≤3 — compile-time, independent of Z</div>
           <div class="f bullet">• atomSFE row <i class="v">u</i>(<i class="v">r</i>) for (Z,<i class="v">n</i>,<i class="v">ℓ</i>), Z≤92 — read from flash on demand</div>
-          <div class="f bullet">• Clementi–Raimondi Z<sub>eff</sub> table, Z≤54, and the size-calibration factor κ<sub>Z</sub></div>
+          <div class="f bullet">• Clementi–Raimondi Z<sub>eff</sub> table, Z≤54, and the size-calibration factor κ<sub>Z</sub> (92-entry generated table)</div>
         </div>
         <span class="tag">angular_library.h / hfs_tables.bin / slater_data.h</span>
+        <p class="caption" style="margin-top:10px;">The atomSFE rows come from the SPARC-atomSFE Kohn–Sham solver (LDA_SVWN) — see <a href="ATOMS.md">ATOMS.md</a> §5 and <a href="../pc/RUN_HFS.md">pc/RUN_HFS.md</a>.</p>
       </div>
 
       <div class="connector">
@@ -364,9 +366,9 @@
       <div class="stage">
         <p class="kicker">3 · Split the point budget</p>
         <div class="fstack">
-          <div class="f"><i class="v">N<sub>g</sub></i> = round(<i class="v">N</i> · <i class="v">w<sub>g</sub></i> / Σ<i class="v">W</i>)</div>
+          <div class="f"><i class="v">N<sub>g</sub></i> = ⌊<i class="v">N</i> · <i class="v">w<sub>g</sub></i> / Σ<i class="v">W</i>⌋, remainder by largest fractional part</div>
         </div>
-        <p class="caption">Largest-remainder method afterward, so the per-group counts sum to exactly N — not "close to it".</p>
+        <p class="caption">N is this element's total point budget (kAtomNumPoints). Largest-remainder method afterward, so the per-group counts sum to exactly N — not "close to it".</p>
         <span class="tag">splitCounts()</span>
       </div>
 
@@ -386,7 +388,7 @@
             <p class="half-label">Fallback — hydrogenic</p>
             <div class="fstack" style="align-items:flex-start; gap:5px;">
               <div class="f">Z<sub>eff</sub> = Z<sup>CR</sup><sub>eff</sub> or <i class="v">Z</i> − Σ shield</div>
-              <div class="f small">rescaled ·<i class="v">n</i>/<i class="v">n</i>* for <i class="v">n</i>≥5</div>
+              <div class="f small">rescaled ·<i class="v">n</i>/<i class="v">n</i>* for <i class="v">n</i>≥4</div>
               <div class="f">R<sub><i class="v">nℓ</i></sub>(<i class="v">r</i>) = R<sup>H</sup><sub><i class="v">nℓ</i></sub>(Z<sub>eff</sub>·<i class="v">r</i>)</div>
             </div>
           </div>
@@ -402,11 +404,18 @@
 
       <div class="stage">
         <p class="kicker">5 · Build this group's radial inverse-CDF</p>
-        <div class="fstack">
-          <div class="f">F<sub>r</sub><sup>−1</sup> &nbsp;inverted from density ∝ [<i class="v">r</i>·R(<i class="v">r</i>)]²</div>
+        <div class="split">
+          <div class="split-half">
+            <p class="half-label">Isotropic group (full subshell)</p>
+            <div class="f">trapezoid-rule inverse CDF on density ∝ <i class="v">u</i>(<i class="v">r</i>)², over the table's own log-uniform grid</div>
+          </div>
+          <div class="split-half">
+            <p class="half-label">Oriented group (Hund's rule)</p>
+            <div class="f">re-sample R(<i class="v">r</i>) = <i class="v">u</i>(<i class="v">r</i>)/<i class="v">r</i> at 1001 evenly spaced <i class="v">r</i> ∈ [0, maxR], then the standard evenly-spaced inverse CDF</div>
+          </div>
         </div>
-        <p class="caption">Trapezoid rule on the table's own log-uniform grid for the tabulated branch; the same evenly-spaced sweep as the hydrogen sampler for the fallback branch.</p>
-        <span class="tag">buildHfsRadialSampler…() / buildRadialSamplerRuntime()</span>
+        <p class="caption">Both branches invert density ∝ [<i class="v">r</i>·R(<i class="v">r</i>)]² (u = <i class="v">r</i>·R, so u² is the same quantity); they differ in the grid. The isotropic branch integrates the table's own grid directly; the oriented branch re-samples R on an even grid first — an asymmetry deliberately kept from the Python model (hfs_radial.h). The hydrogenic fallback branch always uses the even-grid sweep.</p>
+        <span class="tag">buildHfsRadialSamplerIsotropic() / buildHfsRadialSamplerOriented() / buildRadialSamplerRuntime()</span>
       </div>
 
       <div class="connector">
@@ -461,7 +470,7 @@
           <div class="f">outer: <i class="v">c</i>′ = <i class="v">c</i> + (255−<i class="v">c</i>)·<i class="v">f</i><sub>bright</sub></div>
           <div class="f">inner: <i class="v">c</i>′ = <i class="v">c</i>·(1−<i class="v">f</i><sub>dim</sub>)</div>
         </div>
-        <p class="caption">Every other point in that same shell is dimmed instead — otherwise the valence subshell, often a small minority of the point budget, disappears visually.</p>
+        <p class="caption">Points in every other subshell are dimmed instead — otherwise the valence subshell, often a small minority of the point budget, disappears visually. Points are emitted in contiguous per-subshell runs (AtomSubshellRange), so this is one lerp per subshell, not per point.</p>
         <span class="tag">colorizeAtomSubshells()</span>
       </div>
 
@@ -473,9 +482,9 @@
         <p class="kicker">9 · Calibrate and fit to screen</p>
         <div class="fstack">
           <div class="f">(<i class="v">x</i>,<i class="v">y</i>,<i class="v">z</i>) ×= <i class="v">κ<sub>Z</sub></i> &nbsp;<span class="f small">(Clementi–Raimondi valence-radius calibration)</span></div>
-          <div class="f">scale = <span class="frac"><span class="num"><i class="v">p</i><sub>target</sub></span><span class="den"><i class="v">r</i><sub>ref</sub><sup>outer</sup></span></span></div>
+          <div class="f">scale = <span class="frac"><span class="num"><i class="v">p</i><sub>target</sub></span><span class="den"><i class="v">r</i><sub>ref</sub><sup>outer</sup></span></span> &nbsp;<span class="f small">(p<sub>target</sub> = 96 px = 240/2.5)</span></div>
         </div>
-        <p class="caption">Same target-pixel-radius idea as the orbital pipeline's step 6 — lithium and uranium both end up legible on a 240px screen, at the cost of the real size trend between elements.</p>
+        <p class="caption">The κ<sub>Z</sub> multiply happens inside buildAtomPointCloud: it scales the whole cloud so the valence subshell's mode radius lands on the Clementi–Raimondi literature value — it mainly keeps the pm scale bar and dissection depths consistent, since scaleForAtom renormalizes on-screen size anyway. That target-pixel-radius idea (same as the orbital pipeline's step 6) keeps lithium and uranium both legible on a 240px screen, at the cost of the real size trend between elements.</p>
         <span class="tag">scaleForAtom() / kAtomSizeCalibFactor</span>
       </div>
 
@@ -492,8 +501,8 @@
       </div>
       <div class="legend-group">
         <p class="legend-group-title">Phase (orbital sign)</p>
-        <div class="swatch-row"><span class="swatch" style="background:var(--phase-pos)"></span> ψ ≥ 0</div>
-        <div class="swatch-row"><span class="swatch" style="background:var(--phase-neg)"></span> ψ &lt; 0</div>
+        <div class="swatch-row"><span class="swatch" style="background:var(--phase-pos)"></span> ψ ≥ 0 — red</div>
+        <div class="swatch-row"><span class="swatch" style="background:var(--phase-neg)"></span> ψ &lt; 0 — blue</div>
       </div>
       <div class="legend-group">
         <p class="legend-group-title">Shell color, n = 1…7 (K…Q)</p>
@@ -506,6 +515,7 @@
         <div class="swatch-row"><span class="swatch" style="background:var(--shell-7)"></span> n=7 Q</div>
       </div>
     </div>
+    <p>See also: <a href="coefficients_to_tables.html">Coefficients to Tables</a> — how the hydrogen tables are built · <a href="tables_to_bin.html">Tables to BIN</a> — how the flash-resident blobs are generated on the PC.</p>
   </footer>
 
 </div>

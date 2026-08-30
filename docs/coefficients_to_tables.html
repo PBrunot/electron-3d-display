@@ -198,7 +198,7 @@
           <div class="f">P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ</i>) = (Σ<sub><i class="v">k</i></sub> <i class="v">c<sub>k</sub></i> <i class="v">u</i><sup><i class="v">k</i></sup>) · sin<sup>|<i class="v">m</i>|</sup><i class="v">θ</i>, &nbsp; <i class="v">u</i> = cos<i class="v">θ</i></div>
           <div class="f small">seed <i class="v">c</i><sub>0</sub> = (−1)<sup><i class="v">ℓ</i></sup>; downward recurrence <i class="v">i</i> = <i class="v">ℓ</i> … |<i class="v">m</i>|+1</div>
         </div>
-        <p class="caption"><i class="v">D<sub>i</sub></i> = √(<i class="v">ℓ</i>(<i class="v">ℓ</i>+1) − <i class="v">i</i>(<i class="v">i</i>−1)); each step folds one degree of the ladder relation into the coefficient array: <i class="v">c<sub>k−1</sub></i> += <i class="v">k</i>·<i class="v">c<sub>k</sub></i>/<i class="v">D<sub>i</sub></i>, then <i class="v">c<sub>k+1</sub></i> = −(<i class="v">k</i>+2<i class="v">i</i>)·<i class="v">c<sub>k</sub></i>/<i class="v">D<sub>i</sub></i> — a closed-form polynomial, not a per-angle recursion, so it's built once and evaluated cheaply afterward.</p>
+        <p class="caption"><i class="v">D<sub>i</sub></i> = √(<i class="v">ℓ</i>(<i class="v">ℓ</i>+1) − <i class="v">i</i>(<i class="v">i</i>−1)); each step folds one degree of the ladder relation into the coefficient array: <i class="v">c<sub>k−1</sub></i> += <i class="v">k</i>·<i class="v">c<sub>k</sub></i>/<i class="v">D<sub>i</sub></i>, then <i class="v">c<sub>k+1</sub></i> = −(<i class="v">k</i>+2<i class="v">i</i>)·<i class="v">c<sub>k</sub></i>/<i class="v">D<sub>i</sub></i> — a closed-form polynomial, not a per-angle recursion, so it's built once and evaluated cheaply afterward. The <i class="v">c<sub>k−1</sub></i> update is skipped at <i class="v">k</i> = 0, and wrong-parity entries stay zeroed (<i class="v">c</i><sub>0</sub> is re-zeroed whenever the parity offset kStart = 1).</p>
         <span class="tag">legendreCoeffs()</span>
       </div>
 
@@ -210,10 +210,10 @@
       <div class="stage">
         <p class="kicker">2 · Normalize to unit peak</p>
         <div class="fstack">
-          <div class="f">max = max<sub>θ∈[0,π/2), 100 steps</sub> |P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ</i>)|</div>
+          <div class="f">max = max<sub>θ∈[0,π/2), step π/100</sub> |P<sub><i class="v">ℓ</i></sub><sup><i class="v">m</i></sup>(<i class="v">θ</i>)|</div>
           <div class="f"><i class="v">c<sub>k</sub></i> ← <i class="v">c<sub>k</sub></i> / max, &nbsp; for every <i class="v">k</i></div>
         </div>
-        <p class="caption">Sampled at the exact same 100 steps in every port (C++/MicroPython/JS), so all three land on the identical normalization constant instead of three slightly different ones.</p>
+        <p class="caption">Sampled at the exact same 50 samples (step π/100) in every port (C++/MicroPython/JS), so all three land on the identical normalization constant instead of three slightly different ones.</p>
         <span class="tag">legendreCoeffs() / computePLM()</span>
       </div>
 
@@ -228,7 +228,7 @@
           <div class="f">R<sub><i class="v">nℓ</i></sub>(<i class="v">r</i>) = (Σ<sub><i class="v">k</i></sub> <i class="v">b<sub>k</sub></i> <i class="v">r</i><sup><i class="v">k</i></sup>) · <i class="v">r</i><sup><i class="v">ℓ</i></sup> · e<sup>−<i class="v">r</i>/<i class="v">n</i></sup>, &nbsp; degree = <i class="v">n</i>−<i class="v">ℓ</i>−1</div>
           <div class="f small"><i class="v">b</i><sub>0</sub> = 1; &nbsp; <i class="v">b<sub>k+1</sub></i> = <span class="frac"><span class="num">−2(1 − (<i class="v">ℓ</i>+<i class="v">k</i>+1)/<i class="v">n</i>)</span><span class="den">(<i class="v">k</i>+1)(2<i class="v">ℓ</i>+<i class="v">k</i>+2)</span></span> · <i class="v">b<sub>k</sub></i></div>
         </div>
-        <p class="caption">Forward recurrence this time, k = 0 up to degree−2 — the polynomial part of the radial wavefunction, expressed directly in n and ℓ rather than the generic Laguerre index.</p>
+        <p class="caption">Forward recurrence this time, k = 0 up to degree−1 — the polynomial part of the radial wavefunction, expressed directly in n and ℓ rather than the generic Laguerre index.</p>
         <span class="tag">laguerreCoeffs()</span>
       </div>
 
@@ -244,7 +244,7 @@
           <div class="f small"><i class="v">maxR</i> = 6<i class="v">n</i>² &nbsp; (heuristic — covers essentially all of the wavefunction)</div>
         </div>
         <p class="caption">Squaring <i class="v">r</i>·R rather than R alone folds in the r² Jacobian of the spherical volume element, so w<sub>r</sub> is already the correctly-weighted radial density, not just |R|².</p>
-        <span class="tag">buildRadialTable() weight loop</span>
+        <span class="tag">buildOrbitalSamplerConstexpr() radial weight loop</span>
       </div>
 
       <div class="connector">
@@ -285,9 +285,9 @@
           <div class="f">cumulative<sub><i class="v">i</i></sub> = cumulative<sub><i class="v">i</i>−1</sub> + <i class="v">w<sub>i</sub></i> &nbsp;<span class="f small">(running sum, cumulative<sub>−1</sub>=0)</span></div>
           <div class="f">C<sub><i class="v">i</i></sub> = cumulative<sub><i class="v">i</i></sub> / cumulative<sub><i class="v">N</i>−1</sub> &nbsp;<span class="f small">(normalized CDF)</span></div>
           <div class="f">F<sup>−1</sup>(<i class="v">u<sub>k</sub></i>) = (<i class="v">j</i>₀ + <i class="v">t</i>·(<i class="v">j</i>₁−<i class="v">j</i>₀))·Δ, &nbsp; <i class="v">t</i> = <span class="frac"><span class="num"><i class="v">u<sub>k</sub></i> − C<sub><i class="v">j</i>₀</sub></span><span class="den">C<sub><i class="v">j</i>₁</sub> − C<sub><i class="v">j</i>₀</sub></span></span></div>
-          <div class="f small">for <i class="v">u<sub>k</sub></i> = <i class="v">k</i>/(<i class="v">N</i>−1), where C<sub><i class="v">j</i>₀</sub> ≤ <i class="v">u<sub>k</sub></i> &lt; C<sub><i class="v">j</i>₁</sub> bracket it</div>
+          <div class="f small">for <i class="v">u<sub>k</sub></i> = <i class="v">k</i>/(<i class="v">N</i>−1), where C<sub><i class="v">j</i>₀</sub> &lt; <i class="v">u<sub>k</sub></i> ≤ C<sub><i class="v">j</i>₁</sub> bracket it (j₀ = 0 on the first bin; a flat CDF region collapses t to 0)</div>
         </div>
-        <p class="caption">One monotonic forward sweep per axis, O(N) — the CDF only ever increases, and the target quantile only ever increases, so no index is ever revisited. This is the exact mirror of the runtime lookup in <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>'s step 2: there, an index interpolates a value; here, a probability interpolates an index.</p>
+        <p class="caption">One monotonic forward sweep per axis, O(N) — the CDF only ever increases, and the target quantile only ever increases, so no index is ever revisited. This is the exact mirror of the runtime lookup in <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>'s step 2: there, an index interpolates a value; here, a probability interpolates an index. A degenerate all-zero density (total ≤ 0) is guarded to a uniform table instead of dividing by zero.</p>
         <span class="tag">buildInverseCdf()</span>
       </div>
 
@@ -299,7 +299,7 @@
       <div class="stage given">
         <p class="kicker">Deliverable — OrbitalSampler(n, ℓ, m)</p>
         <div class="fstack">
-          <div class="f">{ <i class="v">maxR</i>, invRTable[<i class="v">N</i>], invThetaTable[<i class="v">N</i>], invPhiTable[<i class="v">N</i>] }</div>
+          <div class="f">{ <i class="v">n</i>, <i class="v">ℓ</i>, <i class="v">m</i>, <i class="v">maxR</i>, invRTable[<i class="v">N</i>], invThetaTable[<i class="v">N</i>], invPhiTable[<i class="v">N</i>] }</div>
         </div>
         <p class="caption">This is exactly the dashed "Given" box at the top of the hydrogen pipeline in <a href="tables_to_pointclouds.html">Tables to Point Clouds</a>.</p>
         <span class="tag">buildOrbitalSamplerConstexpr()</span>
@@ -353,17 +353,17 @@
           <div class="split-half">
             <p class="half-label">36 full hydrogen samplers</p>
             <div class="f">Run host-side, in Python, when the firmware image is packaged</div>
-            <p class="caption" style="margin-top:8px;">Same math, ported to micropython/orbitals.py + pointcloud.py — kept off the compiled image (would cost ~423KB) and written to data/orbital_samplers.bin instead, flashed to SPIFFS, read on demand at runtime.</p>
+            <p class="caption" style="margin-top:8px;">Same math, ported to micropython/orbitals.py + pointcloud.py — kept off the compiled image (would cost ~423KB) and written to data/orbital_samplers.bin instead, flashed to SPIFFS, read on demand at runtime. Regenerate with <a href="../tools/orbital_table_gen.py">tools/orbital_table_gen.py</a> whenever kOrbitalLibrary changes.</p>
           </div>
         </div>
-        <p class="caption" style="margin-top:14px; text-align:center;">Bit-identical either way — the C++, MicroPython, and JS implementations are cross-checked against each other by tools/orbitals_host/run_crosscheck.sh.</p>
+        <p class="caption" style="margin-top:14px; text-align:center;">Bit-identical either way — the C++, MicroPython, and JS implementations are cross-checked against each other by <a href="../tools/orbitals_host/run_crosscheck.sh">tools/orbitals_host/run_crosscheck.sh</a>.</p>
         <span class="tag" style="margin-top:8px;">tools/orbital_table_gen.py</span>
       </div>
     </div>
   </section>
 
   <footer class="legend">
-    See also: <a href="tables_to_pointclouds.html">Tables to Point Clouds</a> — how these tables get consumed, per point, on device.
+    See also: <a href="tables_to_pointclouds.html">Tables to Point Clouds</a> — how these tables get consumed, per point, on device · <a href="tables_to_bin.html">Tables to BIN</a> — the PC-side packaging of these tables into the flash-resident blobs.
   </footer>
 
 </div>
