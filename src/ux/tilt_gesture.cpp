@@ -122,7 +122,6 @@ RawTiltEvent TiltGestureDetector::pollRaw()
     orb_real_t x, y, z;
     if (!imu_.readAccelG(&x, &y, &z))
     {
-        ESP_LOGW(kTiltTag, "IMU read failed, skipping this poll");
         if (!active_)
             return RawTiltEvent{};
         return RawTiltEvent{activeDirX_, activeDirY_, activeDirZ_, TiltPhase::kHolding, nowMs() - holdStartMs_};
