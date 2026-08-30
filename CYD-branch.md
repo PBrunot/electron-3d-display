@@ -151,15 +151,20 @@ sopra "Navigazione a tilt non sostituita" -- ora risolto).
   workaround che aggirava l'assenza di un modo per tornare al menu) sono
   stati rimossi, non più necessari ora che lo swipe SINISTRA-e-hold torna al
   chooser su entrambe le board.
-- **Non verificato su hardware reale** (nessun device disponibile per il
-  test): il protocollo bit-banged XPT2046 (byte di comando 0xD0/0xD0 per
-  X/Y, 16 clock di risposta) segue lo schema standard usato da praticamente
-  ogni libreria XPT2046, ma non è stato provato su QUESTA unità. Se lo swipe
-  non viene rilevato affatto, il sospetto principale è il pin IRQ (polarità/
-  pull-up) o il timing del bit-bang; se viene rilevato ma la direzione è
-  ruotata/specchiata, aggiustare `kTouchSwapXY`/`kTouchInvertDx`/
-  `kTouchInvertDy` guardando i log `ESP_LOGI` (tag `touch_gesture`) di
-  dx/dy grezzi durante uno swipe noto.
+- **Verificato su hardware reale (2026-08-30)**: il protocollo bit-banged
+  XPT2046 (byte di comando 0xD0/0x90 per X/Y, 16 clock di risposta) funziona
+  su questa unità, swipe rilevati correttamente via log `touch_gesture`.
+  Calibrazione risultante: asse sinistra/destra invertito rispetto al
+  grezzo (`kTouchInvertDx = true`), asse su/giù già corretto
+  (`kTouchInvertDy = false`, `kTouchSwapXY = false`). `kTouchHoldConfirmMs`
+  ridotto da 1000ms a 500ms (il default mutuato dal tilt risultava lento al
+  tocco). Il pin IRQ (GPIO36) e MISO (GPIO39) sono pad solo-input
+  dell'ESP32 classico senza pull-up interno: `gpio_config()` non può
+  abilitarne uno software (loggava due `gpio_pullup_en(...): GPIO number
+  error` benigni a ogni boot, ora eliminati impostando
+  `GPIO_PULLUP_DISABLE` in `Xpt2046::Xpt2046()`) -- la board CYD ha
+  evidentemente un pull-up esterno sulla linea IRQ, perché la rilevazione
+  del tocco funziona comunque idle-high/low-quando-premuto.
 
 ### Punti nuvola (`src/config/visual_constants.h`)
 
