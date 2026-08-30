@@ -5,7 +5,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "render/equation_bitmap.h"
+#include "render/orbitals_bitmap.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "render/font.h"
@@ -25,11 +25,21 @@ static const char *kOrbitalViewTag = "orbital_view";
 namespace
 {
 
+    /// Plain rect fill, same pattern as ux/chooser.cpp's own fillRect().
+    void fillRect(Display &display, int x, int y, int w, int h, uint16_t color)
+    {
+        for (int py = y; py < y + h; py++)
+            for (int px = x; px < x + w; px++)
+                display.writePx(px, py, color);
+    }
+
+    /// Repaints just the bottom text band over the orbitals.jpg backdrop drawn once by
+    /// scrollOrbitalIntro() -- avoids re-decoding that JPEG on every stage change.
     void renderOrbitalIntroStage(Display &display, const char *text)
     {
         display.waitForFlushDone();
-        display.clearScreen();
-        drawEquationBackdrop(display, kOrbitalIntroEqX, kOrbitalIntroEqY, kOrbitalIntroEqColor);
+        fillRect(display, 0, kOrbitalIntroBandY, Display::kDisplayWidth, kOrbitalIntroBandHeight,
+                 kOrbitalIntroBandColor);
         int width = textWidthScaled(text, kFontLarge, kOrbitalIntroNumberScale);
         int x = (Display::kDisplayWidth - width) / 2;
         drawTextScaled(display, x, kOrbitalIntroNumberY, text, Display::kColorWhite, kFontLarge,
@@ -37,12 +47,14 @@ namespace
         display.presentFrame();
     }
 
-    /// Reveal "n=X", then "n=X l=Y", then "n=X l=Y m=Z" (each held kOrbitalIntroStageHoldMs) over
-    /// the dim equation backdrop -- same spot in the flow as atom_view.cpp's scrollElementIntro()
-    /// before its flyOver(). Holds an extra 500ms after the final stage so the reveal doesn't
-    /// rush straight into the switch.
+    /// Reveal "n=X", then "n=X l=Y", then "n=X l=Y m=Z" over the orbitals.jpg backdrop (decoded
+    /// once here, not per stage). Holds an extra 500ms after the final stage.
     void scrollOrbitalIntro(Display &display, int n, int ell, int m)
     {
+        display.waitForFlushDone();
+        drawOrbitalsBackdrop(display); // no-op (logged) on failure
+        display.presentFrame();
+
         char stage[24];
         std::snprintf(stage, sizeof(stage), "n=%d", n);
         renderOrbitalIntroStage(display, stage);

@@ -84,8 +84,9 @@ src/
     overlay.h/.cpp                  scale bar, tilt arrow, titoli overlay comuni
     font.h/.cpp + font_data.h       font bitmap proprietario (vedi §5.1)
     ticker.h/.cpp                   testo scorrevole (banner intro)
-    splash_bitmap.h/.cpp            splash screen di boot
-    equation_bitmap.h/.cpp          sfondo formula per orbital_view
+    jpeg_bg.h/.cpp                   decoder JPEG on-demand condiviso (TJpgDec via ROM)
+    splash_bitmap.h/.cpp            splash screen di boot (decodifica data/atomic_cube.jpg)
+    orbitals_bitmap.h/.cpp          sfondo per il reveal orbital_view (decodifica data/orbitals.jpg)
 
   ux/                            input/interazione/navigazione
     imu.h/.cpp                      driver QMI8658 (I2C), check planarità al boot
@@ -120,7 +121,9 @@ raccoglie ricorsivamente). Gli include locali usano percorsi relativi a `src/`
 
 Strumenti offline (PC, non compilati per il device):
 - `tools/font_gen/` — rasterizza Jersey10-Regular.ttf in `src/render/font_data.h`
-- `tools/splash_gen/`, `tools/equation_gen/` — asset PROGMEM precalcolati
+- `tools/splash_gen/`, `tools/equation_gen/` — RETIRED, tenuti solo come storico:
+  gli sfondi JPEG (data/atomic_cube.jpg, data/orbitals.jpg) sono decodificati on-device
+  a runtime (render/jpeg_bg.h), non più precalcolati offline in PROGMEM
 - `tools/orbitals_host/` — reference/validation Python per i calcoli orbitali
 - `pc/` — simulatore PC (Tkinter+PIL) degli stessi viewer, per iterare senza
   flashare; `pc/pull_screenshots.py` scarica screenshot dal device via seriale

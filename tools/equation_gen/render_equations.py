@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Rasterize this project's Schroedinger/psi_real formulas into a 1-bit bitmap, then emit
+"""RETIRED -- src/render/equation_bitmap.h/.cpp no longer exist. OrbitalView's quantum-number
+reveal now backdrops data/orbitals.jpg, decoded on-device via render/jpeg_bg.h (see
+render_splash.py for the same on-demand-JPEG approach). Kept only as a historical record -- do
+not run this, it references generated files that no longer exist.
+
+Original docstring, for the old approach's rationale:
+
+Rasterize this project's Schroedinger/psi_real formulas into a 1-bit bitmap, then emit
 them as a generated C header+source (src/render/equation_bitmap.h/.cpp) for OrbitalView's
 quantum-number reveal animation (see atom_view.cpp's scrollElementIntro() for the sibling
 "name intro" pattern this backdrop sits under, and src/physics/orbitals.h's psiReal() docstring for
@@ -10,8 +17,6 @@ Renders as an IMAGE via matplotlib mathtext rather than extending the on-device 
 that font, see tools/font_gen/ -- has none of psi/theta/phi/nabla anyway, confirmed via
 fontTools). This keeps the font system untouched; the equations are just a static background
 image, not live text.
-
-Regenerate with: python3 tools/equation_gen/render_equations.py
 """
 import os
 

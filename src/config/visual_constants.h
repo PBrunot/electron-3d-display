@@ -3,7 +3,7 @@
 // that AREN'T really adjustable-by-eye stay in their original module instead of moving here:
 // domain color-mapping tables (Display's own palette in render/display.h, atom_cloud.h's
 // kAtomShellRgb/orbital_library.h's per-preset phase colors), asset-shape constants tied to a
-// generated header (equation_bitmap.h/splash_bitmap.h's width/height), and algorithm/physics
+// header (splash_bitmap.h/orbitals_bitmap.h's width/height), and algorithm/physics
 // parameters (orbitals.h's table resolution, slater.h's Madelung data).
 //
 // Headers that used to define some of these directly (camera.h, overlay.h, ticker.h,
@@ -13,10 +13,9 @@
 
 #include <cstdint>
 
-#include "physics/orbitals.h"       // orb_real_t
-#include "render/display.h"         // Display, packColor565
-#include "render/equation_bitmap.h" // kEquationBitmapWidth/Height, for the orbital intro layout below
-#include "sdkconfig.h"              // CONFIG_IDF_TARGET_ESP32
+#include "physics/orbitals.h" // orb_real_t
+#include "render/display.h"   // Display, packColor565
+#include "sdkconfig.h"        // CONFIG_IDF_TARGET_ESP32
 
 // ============================================================================================
 // Shared across both viewers (dedup of what used to be near-identical per-file copies)
@@ -287,7 +286,7 @@ inline constexpr orb_real_t kAtomInnerShellDim = orb_real_t(0.2);      // scale 
 /// -- stronger than kAtomOuterShellBrighten above so the one shell currently being examined
 /// reads as clearly "lit up" against the flat kDissectDimColor peeled-away shells around it,
 /// not just its own plain shell color.
-inline constexpr orb_real_t kDissectActiveBrighten = orb_real_t(0.7); // lerp toward white
+inline constexpr orb_real_t kDissectActiveBrighten = orb_real_t(0.5); // lerp toward white
 
 // --- Scale (M4, revised) ---
 //
@@ -375,23 +374,14 @@ inline constexpr int kChooserArrowHalfWidthPx = 10; ///< Half the base width.
 // ============================================================================================
 
 // --- Orbital-switch quantum-number reveal (scrollOrbitalIntro()) ---
-// Shown before switching to a new preset: a pre-rendered equation image (see
-// equation_bitmap.h) sits centered as a dim backdrop, with n/l/m revealed progressively on
-// top of it, one stage per short real-time hold.
-inline constexpr int kOrbitalIntroEqX = (Display::kDisplayWidth - kEquationBitmapWidth) / 2;   ///< Horizontal center for the equation backdrop.
-inline constexpr int kOrbitalIntroEqY = (Display::kDisplayHeight - kEquationBitmapHeight) / 2; ///< Vertical center for the equation backdrop.
-/// Backdrop color: close to pure white so it reads as "dimmer white" against the foreground
-/// text rather than gray that needs squinting to see through the panel/Pepper's-Ghost prism.
-inline constexpr uint16_t kOrbitalIntroEqColor = Display::packColor565(210, 210, 220);
-/// Text scale for the n/l/m reveal stages. Fixed at one size (rather than per-stage like
-/// atom_view.cpp's pickNameScale()) so the reveal doesn't visually jump bigger->smaller
-/// between stages; scale 2 is the largest that keeps every stage's text (including
-/// two-digit/negative m) within the panel width.
-inline constexpr int kOrbitalIntroNumberScale = 2;
-/// Y position for the reveal text, below the vertically-centered equation backdrop.
-inline constexpr int kOrbitalIntroNumberY = kOrbitalIntroEqY + kEquationBitmapHeight + 20;
-/// Hold duration per reveal stage.
-inline constexpr uint32_t kOrbitalIntroStageHoldMs = 550;
+// data/orbitals.jpg backdrop decoded once per reveal; n/l/m revealed progressively in a bottom
+// band, repainted (cheap) each stage instead of re-decoding the backdrop.
+inline constexpr int kOrbitalIntroBandHeight = 44; ///< Fits kFontLarge @ scale 2 (34px) plus margin.
+inline constexpr int kOrbitalIntroBandY = Display::kDisplayHeight - kOrbitalIntroBandHeight;
+inline constexpr uint16_t kOrbitalIntroBandColor = Display::kColorBlack;
+inline constexpr int kOrbitalIntroNumberScale = 2; ///< Fixed size so stages don't jump.
+inline constexpr int kOrbitalIntroNumberY = kOrbitalIntroBandY + 5;
+inline constexpr uint32_t kOrbitalIntroStageHoldMs = 550; ///< Hold duration per reveal stage.
 
 // Orbital view runs its zoom/switch animations at 1.5x the shared pacing above (atom_view.cpp
 // keeps the stock pacing), via these scaled copies rather than editing the shared constants.
@@ -419,10 +409,13 @@ inline constexpr int kAtomProtonMarkerSize = 5;
 inline constexpr uint16_t kBoundingCircleColor = Display::packColor565(180, 180, 180);
 
 // --- Element-switch intro ticker (scrollElementIntro()) ---
-inline constexpr int kElementIntroMaxNameScale = 4;                                      ///< Largest text scale tried for the sliding element name.
+// kElementIntroMaxNameScale/MinNameScale bound pickNameFont()'s kFontLarge fallback, used only
+// when a name doesn't fit kFontHuge at scale 1.
+inline constexpr int kElementIntroMaxNameScale = 4;                                      ///< Largest kFontLarge fallback scale tried.
 inline constexpr int kElementIntroMinNameScale = 2;                                      ///< Fallback scale if the name doesn't fit at any larger size.
 inline constexpr int kElementIntroNameMarginPx = 10;                                     ///< Horizontal margin the name must fit within.
-inline constexpr int kElementIntroSymbolScale = 6;                                       ///< Text scale for the pale background symbol watermark.
+inline constexpr int kElementIntroSymbolScale = 6;                                       ///< Largest scale tried for the background symbol watermark (pickSymbolScale()).
+inline constexpr int kElementIntroSymbolMarginPx = 4;                                    ///< Horizontal margin the watermark must fit within.
 inline constexpr uint16_t kElementIntroSymbolColor = Display::packColor565(90, 90, 100); ///< Watermark color: dim, so it doesn't compete with the name.
 inline constexpr int kElementIntroPxPerFrame = 6;                                        ///< Horizontal slide-in speed of the name, px/frame.
 inline constexpr uint32_t kElementIntroHoldMs = 500;                                     ///< Pause once the name reaches center, before flashing.
@@ -434,6 +427,7 @@ inline constexpr int64_t kDissectHoldUs = 2 * 1000 * 1000;                      
 inline constexpr int kDissectOccMarginPx = 1;                                   ///< Margin for the small electron-count corner note.
 inline constexpr orb_real_t kDissectFlySpeedPmPerSec = orb_real_t(30);          ///< Camera-ease speed between shells, picometers per real second.
 inline constexpr uint32_t kDissectFlyMinMs = 700;                               ///< Floor on ease duration so a near-zero hop still eases briefly instead of cutting instantly.
+inline constexpr orb_real_t kDissectReturnSlowdown = orb_real_t(1.8);           ///< Extra slowdown on the final zoom-out back to the full atom, on top of kDissectFlySpeedPmPerSec.
 /// Real-time hold on the full atom after a dissection sequence finishes (or is cancelled)
 /// easing back out, before runAtomView()'s main loop is free to act on another tilt/idle
 /// transition -- so a completed dissection never runs straight into another element switch or
