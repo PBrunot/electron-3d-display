@@ -5,7 +5,6 @@
 #include <cstdio>
 
 #include "ux/element_names_it.h"
-#include "esp_attr.h" // EXT_RAM_BSS_ATTR
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "render/font.h"
@@ -18,6 +17,7 @@
 #include "physics/slater.h"
 #include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
 #include "config/visual_constants.h" // kAccentColor, kViewIdleJumpUs, kAtomProtonMarkerSize, kBoundingCircleColor, kElementIntro*, kDissect*, kFpsUpdateInterval
+#include "physics/view_steady_arena.h" // shared points storage, see that header
 
 static const char *kAtomViewTag = "atom_view";
 
@@ -548,14 +548,27 @@ void runAtomView(Display &display, TiltGestureDetector &tilt)
 {
     ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxDisplayZ);
 
-    // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: this struct (~94KB of points, plus a
-    // negligible few hundred bytes of per-subshell ranges/groups -- see AtomPresetState's
-    // docstring) is large enough that placing it in internal RAM left too little contiguous
-    // DMA-capable memory for Display::Display()'s frame-buffer allocation, which aborted at
-    // boot.
-    static EXT_RAM_BSS_ATTR AtomPresetState preset;
-    if (preset.z == 0)                  // first-ever call this boot -- later calls (after a menu round-trip)
-        preset.load(kAtomViewDefaultZ); // keep whatever element was last showing
+    // points live in physics/view_steady_arena.h's shared ViewSteadyArena, not embedded in
+    // this struct -- bound once below, on first call. That arena is also used by
+    // orbital_view.cpp's OrbitalPresetState (never concurrently -- see that header's
+    // comment), which is what made a struct this size (~36KB of points at 3000, plus a
+    // negligible few hundred bytes of per-subshell ranges/groups) safe to place here: the
+    // frame buffer itself stays in separate, internal DMA-capable RAM (display.cpp's
+    // MALLOC_CAP_DMA, untouched).
+    static AtomPresetState preset;
+    if (preset.z == 0) // first-ever call this boot: bind this view's pointer into the shared
+    {                   // arena once, and load the default starting element.
+        preset.points = viewSteadyArena().atom.points;
+        preset.load(kAtomViewDefaultZ);
+    }
+    else
+        // Always reload on every later call (not just resume): this view's points share
+        // physical storage with orbital_view.cpp's OrbitalPresetState (view_steady_arena.h),
+        // so a re-entry after the sibling view ran can't assume they still hold what they
+        // held before -- see that header's trade-off note. preset.z is still remembered
+        // across calls, so this rebuilds the SAME element, just paying a fresh load() instead
+        // of instantly resuming.
+        preset.load(preset.z);
     refreshDissectPlan(preset);
 
     CameraState camera;

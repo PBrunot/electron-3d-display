@@ -6,7 +6,6 @@
 #include <cstdio>
 
 #include "render/equation_bitmap.h"
-#include "esp_attr.h" // EXT_RAM_BSS_ATTR
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "render/font.h"
@@ -18,6 +17,8 @@
 #include "debug/frame_stats.h"
 #include "debug/screenshot_pause.h"
 #include "config/visual_constants.h" // kViewIdleJumpUs, kOrbitalIntro*, kOrbitalProtonMarkerSize, etc.
+#include "physics/view_scratch_arena.h" // shared load()-scratch, see that header
+#include "physics/view_steady_arena.h"  // shared points/colors/psi2Sorted, see that header
 
 static const char *kOrbitalViewTag = "orbital_view";
 
@@ -111,12 +112,14 @@ void OrbitalPresetState::load(int index)
     int64_t startUs = esp_timer_get_time();
 
     // Scratch only -- discarded once computeOrbitalLevels() below has consumed them, see
-    // buildOrbitalPointCloud()'s docstring. EXT_RAM_BSS_ATTR (PSRAM, see runOrbitalView()'s
-    // `preset` below for why): CPU-only access, no DMA involved, so PSRAM's slightly higher
-    // access latency is a non-issue here.
-    static EXT_RAM_BSS_ATTR orb_real_t psi2[kOrbitalNumPoints];
-    static EXT_RAM_BSS_ATTR int8_t signs[kOrbitalNumPoints];
-    static EXT_RAM_BSS_ATTR uint8_t levels[kOrbitalNumPoints];
+    // buildOrbitalPointCloud()'s docstring. Comes from view_scratch_arena.h's shared
+    // ViewScratchArena -- see that header for why sharing it with atom_cloud.cpp's own
+    // load-scratch (never needed at the same time) is safe, and why it's the same on both
+    // boards rather than a CYD-only special case.
+    OrbitalLoadScratch &loadScratch = viewScratchArena().orbital;
+    orb_real_t *psi2 = loadScratch.psi2;
+    int8_t *signs = loadScratch.signs;
+    uint8_t *levels = loadScratch.levels;
 
     buildOrbitalPointCloud(d.n, d.ell, d.m, points, psi2, signs, kOrbitalNumPoints, kOrbitalViewSeed,
                            &resample.rng, resample.radialCoeff, resample.legendreCoeff);
@@ -158,21 +161,28 @@ void runOrbitalView(Display &display, TiltGestureDetector &tilt)
 {
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
-    // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM: this struct alone (points+colors+resample,
-    // ~3000 points) is tens of KB, and atom_view.cpp's sibling AtomPresetState (always linked
-    // in too, whichever view is actually running) is another ~66KB+ on top -- leaving both in
-    // the default internal-RAM .bss starved Display::Display()'s DMA frame-buffer allocation,
-    // which aborted at boot. CPU-only access here (rendering reads points every frame, no DMA
-    // touches this struct), so PSRAM's slightly higher access latency is a non-issue, unlike
-    // the frame buffer itself, which stays in internal DMA-capable RAM (display.cpp's
+    // Points/colors/resample.psi2Sorted live in physics/view_steady_arena.h's shared
+    // ViewSteadyArena, not embedded in this struct -- bound once below, on first call. That
+    // arena is also used by atom_view.cpp's AtomPresetState (never concurrently -- see that
+    // header's comment), which is what makes CPU-only access here a non-issue: the frame
+    // buffer itself stays in separate, internal DMA-capable RAM (display.cpp's
     // MALLOC_CAP_DMA, untouched).
-    static EXT_RAM_BSS_ATTR OrbitalPresetState preset;
+    static OrbitalPresetState preset;
     static int presetIndex = -1;
-    if (presetIndex < 0) // first-ever call this boot -- later calls (after a menu round-trip)
-    {                    // keep whatever preset was last showing
+    if (presetIndex < 0) // first-ever call this boot: bind this view's pointers into the
+    {                    // shared arena once, and pick the default starting preset.
+        preset.points = viewSteadyArena().orbital.points;
+        preset.colors = viewSteadyArena().orbital.colors;
+        preset.resample.psi2Sorted = viewSteadyArena().orbital.psi2Sorted;
         presetIndex = kOrbitalDefaultPresetIndex;
-        preset.load(presetIndex);
     }
+    // Always reload (not just on the very first call): this view's points/colors/resample
+    // share physical storage with atom_view.cpp's AtomPresetState (view_steady_arena.h), so a
+    // re-entry after the sibling view ran can't assume they still hold what they held before
+    // -- see that header's trade-off note. presetIndex is still remembered across calls, so
+    // this rebuilds the SAME preset (same fixed RNG seed -> bit-identical result), just paying
+    // a fresh load() instead of instantly resuming.
+    preset.load(presetIndex);
 
     constexpr uint32_t kBuzzThreshold = kHiddenPointsThreshold; // see config/visual_constants.h's comment
 

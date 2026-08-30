@@ -49,7 +49,7 @@ void hfsInit();
  * flash into a shared per-call scratch buffer (kHfsGridSize entries).
  *
  * @return  Pointer to the row, valid ONLY until the next hfsFindU() call (not reentrant, same
- *          convention as pointcloud.h's buildRadialSamplerRuntime() -- safe for
+ *          convention as buildRadialSamplerRuntime() below -- safe for
  *          atom_cloud.cpp's sequential per-group loop, which consumes the pointer immediately
  *          via buildHfsRadialSamplerIsotropic()/buildHfsRadialSamplerOriented() before the
  *          next group's hfsFindU() call). nullptr if the table isn't available (see hfsInit())
@@ -73,9 +73,11 @@ void hfsInit();
  * micropython/atom_cloud.py's `radial_tables is not None` branch under `if m is None`, which
  * calls pointcloud.init_radial_sampler_from_table(x_grid, density).
  *
- * Not reentrant (single static instance, reused every call) -- same convention as
- * pointcloud.h's buildRadialSamplerRuntime(), safe for atom_cloud.cpp's sequential per-group
- * loop only.
+ * Not reentrant -- shares ONE static RadialTable/weight scratch pair with
+ * buildHfsRadialSamplerOriented()/buildRadialSamplerRuntime() below (see their own docstrings):
+ * safe only because atom_cloud.cpp's buildAtomPointCloud() calls exactly one of the three per
+ * drawing group, in a sequential loop, and fully consumes the returned reference before the
+ * next group calls any of the three again.
  */
 [[nodiscard]] const RadialTable &buildHfsRadialSamplerIsotropic(const orb_real_t *u);
 
@@ -92,8 +94,31 @@ void hfsInit();
  * to "fix" here, just to port faithfully (see this project's CLAUDE.md on staying aligned with
  * the Python ports).
  *
- * Not reentrant, same convention as buildHfsRadialSamplerIsotropic() above (separate static
- * storage from it, since both may be needed across different groups within one
- * buildAtomPointCloud() call, just never concurrently).
+ * Not reentrant -- shares the same static RadialTable/weight scratch pair as
+ * buildHfsRadialSamplerIsotropic() above and buildRadialSamplerRuntime() below (see that
+ * function's docstring for why one shared pair is safe here).
  */
 [[nodiscard]] const RadialTable &buildHfsRadialSamplerOriented(const orb_real_t *u);
+
+/**
+ * Build the radial table for subshell (n, ell) at effective nuclear charge zEff (1.0 = plain
+ * hydrogen) -- the hydrogenic fallback used when hfsFindU() can't find a screened-potential
+ * table for this (z, n, ell) (z > kHfsElementCount, or the "storage" partition/hfs_tables.bin
+ * isn't available yet). Runtime only -- zEff comes from a runtime element selection
+ * (slater.h), so this can't be a compile-time constant the way the angular tables are. Same
+ * r -> zEff*r substitution and max_r = 6*n*n/zEff shrink as micropython/pointcloud.py's
+ * init_orbital_sampler()/init_radial_sampler().
+ *
+ * Lives here (rather than pointcloud.h, where it used to be defined inline) so it can share
+ * ONE static RadialTable/weight scratch pair with buildHfsRadialSamplerIsotropic()/
+ * buildHfsRadialSamplerOriented() above -- pointcloud.h has no way to reach hfs_radial.cpp's
+ * statics (hfs_radial.h includes pointcloud.h, not the other way around), so the shared
+ * storage has to live in whichever TU already sees all three call sites, which is this one.
+ *
+ * Not reentrant/thread-safe (returns a reference to a single shared static instance, reused on
+ * every call by any of the three builders declared in this header) -- fine for
+ * atom_cloud.cpp's sequential per-group loop (exactly one of the three runs per group, result
+ * consumed before the next group's call), not safe to call from multiple tasks/ISRs, and the
+ * returned reference is only valid until the next call to ANY of the three.
+ */
+[[nodiscard]] const RadialTable &buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff);

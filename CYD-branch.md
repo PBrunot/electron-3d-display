@@ -124,16 +124,128 @@ non verificato (colori/mirror).
 ### Punti nuvola (`src/config/visual_constants.h`)
 
 - `kOrbitalNumPoints`/`kAtomNumPoints` branchati per target: 12000/12000
-  sulla S3 (invariato), **3400/1000 sulla CYD** (era 2000/1000 al primo
-  re-port; vedi §"Budget RAM interna" sotto per come si è arrivati a 3400 e
-  perché `kAtomNumPoints` non è stato toccato). Questi array sono
-  `EXT_RAM_BSS_ATTR` (pensati per vivere in PSRAM): sulla S3 finiscono in
-  PSRAM gratis, sulla CYD (niente PSRAM) ricadono in SRAM interna — e dato
-  che ESP-IDF/PlatformIO linkano il componente `main` whole-archive, anche
-  il codice mai chiamato a runtime (es. `benchmark_test.cpp` quando
-  `BENCHMARK_TEST` non è definita) pesa comunque sul budget statico, a meno
-  che non resti anche staticamente irraggiungibile (nessun call site vivo
-  da nessuna parte) e venga quindi scartato da `--gc-sections`.
+  sulla S3 (invariato), **3000/5000 sulla CYD** (storia: 2000/1000 al primo
+  re-port, poi 3400/1000 — vedi §"Budget RAM interna" sotto per come si è
+  arrivati lì — poi tagliati a 1800/500 quando `runAtomView()` è diventato
+  raggiungibile dal loop di boot CYD, vedi §"Aggiornamento 2026-08-30" sotto
+  per come si è arrivati a 3000/5000). Questi array sono `EXT_RAM_BSS_ATTR`
+  (pensati per vivere in PSRAM): sulla S3 finiscono in PSRAM gratis, sulla
+  CYD (niente PSRAM) ricadono in SRAM interna — e dato che ESP-IDF/
+  PlatformIO linkano il componente `main` whole-archive, anche il codice
+  mai chiamato a runtime (es. `benchmark_test.cpp` quando `BENCHMARK_TEST`
+  non è definita) pesa comunque sul budget statico, a meno che non resti
+  anche staticamente irraggiungibile (nessun call site vivo da nessuna
+  parte) e venga quindi scartato da `--gc-sections`.
+
+#### Aggiornamento (2026-08-30): 1800/500 → 3000/5000, quattro passi di deduplicazione
+
+Quando `runAtomView()` è diventato raggiungibile dal loop di boot CYD (per
+permettere il cross-switch idle tra le due viste, `kViewCrossSwitchProbability`),
+`kOrbitalNumPoints`/`kAtomNumPoints` erano stati tagliati insieme a 1800/500
+per far posto ai suoi ~35KB di scratch fisso sempre residente. Analisi
+successiva ha mostrato che un punto atomo costa in realtà MENO di un punto
+orbitale (12 byte: solo x/y/z, nessun colore per-punto — la colorazione è
+per-subshell, non per-punto come il `colors[]` trainato dal turnover
+orbitale, 18 byte/punto) — il tetto basso di `kAtomNumPoints` non era mai un
+problema di costo-per-punto, ma di overhead fisso non legato al conteggio
+punti. Quattro interventi di deduplicazione (i primi tre a comportamento
+visibile invariato, il quarto con un trade-off esplicito — vedi punto 4)
+hanno liberato margine reale, ciascuno verificato via boot seriale reale
+confrontando la riga `total free DMA` di `Display::Display()` coi 153600
+byte richiesti dal framebuffer 240×320:
+
+1. **`hfs_radial.cpp`**: tre statiche `RadialTable` indipendenti da ~4KB
+   l'una (`buildHfsRadialSamplerIsotropic()`/`buildHfsRadialSamplerOriented()`/
+   `buildRadialSamplerRuntime()`, quest'ultima spostata qui da `pointcloud.h`),
+   usate in modo mutuamente esclusivo nello stesso loop sequenziale per-gruppo
+   di `atom_cloud.cpp`'s `buildAtomPointCloud()`, unificate in un'unica coppia
+   `RadialTable`/`weight` condivisa — **~12.5KB liberati su entrambe le
+   board**, incondizionatamente (non erano mai state `EXT_RAM_BSS_ATTR`/
+   PSRAM-eligible).
+2. **`orbital_presets.cpp`**: `scaleFromRadii()` aveva un proprio scratch
+   `radii[kOrbitalNumPoints]` separato invece di riusare l'union
+   `OrderRadiiScratch` già condivisa con `computeOrbitalLevels()` (nonostante
+   il commento originale sopra affermasse il contrario) — corretto, **~7.2KB
+   liberati** a 1800 punti.
+3. **`src/physics/view_scratch_arena.h`** (nuovo header): lo scratch di
+   caricamento di `orbital_view.cpp` (`psi2`/`signs`/`levels`) e di
+   `orbital_presets.cpp` (`order`/`radii`) e lo scratch per-subshell di
+   `atom_cloud.cpp` (`sSubshellRadii`) condividono ora un'unica arena statica
+   invece di tre riserve separate — sicuro perché `runOrbitalView()` e
+   `runAtomView()` non girano mai in contemporanea (stesso loop sequenziale
+   di `main.cpp`), quindi il loro scratch "solo di caricamento" non deve mai
+   coesistere. Finché il fabbisogno scratch lato atomo (4 byte/punto) resta
+   sotto l'impronta di caricamento lato orbitale (10 byte/punto ×
+   `kOrbitalNumPoints`), alzare `kAtomNumPoints` non costa nulla in più da
+   questo scratch. Implementazione identica su entrambe le board (nessun
+   ramo `#if CONFIG_IDF_TARGET_ESP32`): sulla S3 (PSRAM abbondante)
+   condividere l'arena non costa nulla di significativo, e un solo percorso
+   di codice testato su entrambe le board è più sicuro di un secondo percorso
+   S3-only mai verificato su hardware reale.
+
+4. **`src/physics/view_steady_arena.h`** (nuovo header): non solo lo
+   scratch, ma anche i dati steady-state veri e propri —
+   `OrbitalPresetState`'s `points`/`colors`/`resample.psi2Sorted` e
+   `AtomPresetState`'s `points` — condividono ora un'unica arena,
+   dimensionata sulla vista più grande, invece di due riserve sempre
+   residenti (stesso ragionamento di sicurezza: mai in contemporanea). SOLO
+   le due istanze delle viste live (`runOrbitalView()`/`runAtomView()`'s
+   proprio `preset`) si legano a quest'arena — `debug/screenshot_batch.cpp`
+   e `debug/gif_capture_test.cpp` mantengono deliberatamente proprio storage
+   privato separato, perché le loro catture possono girare sul task della
+   console screenshot in contemporanea alla vista live (vedi
+   `debug/screenshot_pause.h`): condividere l'arena anche lì corromperebbe
+   silenziosamente quel che la vista live sta mostrando. **Trade-off
+   esplicito**: dato che ora le due viste live condividono la memoria
+   fisica dei punti, rientrare in una vista dopo che l'altra ha girato deve
+   sempre richiamare `load()` da capo (ricostruzione fresca, ~100-200ms)
+   invece di riprendere istantaneamente — i vecchi guard
+   `presetIndex < 0`/`preset.z == 0` (solo primo avvio) sono stati sostituiti
+   da un ricaricamento incondizionato ad ogni rientro. Il preset ricostruito
+   è visivamente IDENTICO (stesso indice/Z ricordato, stesso seed RNG
+   fisso) — l'unico costo è la pausa di ricaricamento, mai un risultato
+   diverso. Implementazione identica su entrambe le board, stesso
+   ragionamento del punto 3.
+
+Margine reale misurato dopo i primi tre interventi: **~46KB di DMA libera**
+a 1800/500 (contro i ~12.5KB storicamente accettati alla coppia 3400/1000
+pre-cross-switch). Portando `kAtomNumPoints` a 3000 (solo punti 1-3,
+`kOrbitalNumPoints` lasciato invariato a 1800): **~16.2KB di margine reale**
+(`total free DMA=169836` contro 153600 richiesti), allocatore del
+framebuffer che fa backoff a 13 blocchi da 26 righe — comportamento di
+backoff normale, non un segnale di problemi (vedi sopra). Aggiungendo il
+punto 4 e portando `kAtomNumPoints` a **5000**: **~22.6KB di margine reale**
+(`total free DMA=176220` contro 153600 richiesti), stessa granularità di
+backoff (13 blocchi). Entrambi i valori verificati su hardware reale
+(`/dev/ttyUSB0`): boot pulito, `runOrbitalView()` e `runAtomView()` (incluso
+il percorso di caricamento elemento che esercita lo scratch condiviso
+`sSubshellRadii` via `refreshDissectPlan()`, e ripetuti cross-switch che
+esercitano il ricaricamento forzato introdotto dal punto 4) avviati e
+alternati ripetutamente senza crash né corruzione — confermato dal log
+seriale: dopo il punto 4, ogni rientro in una vista mostra esplicitamente
+`loading preset N...`/`loading Z=N...`, laddove prima (punti 1-3 soltanto)
+i rientri successivi al primo non mostravano quella riga (ripresa
+istantanea, nessun ricaricamento).
+
+**`kOrbitalNumPoints` portato da 1800 a 3000** (stesso giorno, con
+`kAtomNumPoints` fermo a 5000): provato direttamente su hardware reale
+anziché solo calcolato, seguendo la stessa prassi di misura di questo
+documento:
+
+- **5000** (pari a `kAtomNumPoints`): **fallisce al link** — `.dram0.bss`
+  sfora `dram0_0_seg` di 2048 byte.
+- **4000**: linka, ma va in **abort() al boot** — `total free DMA=144288`
+  contro i 153600 richiesti, già negativo prima ancora del backoff a grana
+  fine.
+- **3500**: boota, ma l'allocatore del framebuffer arriva a fare backoff
+  fino a 320 blocchi da 1 riga per soli ~4.7KB di margine reale
+  (`total free DMA=158288`) — stesso pattern fragile già scartato per
+  `kAtomNumPoints` (vedi sopra), non accettato solo perché boota una volta.
+- **3000** (valore tenuto): boot pulito, `total free DMA=166288` contro
+  153600 richiesti — **~12.7KB di margine**, allocatore a 13 blocchi da 26
+  righe (stessa granularità ragionevole dei traguardi precedenti).
+  Verificato con `runOrbitalView()`/`runAtomView()` avviati e alternati
+  ripetutamente a questa esatta coppia, nessun crash né corruzione.
 
 ### Budget RAM interna: commonalizzazione, esclusioni CYD-specifiche, verifica su hardware (2026-08-22)
 

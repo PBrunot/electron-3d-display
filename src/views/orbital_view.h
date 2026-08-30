@@ -35,11 +35,19 @@ inline constexpr uint32_t kOrbitalViewSeed = 12345;
  *
  * Point coordinates (kept alive for resamplePoints()), their encoded colors, and the
  * OrbitalResampleState needed to keep resampling from the same distribution later.
+ *
+ * `points`/`colors` are non-owning pointers, not embedded arrays: runOrbitalView()'s own
+ * `preset` instance binds them to physics/view_steady_arena.h's shared ViewSteadyArena
+ * (once, on first use); other instances (debug/screenshot_batch.cpp's own capture-only
+ * preset) bind them to their own private backing storage instead -- see that header's comment
+ * for why the two must never share. Every existing `preset.points[i]`/`preset.colors[i]`
+ * call site keeps working unchanged either way (pointer indexing reads identically to array
+ * indexing).
  */
 struct OrbitalPresetState
 {
-    OrbitalPoint points[kOrbitalNumPoints];
-    uint16_t colors[kOrbitalNumPoints];
+    OrbitalPoint *points = nullptr;
+    uint16_t *colors = nullptr;
     OrbitalResampleState resample;
     char title[kMaxOrbitalTitleLen]; // scientific-notation title (formatOrbitalTitle()), e.g. "3d" + a subscript "xy"
     char orbital_numbers[32];

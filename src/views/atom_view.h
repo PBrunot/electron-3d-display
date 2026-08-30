@@ -51,10 +51,18 @@ inline constexpr int kAtomViewDefaultZ = 6;
  * Point coordinates, plus per-SUBSHELL (not per-point, see atom_cloud.h's AtomSubshellRange)
  * point ranges and their shell-colored (brightened/dimmed) render groups, and the electron
  * configuration used (for the title).
+ *
+ * `points` is a non-owning pointer, not an embedded array: runAtomView()'s own `preset`
+ * instance binds it to physics/view_steady_arena.h's shared ViewSteadyArena (once, on first
+ * use); other instances (debug/screenshot_batch.cpp's/debug/gif_capture_test.cpp's own
+ * capture-only presets) bind it to their own private backing storage instead -- see that
+ * header's comment for why the two must never share. Every existing `preset.points[i]` call
+ * site keeps working unchanged either way (pointer indexing reads identically to array
+ * indexing).
  */
 struct AtomPresetState
 {
-    AtomPoint points[kAtomNumPoints];
+    AtomPoint *points = nullptr;
     AtomSubshellRange ranges[kMaxConfigSubshells]; ///< This element's subshells and their point ranges.
     int rangeCount = 0;
     PointGroup groups[kMaxConfigSubshells]; ///< `ranges` paired with each subshell's render color.

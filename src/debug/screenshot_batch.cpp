@@ -44,9 +44,20 @@ namespace
     /// viewer boots into -- matches pc/screenshot.py's fixed CAMERA used for its stills.
     void captureOrbitals(Display &display, uint16_t *pixelBuf)
     {
-        // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM; see orbital_view.cpp's identical
-        // static preset for why (this struct alone is tens of KB).
-        static EXT_RAM_BSS_ATTR OrbitalPresetState preset;
+        // Deliberately its OWN private backing storage, NOT physics/view_steady_arena.h's
+        // shared arena the live orbital_view.cpp/atom_view.cpp views use: this capture can
+        // run from the screenshot console's task while the main render loop's task is still
+        // live (see debug/screenshot_pause.h) -- sharing the arena here would silently
+        // overwrite whatever preset the live view is currently showing. EXT_RAM_BSS_ATTR --
+        // PSRAM, not internal RAM; see orbital_view.cpp's identical reasoning (this struct
+        // alone is tens of KB).
+        static EXT_RAM_BSS_ATTR OrbitalPoint points[kOrbitalNumPoints];
+        static EXT_RAM_BSS_ATTR uint16_t colors[kOrbitalNumPoints];
+        static EXT_RAM_BSS_ATTR orb_real_t psi2Sorted[kOrbitalNumPoints];
+        static OrbitalPresetState preset;
+        preset.points = points;
+        preset.colors = colors;
+        preset.resample.psi2Sorted = psi2Sorted;
         CameraState camera;
         for (int i = 0; i < kOrbitalLibraryCount; i++)
         {
@@ -132,10 +143,15 @@ void captureAllPresets()
     // like the real display -- takes ownership of renderBuf (freed by ~Display() below).
     Display offscreen(nullptr, renderBuf);
 
-    // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM; see orbital_view.cpp's identical static
-    // preset for why (this struct alone is tens of KB). Shared by captureAtoms() and
-    // captureFeDissection() so there's only one such reservation for the whole batch.
-    static EXT_RAM_BSS_ATTR AtomPresetState atomPreset;
+    // Deliberately its OWN private backing storage, NOT physics/view_steady_arena.h's shared
+    // arena the live orbital_view.cpp/atom_view.cpp views use -- see captureOrbitals()'s
+    // identical comment above for why. EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM; see
+    // orbital_view.cpp's identical reasoning (this struct alone is tens of KB). Shared by
+    // captureAtoms() and captureFeDissection() so there's only one such reservation for the
+    // whole batch.
+    static EXT_RAM_BSS_ATTR AtomPoint atomPoints[kAtomNumPoints];
+    static AtomPresetState atomPreset;
+    atomPreset.points = atomPoints;
 
     ESP_LOGI(kTag, "batch capture starting: %d orbitals + %d atoms", kOrbitalLibraryCount, kBatchAtomCount);
     captureOrbitals(offscreen, pixelBuf);

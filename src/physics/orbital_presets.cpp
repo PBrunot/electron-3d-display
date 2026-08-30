@@ -5,8 +5,8 @@
 #include <cmath>
 
 #include "render/display.h"          // packColor565
-#include "esp_attr.h"                // EXT_RAM_BSS_ATTR
 #include "physics/orbital_library.h" // findOrbitalSampler
+#include "physics/view_scratch_arena.h" // shared order/radii scratch, see that header
 
 // ============================================================================================
 // Tunable constants
@@ -53,22 +53,20 @@ namespace
     // against any other reader/writer of this module's static scratch), and each function's
     // own use is fully self-contained (write, read, discard) within that one call -- so one
     // buffer, reinterpreted as whichever type is needed, safely replaces two separate
-    // kOrbitalNumPoints-sized static arrays. Saves 4 bytes/point of internal SRAM on boards
-    // with no PSRAM (CYD), where every such array falls back from EXT_RAM_BSS_ATTR's intended
-    // PSRAM placement into that same tight budget -- see config/visual_constants.h's
-    // kOrbitalNumPoints comment.
-    union OrderRadiiScratch
-    {
-        int order[kOrbitalNumPoints];
-        orb_real_t radii[kOrbitalNumPoints];
-    };
-    EXT_RAM_BSS_ATTR OrderRadiiScratch sOrderRadiiScratch;
+    // kOrbitalNumPoints-sized static arrays.
+    //
+    // This storage is further shared with orbital_view.cpp's own load()-only scratch AND
+    // atom_cloud.cpp's sSubshellRadii scratch via view_scratch_arena.h's ViewScratchArena
+    // (OrderRadiiScratch is defined there, reused here instead of redefining it) -- see that
+    // header for why sharing across the orbital/atom module boundary is safe, and why it's
+    // the same on both boards rather than a CYD-only special case.
+    OrderRadiiScratch &sOrderRadiiScratch = viewScratchArena().orbital.orderOrRadii;
 } // namespace
 
 void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels, orb_real_t *outPsi2Sorted)
 {
     // Static, not stack-local: this project avoids large stack arrays after
-    // pointcloud.h's buildRadialSamplerRuntime() already hit a real task stack overflow
+    // hfs_radial.cpp's buildRadialSamplerRuntime() already hit a real task stack overflow
     // with a much smaller (~4KB) local array.
     int *order = sOrderRadiiScratch.order;
     for (int i = 0; i < count; i++)
@@ -127,7 +125,12 @@ ResampledOrbitalPoint resampleOneOrbitalPoint(OrbitalResampleState *state, Orbit
 
 OrbitalScale scaleFromRadii(const OrbitalPoint *points, int count)
 {
-    static EXT_RAM_BSS_ATTR orb_real_t radii[kOrbitalNumPoints]; // static scratch, see computeOrbitalLevels()'s comment
+    // Shares sOrderRadiiScratch.radii with computeOrbitalLevels()'s order[] (see that union's
+    // comment) instead of its own separate kOrbitalNumPoints-sized static -- both are called
+    // sequentially within one OrbitalPresetState::load() (orbital_view.cpp), never
+    // concurrently, and each use is fully self-contained (write, read via nth_element, discard)
+    // within this one call.
+    orb_real_t *radii = sOrderRadiiScratch.radii;
     for (int i = 0; i < count; i++)
         radii[i] = std::sqrt(points[i].x * points[i].x + points[i].y * points[i].y + points[i].z * points[i].z);
 

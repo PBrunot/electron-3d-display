@@ -22,9 +22,14 @@ void runGifCaptureTest(Display &display)
     // screenshot::init() is already called by main.cpp's startScreenshotConsole() before this
     // runs -- calling it again here would just fail the second esp_vfs_spiffs_register().
 
+    // Deliberately its OWN private backing storage, NOT physics/view_steady_arena.h's shared
+    // arena the live orbital_view.cpp/atom_view.cpp views use -- see
+    // debug/screenshot_batch.cpp's captureOrbitals() for why that separation matters.
     // EXT_RAM_BSS_ATTR -- PSRAM, not internal RAM; same reasoning as benchmark_test.cpp's/
     // screenshot_batch.cpp's own AtomPresetState statics.
-    static EXT_RAM_BSS_ATTR AtomPresetState preset;
+    static EXT_RAM_BSS_ATTR AtomPoint points[kAtomNumPoints];
+    static AtomPresetState preset;
+    preset.points = points;
     preset.load(kGifZ);
 
     constexpr size_t kBufBytes = size_t(Display::kDisplayWidth) * Display::kDisplayHeight * sizeof(uint16_t);

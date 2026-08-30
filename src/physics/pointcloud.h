@@ -399,42 +399,13 @@ struct RadialTable
     orb_real_t invRTable[kOrbitalTableSize];
 };
 
-/**
- * Build the radial table for subshell (n, ell) at effective nuclear charge zEff (1.0 =
- * plain hydrogen). Runtime only -- zEff comes from a runtime element selection (slater.h),
- * so this can't be a compile-time constant the way the angular tables are. Same r -> zEff*r
- * substitution and max_r = 6*n*n/zEff shrink as micropython/pointcloud.py's
- * init_orbital_sampler()/init_radial_sampler().
- *
- * Not reentrant/thread-safe (returns a reference to a single static instance, reused on
- * every call) -- fine for atom_cloud.h's sequential per-group loop, not safe to call from
- * multiple tasks/ISRs, and the returned reference is only valid until the next call.
- */
-inline const RadialTable &buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff)
-{
-    // static, not a stack array/return-by-value: RadialTable embeds a 1001-float (~4KB)
-    // table, too large a chunk to put on a task stack (this is what actually overflowed
-    // app_main's default-sized stack when it was a local array here -- unlike
-    // orbitals.h/pointcloud.h's constexpr table builders, THIS function genuinely runs on
-    // the target's real stack at runtime). Returning by value would silently reintroduce
-    // the same ~4KB stack frame one level up, in every caller.
-    static RadialTable rt;
-    orb_real_t radialCoeff[kOrbitalNMax] = {};
-    laguerreCoeffs(n, ell, radialCoeff);
-
-    orb_real_t maxR = orb_real_t(6 * n * n) / zEff;
-    rt.maxR = maxR;
-    static orb_real_t weight[kOrbitalTableSize];
-    orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
-    for (int i = 0; i < kOrbitalTableSize; i++)
-    {
-        orb_real_t r = orb_real_t(i) * deltaR;
-        orb_real_t R = hydrogenRadialFunction(zEff * r, n, ell, radialCoeff);
-        weight[i] = (r * R) * (r * R);
-    }
-    buildInverseCdf(weight, kOrbitalTableSize, maxR, rt.invRTable);
-    return rt;
-}
+// buildRadialSamplerRuntime() (the hydrogenic-fallback radial sampler built from this struct)
+// used to live here as an inline function, but has moved to physics/hfs_radial.h/.cpp so it
+// can share ONE static RadialTable/weight scratch pair with hfs_radial.cpp's
+// buildHfsRadialSamplerIsotropic()/buildHfsRadialSamplerOriented() -- all three are called
+// mutually-exclusively from the same sequential per-drawing-group loop in
+// atom_cloud.cpp's buildAtomPointCloud(), so three separate ~4KB statics (one here, two there)
+// were pure duplication. See hfs_radial.h for the declaration.
 
 /**
  * Draw one point from a specific real orbital (n, ell, m) given its precomputed radial

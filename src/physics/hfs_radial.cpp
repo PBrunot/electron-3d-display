@@ -42,6 +42,17 @@ namespace
     // open/close is the expensive part (object-index lookup), not the seek/read that follows
     // it. A held-open FILE* only needs fseek()+fread() per call.
     FILE *sDataFile = nullptr;
+
+    // Shared scratch for all three radial-table builders below (buildHfsRadialSamplerIsotropic/
+    // buildHfsRadialSamplerOriented/buildRadialSamplerRuntime): atom_cloud.cpp's
+    // buildAtomPointCloud() calls exactly one of the three per drawing group, in a strictly
+    // sequential loop, and fully consumes the returned reference before the next group calls
+    // any of the three again -- so one ~4KB RadialTable and one ~4KB weight buffer, reused by
+    // whichever builder runs, safely replaces three independent copies (was one per builder).
+    // weight is sized to the largest need (kOrbitalTableSize, used by the Oriented/Runtime
+    // paths); the Isotropic path only ever reads/writes its first kHfsGridSize entries.
+    RadialTable sSharedRadialTable;
+    orb_real_t sSharedRadialWeight[kOrbitalTableSize];
 } // namespace
 
 void hfsInit()
@@ -132,8 +143,8 @@ orb_real_t hfsRLookup(orb_real_t r, const orb_real_t *u)
 
 const RadialTable &buildHfsRadialSamplerIsotropic(const orb_real_t *u)
 {
-    static RadialTable rt;
-    static orb_real_t weight[kHfsGridSize];
+    RadialTable &rt = sSharedRadialTable;
+    orb_real_t *weight = sSharedRadialWeight;
     for (int i = 0; i < kHfsGridSize; i++)
         weight[i] = u[i] * u[i];
     rt.maxR = sR[kHfsGridSize - 1];
@@ -143,8 +154,8 @@ const RadialTable &buildHfsRadialSamplerIsotropic(const orb_real_t *u)
 
 const RadialTable &buildHfsRadialSamplerOriented(const orb_real_t *u)
 {
-    static RadialTable rt;
-    static orb_real_t weight[kOrbitalTableSize];
+    RadialTable &rt = sSharedRadialTable;
+    orb_real_t *weight = sSharedRadialWeight;
     orb_real_t maxR = sR[kHfsGridSize - 1];
     rt.maxR = maxR;
     orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
@@ -152,6 +163,26 @@ const RadialTable &buildHfsRadialSamplerOriented(const orb_real_t *u)
     {
         orb_real_t r = orb_real_t(i) * deltaR;
         orb_real_t R = hfsRLookup(r, u);
+        weight[i] = (r * R) * (r * R);
+    }
+    buildInverseCdf(weight, kOrbitalTableSize, maxR, rt.invRTable);
+    return rt;
+}
+
+const RadialTable &buildRadialSamplerRuntime(int n, int ell, orb_real_t zEff)
+{
+    RadialTable &rt = sSharedRadialTable;
+    orb_real_t *weight = sSharedRadialWeight;
+    orb_real_t radialCoeff[kOrbitalNMax] = {};
+    laguerreCoeffs(n, ell, radialCoeff);
+
+    orb_real_t maxR = orb_real_t(6 * n * n) / zEff;
+    rt.maxR = maxR;
+    orb_real_t deltaR = maxR / orb_real_t(kOrbitalTableSize - 1);
+    for (int i = 0; i < kOrbitalTableSize; i++)
+    {
+        orb_real_t r = orb_real_t(i) * deltaR;
+        orb_real_t R = hydrogenRadialFunction(zEff * r, n, ell, radialCoeff);
         weight[i] = (r * R) * (r * R);
     }
     buildInverseCdf(weight, kOrbitalTableSize, maxR, rt.invRTable);

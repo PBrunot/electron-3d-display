@@ -68,6 +68,11 @@ void computeOrbitalLevels(const orb_real_t *psi2, int count, uint8_t *outLevels,
  * distribution. `cursor` round-robins through point indices so every point turns over in
  * turn, rather than a random choice leaving some indices stale indefinitely. Port of
  * cloud_common.ResampleState.
+ *
+ * `psi2Sorted` is a non-owning pointer, not an embedded array -- only ever embedded via
+ * OrbitalPresetState::resample (views/orbital_view.h), so it's bound to backing storage the
+ * same way/at the same time as that struct's own points/colors pointers -- see
+ * OrbitalPresetState's comment.
  */
 struct OrbitalResampleState
 {
@@ -82,7 +87,7 @@ struct OrbitalResampleState
     orb_real_t radialCoeff[kOrbitalNMax];
     orb_real_t legendreCoeff[kOrbitalEllMax + 1];
     int n, ell, m;
-    orb_real_t psi2Sorted[kOrbitalNumPoints]; // frozen reference, first `count` entries valid
+    orb_real_t *psi2Sorted = nullptr; // frozen reference, first `count` entries valid
     int count;
     int cursor = 0;
 };

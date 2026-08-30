@@ -7,7 +7,7 @@
 #include <cmath>
 
 #include "render/display.h"  // Display::packColor565
-#include "esp_attr.h" // EXT_RAM_BSS_ATTR
+#include "physics/view_scratch_arena.h" // shared sSubshellRadii scratch, see that header
 
 int drawingGroups(const ElectronConfig &config, DrawingGroup *out)
 {
@@ -184,7 +184,13 @@ namespace
     // buffer allocation once (see atom_view.cpp's AtomPresetState comment for the bigger
     // instance of this same lesson) -- not worth risking a repeat over one harmless-looking
     // duplicate static array.
-    EXT_RAM_BSS_ATTR orb_real_t sSubshellRadii[kAtomNumPoints];
+    //
+    // Comes from view_scratch_arena.h's shared ViewScratchArena rather than a separate static
+    // here -- see that header for why sharing it with orbital_view.cpp's/orbital_presets.cpp's
+    // load-only scratch (never needed at the same time, since only one of the two views is
+    // ever active) is safe, and why it's the same on both boards rather than a CYD-only
+    // special case.
+    orb_real_t *const sSubshellRadii = viewScratchArena().atomSubshellRadii;
 } // namespace
 
 /// p90 radius of `points[startIndex, startIndex+count)`, via sSubshellRadii scratch. Shared by

@@ -158,28 +158,81 @@ inline constexpr uint32_t kSplashHoldMs = 2000;
 // Orbital point-cloud density/turnover (physics/orbital_presets.h)
 // ============================================================================================
 
-// Orbital point-cloud size: sizes OrbitalPresetState's point/color arrays (orbital_view.h)
-// and the scratch arrays orbital_presets.cpp's computeOrbitalLevels()/scaleFromRadii() use
-// (order[], radii[]), plus OrbitalResampleState::psi2Sorted -- matches cloud_common.N_POINTS.
+// Orbital point-cloud size: sizes OrbitalPresetState's point/color/psi2Sorted -- matches
+// cloud_common.N_POINTS. That steady-state storage, and the load()-only scratch (orbital_view.
+// cpp's psi2/signs/levels, orbital_presets.cpp's order/radii), no longer cost anything of
+// their own: they come from physics/view_steady_arena.h's/physics/view_scratch_arena.h's
+// shared arenas, each unioned against atom_cloud.cpp's/atom_view.h's equivalent below (never
+// needed at the same time, since only one of the two views is ever active) -- see those
+// headers for the full rationale.
 //
 // CYD (plain ESP32, no PSRAM) needs a much smaller count than the S3: every array sized off
 // this constant (here, atom_cloud.h's kAtomNumPoints below, and every EXT_RAM_BSS_ATTR buffer
 // derived from either -- orbital_view.cpp, atom_view.cpp, benchmark_test.cpp,
-// screenshot_batch.cpp, orbital_library.cpp, atom_cloud.cpp, orbital_presets.cpp) falls back
-// from PSRAM to internal DRAM with no PSRAM to fall back to,
-// and ESP-IDF/PlatformIO link the "main" component whole-archive, so even code never called at
-// runtime (e.g. benchmark_test.cpp when BENCHMARK_TEST isn't defined) still reserves its own
-// static buffers in that same budget. See CYD-branch.md for the measured link-time headroom
-// this value was tuned against.
+// screenshot_batch.cpp, orbital_library.cpp, atom_cloud.cpp, orbital_presets.cpp,
+// view_scratch_arena.h, view_steady_arena.h) falls back from PSRAM to internal DRAM with no
+// PSRAM to fall back to, and ESP-IDF/PlatformIO link the "main" component whole-archive, so
+// even code never called at runtime (e.g. benchmark_test.cpp when BENCHMARK_TEST isn't
+// defined) still reserves its own static buffers in that same budget. See CYD-branch.md for
+// the measured link-time headroom this value was tuned against.
 #if CONFIG_IDF_TARGET_ESP32
-// Cut from 3400: main.cpp's CYD boot loop now also runs runAtomView() (so idle browsing can
-// cross over to the element viewer, see kViewCrossSwitchProbability), which was previously
-// gc-sections'd out entirely when nothing on CYD ever called it. Its own AtomPresetState plus
-// atom_cloud.cpp/hfs_radial.cpp's always-on scratch tables need ~35KB of internal SRAM that
-// this preset's own static buffers (points/colors/psi2Sorted, 18 bytes/point) don't have to
-// give up on their own -- confirmed by esp_startup_start_app's main-task xTaskCreate failing
-// at boot at the old value once that RAM was needed for both views' statics at once.
-inline constexpr int kOrbitalNumPoints = 1800;
+// main.cpp's CYD boot loop runs both runOrbitalView() and runAtomView() (idle browsing
+// crosses over between them, see kViewCrossSwitchProbability), so both views' static state is
+// permanently resident regardless of which is actually on screen. Four internal-SRAM
+// reclamation passes (2026-08-30) made room to raise this back up from an earlier 1800/500
+// low point without shrinking the framebuffer or risking boot failure, each verified via a
+// real serial boot log's `total free DMA` line (Display::Display(), display.cpp) against the
+// 153600 bytes the 240x320 framebuffer needs:
+//   1. hfs_radial.cpp's three independent ~4KB RadialTable scratch statics (used
+//      mutually-exclusively, one per atom drawing group) merged into one shared pair --
+//      ~12.5KB freed on both boards, unconditionally (these were never EXT_RAM_BSS_ATTR/
+//      PSRAM-eligible in the first place).
+//   2. orbital_presets.cpp's scaleFromRadii() stopped keeping its own separate radii[]
+//      scratch, now reuses the same OrderRadiiScratch union computeOrbitalLevels() already
+//      used -- ~7.2KB freed at the then-current 1800 points.
+//   3. physics/view_scratch_arena.h: orbital_view.cpp's psi2/signs/levels scratch,
+//      orbital_presets.cpp's order/radii scratch, and atom_cloud.cpp's sSubshellRadii scratch
+//      (kAtomNumPoints below) now share one arena instead of three separate reservations --
+//      safe because runOrbitalView()'s and runAtomView()'s scratch needs are never alive at
+//      the same time.
+//   4. physics/view_steady_arena.h: OrbitalPresetState's points/colors/resample.psi2Sorted and
+//      AtomPresetState's points (the actual per-point data, not just scratch) now share ONE
+//      arena too, sized to whichever view is larger -- again safe because the two live views
+//      never run concurrently. ONLY the two live-view instances (runOrbitalView()'s/
+//      runAtomView()'s own `preset` statics) bind to this arena; debug/screenshot_batch.cpp's
+//      and debug/gif_capture_test.cpp's own separate preset instances deliberately keep their
+//      own private backing storage instead (see view_steady_arena.h's header comment for why
+//      -- those can run concurrently with a live view via the screenshot console's task, so
+//      sharing there would silently corrupt whatever the live view is showing). Trade-off:
+//      since the two live views' points/colors now share physical storage, re-entering one
+//      after the other has run must always call load() again (a fresh ~100-200ms rebuild)
+//      instead of instantly resuming -- the OLD "presetIndex < 0"/"preset.z == 0"
+//      first-boot-only reload guards are gone, replaced with an unconditional reload every
+//      re-entry (see runOrbitalView()'s/runAtomView()'s own comments). The rebuilt preset is
+//      visually IDENTICAL (same remembered index/Z, same fixed RNG seed), so this only costs
+//      the reload pause, never a different result.
+// Points 1-3 alone (kOrbitalNumPoints=1800, kAtomNumPoints=3000) measured ~16.2KB free DMA
+// margin; adding point 4 (kOrbitalNumPoints still 1800, kAtomNumPoints=5000) measured ~22.6KB
+// margin. kOrbitalNumPoints itself was left at 1800 through all four passes since
+// kAtomNumPoints was the constant actually worth raising -- but with kAtomNumPoints settled
+// at 5000, raising THIS constant too was tried directly on real hardware (not just
+// calculated), per this project's own established practice of trusting a measured
+// `total free DMA` over a byte-counted estimate:
+//   - 5000 (matching kAtomNumPoints): FAILS TO LINK -- `.dram0.bss` overflows dram0_0_seg by
+//     2048 bytes. Even if it had linked, this is past where real margin would matter anyway.
+//   - 4000: links, but boots to a hard abort() -- `total free DMA=144288` against the 153600
+//     the framebuffer needs, i.e. already negative before backoff even starts.
+//   - 3500: boots, but the framebuffer allocator backs off all the way to 320 one-row blocks
+//     for only ~4.7KB of real margin (`total free DMA=158288`) -- the same fragile pattern
+//     rejected earlier for kAtomNumPoints (see that constant's history) rather than accepted
+//     just because it happens to boot once.
+//   - 3000 (this value): boots cleanly, `total free DMA=166288` against 153600 needed --
+//     ~12.7KB margin, framebuffer allocator backing off to 13 reasonably-sized 26-row blocks
+//     (same granularity as the kAtomNumPoints=3000/5000 milestones above, and in line with the
+//     ~12.5KB margin this project has historically treated as an acceptable floor, CYD-branch.
+//     md) -- the value kept. Verified with runOrbitalView()/runAtomView() booting and
+//     cross-switching cleanly and repeatedly at this exact pair, no crash or corruption.
+inline constexpr int kOrbitalNumPoints = 3000;
 #else
 inline constexpr int kOrbitalNumPoints = 12000;
 #endif
@@ -194,11 +247,27 @@ inline constexpr int kOrbitalCullRefreshFrames = 3;
 // Atom point-cloud density/shading/scale (physics/atom_cloud.h)
 // ============================================================================================
 
-// Atom point-cloud size: sizes AtomPresetState's point array (atom_view.h) and
-// outerSubshellRRef()'s per-subshell radius scratch (atom_cloud.cpp). CYD value: see
-// kOrbitalNumPoints's comment above -- same no-PSRAM constraint.
+// Atom point-cloud size: sizes AtomPresetState's point array (atom_view.h). Its per-subshell
+// radius scratch (outerSubshellRRef()/subshellDissectionPlan(), atom_cloud.cpp) and the point
+// array itself no longer cost anything of their own on top of whatever orbital_view.h's own
+// arrays already reserve -- see kOrbitalNumPoints's comment above,
+// physics/view_scratch_arena.h, and physics/view_steady_arena.h. CYD value: see
+// kOrbitalNumPoints's comment above for the four reclamation passes that made this increase
+// possible.
 #if CONFIG_IDF_TARGET_ESP32
-inline constexpr int kAtomNumPoints = 500; // cut from 1000 -- see kOrbitalNumPoints's comment above
+// Raised from 500 (2026-08-30) in two steps as the reclamation passes described in
+// kOrbitalNumPoints's comment above landed: first to 3000 (points 1-3, scratch-only sharing),
+// then to 5000, this value (point 4, sharing the steady-state points/colors themselves too) --
+// an atom point is actually cheaper than an orbital point (12 bytes: just x/y/z, no per-point
+// color -- shading is per-subshell via AtomSubshellRange, not per-point like orbital's
+// turnover-driven colors[]), so this was never a per-point-cost problem, only a fixed-overhead
+// one. Verified via real serial boot logs at both values (see kOrbitalNumPoints's comment for
+// the measured DMA margins), and both runOrbitalView() and runAtomView() (including the
+// element-load path that exercises the shared sSubshellRadii scratch via
+// refreshDissectPlan(), and repeated cross-view switching that exercises the forced reload
+// physics/view_steady_arena.h's sharing now requires) booting and running cleanly, repeatedly,
+// with no crash or corruption.
+inline constexpr int kAtomNumPoints = 5000;
 #else
 inline constexpr int kAtomNumPoints = 12000;
 #endif
