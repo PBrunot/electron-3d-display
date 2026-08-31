@@ -334,11 +334,6 @@ inline constexpr int kChooserOptionScale = 1;
 inline constexpr int kChooserBandY = 150; ///< Top of the band; spans the full width down to the screen bottom.
 inline constexpr uint16_t kChooserBandColor = Display::kColorBlack;
 
-/// Option lines sit near the top of the band; the tilt-direction cluster (below) gets the
-/// rest of the band's height to itself.
-inline constexpr int kChooserOption1Y = 158; ///< Y of the "UP: Orbitals" line.
-inline constexpr int kChooserOption2Y = 182; ///< Y of the "DOWN: Elements" line.
-
 /// Bright, high-contrast colors the menu options blink between (rather than blinking
 /// on/off) so they read clearly over the flat band (unlike kColorOrbitalRed, which is
 /// tuned for orbital-lobe shading, not on-screen text legibility) and stay flashy even
@@ -356,8 +351,8 @@ inline constexpr uint32_t kChooserBlinkHalfPeriodMs = 400;
 /// "appears while tilting" feedback the old screen-edge arrow gave, just relocated into the
 /// reserved band instead of wherever the splash artwork happened to be.
 inline constexpr int kChooserArrowClusterCx = Display::kDisplayWidth - 40;
-inline constexpr int kChooserArrowClusterCy = 222;
-inline constexpr int kChooserArrowLengthPx = 16; ///< Tip-to-base along the pointing direction.
+inline constexpr int kChooserArrowClusterCy = 259;
+inline constexpr int kChooserArrowLengthPx = 16;    ///< Tip-to-base along the pointing direction.
 inline constexpr int kChooserArrowHalfWidthPx = 10; ///< Half the base width.
 
 // ============================================================================================

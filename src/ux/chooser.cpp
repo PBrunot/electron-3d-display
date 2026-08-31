@@ -94,15 +94,6 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
     ESP_LOGI(kChooserTag, "direction calibration complete");
 }
 
-/// Plain rect fill -- cheap enough (a few thousand writePx() calls for the chooser's toolbar
-/// band) to repaint every poll, unlike drawSplashScreen()'s ~60-90ms JPEG decode.
-static void fillRect(Display &display, int x, int y, int w, int h, uint16_t color)
-{
-    for (int py = y; py < y + h; py++)
-        for (int px = x; px < x + w; px++)
-            display.writePx(px, py, color);
-}
-
 /**
  * @brief Draw the menu screen -- background art, the fixed-color toolbar band, the two
  *        blinking option lines, and (while a tilt is held) the direction-cluster arrow.
@@ -120,15 +111,13 @@ static void drawChooserScreen(Display &display, bool fullRedraw, TiltEvent ev)
     if (fullRedraw)
         drawSplashScreen(display); // no-op (logged) on mount/decode failure, not a crash
 
-    fillRect(display, 0, kChooserBandY, Display::kDisplayWidth, Display::kDisplayHeight - kChooserBandY,
-             kChooserBandColor);
-
     // Alternate between two colors each half-period (rather than blinking on/off) so the
     // text stays put and flashy the whole time instead of periodically vanishing.
     bool colorA = (esp_timer_get_time() / (int64_t(kChooserBlinkHalfPeriodMs) * 1000)) % 2 == 0;
     uint16_t color = colorA ? kChooserOptionColorA : kChooserOptionColorB;
-    drawTextCentered(display, kChooserOption1Y, "UP: Orbitals", color, kFontLarge, kChooserOptionScale);
-    drawTextCentered(display, kChooserOption2Y, "DOWN: Elements", color, kFontLarge, kChooserOptionScale);
+
+    drawTextCentered(display, Display::kDisplayHeight - 60, "UP: Orbitals", color, kFontHuge, kChooserOptionScale);
+    drawTextCentered(display, Display::kDisplayHeight - 30, "DOWN: Elements", color, kFontHuge, kChooserOptionScale);
 
     if (ev.phase != TiltPhase::kIdle)
         drawTiltArrowAt(display, ev.direction, kChooserArrowClusterCx, kChooserArrowClusterCy, kChooserArrowLengthPx,

@@ -43,9 +43,7 @@ import pathlib
 from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-FONT_PATH = (
-    SCRIPT_DIR / "fonts" / "DejaVuSans.ttf"
-)  # quick test: was Jersey10-Regular.ttf
+FONT_PATH = SCRIPT_DIR / "fonts" / "Jersey10-Regular.ttf"
 DEJAVU_PATH = SCRIPT_DIR / "fonts" / "DejaVuSans.ttf"
 
 # (C identifier prefix, point size, extra leading px added to lineAdvance, horizontal
