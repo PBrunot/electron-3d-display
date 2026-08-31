@@ -74,13 +74,34 @@ void renderAtomFrame(Display &display, const AtomPresetState &preset, const Came
 
 namespace
 {
-    int pickNameScale(const char *name)
+    /// Font/scale for the sliding element name: kFontHuge at scale 1 (crisp) if it fits, else
+    /// kFontLarge upscaled (for the longest Italian names, e.g. "Praseodimio").
+    struct NameFontPick
+    {
+        bool useHuge;
+        int scale; // unused when useHuge
+    };
+
+    NameFontPick pickNameFont(const char *name)
     {
         int maxWidth = Display::kDisplayWidth - 2 * kElementIntroNameMarginPx;
+        if (textWidthScaled(name, kFontHuge, 1) <= maxWidth)
+            return {true, 1};
         for (int scale = kElementIntroMaxNameScale; scale > kElementIntroMinNameScale; scale--)
             if (textWidthScaled(name, kFontLarge, scale) <= maxWidth)
+                return {false, scale};
+        return {false, kElementIntroMinNameScale};
+    }
+
+    /// Largest scale (up to kElementIntroSymbolScale) that keeps the background watermark
+    /// within the panel width -- two-letter symbols (e.g. "Fe") clip at the fixed max scale.
+    int pickSymbolScale(const char *symbol)
+    {
+        int maxWidth = Display::kDisplayWidth - 2 * kElementIntroSymbolMarginPx;
+        for (int scale = kElementIntroSymbolScale; scale > 1; scale--)
+            if (textWidthScaled(symbol, kFontHuge, scale) <= maxWidth)
                 return scale;
-        return kElementIntroMinNameScale;
+        return 1;
     }
 
     /**
@@ -95,19 +116,21 @@ namespace
      */
     void scrollElementIntro(Display &display, const char *nameIt, int z, const char *symbol, uint16_t nameColor)
     {
-        int nameScale = pickNameScale(nameIt);
+        NameFontPick namePick = pickNameFont(nameIt);
+        int symbolScale = pickSymbolScale(symbol);
         char zLabel[16];
         std::snprintf(zLabel, sizeof(zLabel), "Z = %d", z);
 
-        int symbolWidth = textWidthScaled(symbol, kFontHuge, kElementIntroSymbolScale);
+        int symbolWidth = textWidthScaled(symbol, kFontHuge, symbolScale);
         int symbolX = (Display::kDisplayWidth - symbolWidth) / 2;
-        int symbolY = (Display::kDisplayHeight - kFontHuge.height * kElementIntroSymbolScale) / 2;
+        int symbolY = (Display::kDisplayHeight - kFontHuge.height * symbolScale) / 2;
 
         int nameY = Display::kDisplayHeight * 2 / 3;
         int zY = Display::kDisplayHeight / 4;
         int zX = (Display::kDisplayWidth - textWidth(zLabel, kFontHuge)) / 2;
 
-        int nameWidth = textWidthScaled(nameIt, kFontLarge, nameScale);
+        int nameWidth = namePick.useHuge ? textWidthScaled(nameIt, kFontHuge, 1)
+                                          : textWidthScaled(nameIt, kFontLarge, namePick.scale);
         int centerX = (Display::kDisplayWidth - nameWidth) / 2;
 
         // `showName` false renders just the symbol watermark (the "background" the name
@@ -116,11 +139,13 @@ namespace
         {
             display.waitForFlushDone();
             display.clearScreen();
-            drawTextScaled(display, symbolX, symbolY, symbol, kElementIntroSymbolColor, kFontHuge,
-                           kElementIntroSymbolScale);
+            drawTextScaled(display, symbolX, symbolY, symbol, kElementIntroSymbolColor, kFontHuge, symbolScale);
             if (showName)
             {
-                drawTextScaled(display, x, nameY, nameIt, nameColor, kFontLarge, nameScale);
+                if (namePick.useHuge)
+                    drawText(display, x, nameY, nameIt, nameColor, kFontHuge);
+                else
+                    drawTextScaled(display, x, nameY, nameIt, nameColor, kFontLarge, namePick.scale);
                 drawText(display, zX, zY, zLabel, nameColor, kFontHuge);
             }
             display.presentFrame();
@@ -326,7 +351,7 @@ namespace
     }
 
     /// Largest scale (up to kDissectIntroMaxWordScale) that keeps all three of `line1`/`line2`/
-    /// `name` inside the panel width -- same fallback-by-shrinking approach as pickNameScale()
+    /// `name` inside the panel width -- same fallback-by-shrinking approach as pickNameFont()
     /// above, just checked against all three strings at once so the reveal never jumps to a
     /// different size between stages.
     int pickDissectIntroScale(const char *line1, const char *line2, const char *name)
@@ -467,7 +492,9 @@ namespace
         // Ease back out to the full view, at the same fixed pm/s pace (a single hop covering
         // the full innermost-to-outermost distance, since we're returning straight to the full
         // view) -- preset.points/preset.groups are already the full, untouched cloud.
-        uint32_t returnFlyMs = dissectFlyDurationMs(prevRRef, dissectPlanCount > 0 ? dissectPlan[0].rRef : prevRRef);
+        uint32_t returnFlyMs = uint32_t(
+            dissectFlyDurationMs(prevRRef, dissectPlanCount > 0 ? dissectPlan[0].rRef : prevRRef) *
+            double(kDissectReturnSlowdown)); // slower than a shell-to-shell hop -- it covers the whole range at once
         auto fullTitle = [&](Display &d, int x, int y, uint16_t color)
         {
             drawAtomTitle(d, x, y, preset.z, color);

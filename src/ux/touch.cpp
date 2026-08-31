@@ -36,7 +36,11 @@ Xpt2046::Xpt2046()
     gpio_config_t inCfg = {};
     inCfg.pin_bit_mask = (1ULL << PIN_MISO) | (1ULL << PIN_IRQ);
     inCfg.mode = GPIO_MODE_INPUT;
-    inCfg.pull_up_en = GPIO_PULLUP_ENABLE; // idles high, chip pulls it low while touched
+    // GPIO34-39 are input-only pads with no internal pull resistor on the classic ESP32, so
+    // GPIO_PULLUP_ENABLE here just logs "GPIO number error" twice and does nothing -- confirmed
+    // on real hardware that the CYD board already pulls IRQ high externally (isTouched() works
+    // fine idle-high/low-when-pressed without it).
+    inCfg.pull_up_en = GPIO_PULLUP_DISABLE;
     gpio_config(&inCfg);
 
     gpio_set_level(PIN_CS, 1);

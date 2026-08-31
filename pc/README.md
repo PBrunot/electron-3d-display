@@ -273,12 +273,11 @@ ported here idea-for-idea, re-implemented per platform:
   it.
 - **Orbital quantum-number reveal**: on every orbital switch (and the idle
   jump), n → n l → n l m is revealed one stage at a time (~0.55s each, +0.5s
-  on the final) over a dim backdrop of the Schrödinger equation and this
-  project's `psiReal()` formula. The device blits a pre-rendered 1-bit
-  bitmap (tools/equation_gen/render_equations.py, needed there because the
-  on-device font is ASCII-only); the PC draws the SAME two formulas directly
-  as text with a Unicode-capable font (Segoe UI/Arial/DejaVu/Liberation,
-  with an ASCII fallback) -- no intermediate asset.
+  on the final) over a backdrop image. The device decodes data/orbitals.jpg
+  once per reveal (render/jpeg_bg.h) and only repaints the text band per
+  stage. The PC instead draws the Schrödinger equation and `psiReal()`
+  directly as text (Unicode font, ASCII fallback) -- no image asset, not
+  kept in sync with the device's backdrop.
 - **Orbital zooms 1.5× slower** (intro/switch/excursion frames ×1.5,
   breathing zoom step ÷1.5), scoped to the orbital viewer only.
 - **Idle auto-advance** (both viewers): 60s without input jumps to a random
