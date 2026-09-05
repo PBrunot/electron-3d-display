@@ -14,6 +14,10 @@
 **[Try it in your browser](https://pbrunot.github.io/electron-3d-display/)** — no hardware needed, runs the same math as the device.
 **[Provalo nel browser](https://pbrunot.github.io/electron-3d-display/)** — nessun hardware richiesto, usa la stessa matematica del dispositivo.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform: ESP32](https://img.shields.io/badge/platform-ESP32-blue.svg)](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3)
+[![Live demo](https://img.shields.io/badge/demo-browser-brightgreen.svg)](https://pbrunot.github.io/electron-3d-display/)
+
 ![hero](img/hero.png)
 
 **Read in / Leggi in:** [English](#english) · [Italiano](#italiano)
@@ -328,6 +332,12 @@ boards/               PlatformIO board definition for the ESP32-S3-LCD-1.3
 img/                  generated illustrations (see the gallery above)
 CLAUDE.md, ORBITALI.md, ATOMS.md   technical docs (Italian)
 ```
+
+### License
+
+MIT — see [LICENSE](LICENSE). Third-party code vendored or referenced
+above (TFT_eSPI, st7789py_mpy, SPARC-atomSFE, etc.) keeps its own
+license; see [Sources & credits](#sources--credits).
 
 ---
 
@@ -675,6 +685,12 @@ boards/               board definition PlatformIO per l'ESP32-S3-LCD-1.3
 img/                  illustrazioni generate (vedi la galleria qui sopra)
 CLAUDE.md, ORBITALI.md, ATOMS.md   documentazione tecnica (in italiano)
 ```
+
+### Licenza
+
+MIT — vedi [LICENSE](LICENSE). Il codice di terze parti citato sopra
+(TFT_eSPI, st7789py_mpy, SPARC-atomSFE, ecc.) mantiene la propria
+licenza; vedi [Fonti e crediti](#fonti-e-crediti).
 
 ---
 
