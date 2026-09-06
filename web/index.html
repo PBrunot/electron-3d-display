@@ -29,9 +29,16 @@
     font-size: 11px;
     color: #888;
     text-decoration: none;
-    margin: 0 0 8px;
+    margin: 0 0 2px;
   }
   #repo-link:hover { color: #bbb; text-decoration: underline; }
+  #docs-links {
+    font-size: 11px;
+    color: #888;
+    margin: 0 0 8px;
+  }
+  #docs-links a { color: #888; text-decoration: none; }
+  #docs-links a:hover { color: #bbb; text-decoration: underline; }
   #stage {
     position: relative;
     width: 100%;
@@ -101,6 +108,12 @@
 <div id="wrap">
   <h1>Atom Orbital Viewer</h1>
   <a id="repo-link" href="https://github.com/PBrunot/electron-3d-display#readme" target="_blank" rel="noopener">github.com/PBrunot/electron-3d-display &#8599;</a>
+  <div id="docs-links">
+    How the math works:
+    <a href="../docs/coefficients_to_tables.html">coefficients&nbsp;&rarr;&nbsp;tables</a> &middot;
+    <a href="../docs/tables_to_bin.html">tables&nbsp;&rarr;&nbsp;bin</a> &middot;
+    <a href="../docs/tables_to_pointclouds.html">tables&nbsp;&rarr;&nbsp;point&nbsp;clouds</a>
+  </div>
   <div id="stage">
     <canvas id="view"></canvas>
     <div id="status">Loading physics engine&hellip; (first load can take 10&ndash;20s)</div>
