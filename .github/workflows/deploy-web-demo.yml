@@ -7,6 +7,10 @@ name: Deploy web demo to GitHub Pages
 # relative fetch("../micropython/...")/fetch("../pc/...") calls resolve
 # exactly as they do when served locally from the repo root (see
 # web/README.md for local testing instructions).
+#
+# docs/*.html are the standalone generated calculation-pipeline writeups
+# (coefficients_to_tables, tables_to_bin, tables_to_pointclouds); they're
+# copied as-is to /docs/ so they can be linked externally.
 
 on:
   push:
@@ -15,6 +19,7 @@ on:
       - 'web/**'
       - 'micropython/**'
       - 'pc/**'
+      - 'docs/**'
       - '.github/workflows/deploy-web-demo.yml'
   workflow_dispatch:
 
@@ -44,14 +49,23 @@ jobs:
           cp -r web _site/web
           cp -r micropython _site/micropython
           cp -r pc _site/pc
-          # Root redirect so the bare Pages URL lands on the demo instead
-          # of a 404 -- the demo's real entry point is web/index.html.
+          cp -r docs _site/docs
+          # Root landing page so the bare Pages URL is useful instead of a
+          # 404 -- links to the demo (its real entry point is
+          # web/index.html) and to the generated calculation writeups.
           {
             echo '<!DOCTYPE html>'
             echo '<html><head><meta charset="utf-8">'
-            echo '<meta http-equiv="refresh" content="0; url=web/index.html">'
             echo '<title>Atom Orbital Viewer</title></head>'
-            echo '<body><p><a href="web/index.html">Open the atom/orbital viewer</a></p></body></html>'
+            echo '<body>'
+            echo '<p><a href="web/index.html">Open the atom/orbital viewer</a></p>'
+            echo '<h2>Calculations</h2>'
+            echo '<ul>'
+            echo '<li><a href="docs/coefficients_to_tables.html">Coefficients to Tables</a> &mdash; how the C++ engine turns three quantum numbers (n, &#8467;, m) into the sampling tables every point draw consumes: the associated Legendre and Laguerre polynomials, and the inverse-CDF construction that turns each into an O(1) lookup.</li>'
+            echo '<li><a href="docs/tables_to_bin.html">Tables to BIN</a> &mdash; how the PC-side toolchain turns validated orbital math and atomSFE solutions into the two binary blobs the firmware reads from flash (orbital_samplers.bin and hfs_tables.bin), and how those blobs get onto the device'"'"'s SPIFFS storage partition.</li>'
+            echo '<li><a href="docs/tables_to_pointclouds.html">Tables to Point Clouds</a> &mdash; how the firmware turns a chosen quantum state into the (x, y, z) points a frame actually draws: every lookup and coordinate transform that runs per point or per element switch.</li>'
+            echo '</ul>'
+            echo '</body></html>'
           } > _site/index.html
 
       - name: Upload Pages artifact
