@@ -204,9 +204,7 @@ static orb_real_t p90RadiusOfRange(const AtomPoint *points, int startIndex, int 
         orb_real_t x = points[startIndex + i].x, y = points[startIndex + i].y, z = points[startIndex + i].z;
         radii[i] = std::sqrt(x * x + y * y + z * z);
     }
-    int idx = int(orb_real_t(0.90) * orb_real_t(count - 1));
-    if (idx >= count)
-        idx = count - 1;
+    int idx = std::min(int(orb_real_t(0.90) * orb_real_t(count - 1)), count - 1);
     // Only radii[idx] itself is ever read -- nth_element partitions it into place in O(count)
     // instead of paying for a full O(count log count) sort.
     std::nth_element(radii, radii + idx, radii + count);

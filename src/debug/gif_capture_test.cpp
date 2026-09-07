@@ -33,7 +33,7 @@ void runGifCaptureTest(Display &display)
     preset.load(kGifZ);
 
     constexpr size_t kBufBytes = size_t(Display::kDisplayWidth) * Display::kDisplayHeight * sizeof(uint16_t);
-    uint16_t *pixelBuf = (uint16_t *)heap_caps_malloc(kBufBytes, MALLOC_CAP_SPIRAM);
+    uint16_t *pixelBuf = static_cast<uint16_t *>(heap_caps_malloc(kBufBytes, MALLOC_CAP_SPIRAM));
     if (pixelBuf == nullptr)
     {
         ESP_LOGE(kTag, "failed to allocate pixel scratch buffer");

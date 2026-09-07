@@ -163,7 +163,7 @@ void OrbitalPresetState::resamplePoints(int count)
     for (int i = 0; i < count; i++)
     {
         ResampledOrbitalPoint r = resampleOneOrbitalPoint(&resample, points);
-        int level = r.level > kOrbitalColorMaxLevel ? kOrbitalColorMaxLevel : r.level;
+        int level = std::min(r.level, kOrbitalColorMaxLevel);
         colors[r.index] = orbitalLevelToColor565(level, r.sign, Display::kColorOrbitalRed, Display::kColorOrbitalBlue);
     }
 }
@@ -207,9 +207,7 @@ void runOrbitalView(Display &display, GestureSource &tilt)
     stats.reset();
     stats.lastLoadMs = preset.loadMs;
 
-    int cullCount = int(orb_real_t(kOrbitalNumPoints) * kOrbitalCullFraction);
-    if (cullCount < 1)
-        cullCount = 1;
+    int cullCount = std::max(int(orb_real_t(kOrbitalNumPoints) * kOrbitalCullFraction), 1);
     int cullFrameCount = 0;
     uint32_t buzzFrame = 0;
     int zoomExcursionCountdown = nextZoomExcursionCountdown();

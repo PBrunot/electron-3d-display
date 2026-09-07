@@ -1,5 +1,6 @@
 #include "render/overlay.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -70,9 +71,7 @@ void drawScaleBar(Display &display, orb_real_t pixelsPerUnit, const char *unitLa
     if (pixelsPerUnit <= orb_real_t(0))
         return;
     ScaleBarLength len = pickScaleBarLength(pixelsPerUnit, kScaleBarMaxPx);
-    int barPx = int(len.value * pixelsPerUnit);
-    if (barPx < 1)
-        barPx = 1;
+    int barPx = std::max(int(len.value * pixelsPerUnit), 1);
 
     int x0 = kScaleBarMarginX;
     int y = Display::kDisplayHeight - kScaleBarMarginY;

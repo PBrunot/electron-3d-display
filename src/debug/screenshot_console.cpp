@@ -205,8 +205,8 @@ namespace
 void startScreenshotConsole(Display &display)
 {
     g_display = &display;
-    g_pixelBuf = (uint16_t *)heap_caps_malloc(
-        size_t(Display::kDisplayWidth) * Display::kDisplayHeight * sizeof(uint16_t), MALLOC_CAP_8BIT);
+    g_pixelBuf = static_cast<uint16_t *>(heap_caps_malloc(
+        size_t(Display::kDisplayWidth) * Display::kDisplayHeight * sizeof(uint16_t), MALLOC_CAP_8BIT));
     if (g_pixelBuf == nullptr)
         printf("SS_ERR failed to allocate screenshot scratch buffer -- capture disabled\n");
     screenshot::init();

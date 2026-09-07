@@ -48,7 +48,7 @@ namespace
     bool encodeAndWriteTo(const uint16_t *frameBuf, const char *path, size_t *outSize)
     {
         size_t need = png_writer::requiredBufferSize(Display::kDisplayWidth, Display::kDisplayHeight);
-        uint8_t *buf = (uint8_t *)heap_caps_malloc(need, MALLOC_CAP_SPIRAM);
+        uint8_t *buf = static_cast<uint8_t *>(heap_caps_malloc(need, MALLOC_CAP_SPIRAM));
         if (buf == nullptr)
         {
             ESP_LOGE(kTag, "failed to allocate %u-byte PNG buffer", (unsigned)need);
@@ -185,7 +185,7 @@ uint8_t *readFile(const char *name, size_t *outSize)
     // heap_caps_malloc(0, ...) is free to return null (it does on this allocator), which
     // would make a legitimately-existing-but-empty file indistinguishable from "not found"
     // to the caller -- allocate at least 1 byte so a 0-byte file still reads back as such.
-    uint8_t *buf = (uint8_t *)heap_caps_malloc(size_t(size) > 0 ? size_t(size) : 1, MALLOC_CAP_SPIRAM);
+    uint8_t *buf = static_cast<uint8_t *>(heap_caps_malloc(size_t(size) > 0 ? size_t(size) : 1, MALLOC_CAP_SPIRAM));
     if (buf == nullptr)
     {
         fclose(f);

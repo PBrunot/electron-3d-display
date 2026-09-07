@@ -1,5 +1,8 @@
 #include "ux/touch_gesture.h"
 
+#include <algorithm>
+#include <cstdlib>
+
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "config/hardware_constants.h" // kTouchSwipeThresholdRaw/ReleaseRaw, kTouchHoldConfirmMs, kTouchSwapXY/InvertDx/InvertDy
@@ -50,9 +53,9 @@ TiltEvent TouchGestureDetector::poll()
     if (kTouchInvertDy)
         dy = -dy;
 
-    int adx = dx < 0 ? -dx : dx;
-    int ady = dy < 0 ? -dy : dy;
-    int mag = adx > ady ? adx : ady; // dominant-axis magnitude, matching the direction pick below
+    int adx = std::abs(dx);
+    int ady = std::abs(dy);
+    int mag = std::max(adx, ady); // dominant-axis magnitude, matching the direction pick below
 
     if (!active_)
     {

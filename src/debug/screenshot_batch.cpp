@@ -126,8 +126,8 @@ void captureAllPresets()
     // Both buffers require PSRAM (MALLOC_CAP_SPIRAM): this whole batch feature is a no-op
     // (logs and returns, no static reservation left behind) on a board with no PSRAM, e.g.
     // the CYD -- see CYD-branch.md.
-    uint16_t *renderBuf = (uint16_t *)heap_caps_malloc(kBufBytes, MALLOC_CAP_SPIRAM);
-    uint16_t *pixelBuf = (uint16_t *)heap_caps_malloc(kBufBytes, MALLOC_CAP_SPIRAM);
+    uint16_t *renderBuf = static_cast<uint16_t *>(heap_caps_malloc(kBufBytes, MALLOC_CAP_SPIRAM));
+    uint16_t *pixelBuf = static_cast<uint16_t *>(heap_caps_malloc(kBufBytes, MALLOC_CAP_SPIRAM));
     if (renderBuf == nullptr || pixelBuf == nullptr)
     {
         ESP_LOGE(kTag, "failed to allocate scratch buffers");

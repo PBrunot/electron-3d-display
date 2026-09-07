@@ -1,5 +1,6 @@
 #include "debug/png_writer.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "util/crc32.h"
@@ -224,7 +225,7 @@ namespace
         bw.putBitsLsb(1, 1);
         bw.putBitsLsb(1, 2);
 
-        int32_t *head = (int32_t *)heap_caps_malloc(kHashSize * sizeof(int32_t), MALLOC_CAP_SPIRAM);
+        int32_t *head = static_cast<int32_t *>(heap_caps_malloc(kHashSize * sizeof(int32_t), MALLOC_CAP_SPIRAM));
         if (head == nullptr)
         {
             // Falls back to literal-only encoding (still correct, just uncompressed-ish)
@@ -251,9 +252,7 @@ namespace
                     int32_t cand = head[h];
                     if (cand >= 0 && (i - size_t(cand)) <= kWindowSize)
                     {
-                        size_t maxLen = len - i;
-                        if (maxLen > kMaxMatch)
-                            maxLen = kMaxMatch;
+                        size_t maxLen = std::min(len - i, size_t(kMaxMatch));
                         size_t matchLen = 0;
                         const uint8_t *a = data + cand;
                         const uint8_t *b = data + i;
@@ -326,7 +325,7 @@ size_t encodeRgb565(const uint16_t *pixels, int width, int height, uint8_t *out,
         return 0;
 
     size_t uncompLen = uncompressedLen(width, height);
-    uint8_t *uncomp = (uint8_t *)heap_caps_malloc(uncompLen, MALLOC_CAP_SPIRAM);
+    uint8_t *uncomp = static_cast<uint8_t *>(heap_caps_malloc(uncompLen, MALLOC_CAP_SPIRAM));
     if (uncomp == nullptr)
         return 0;
 

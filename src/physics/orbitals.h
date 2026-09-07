@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 
 #if defined(ORBITAL_USE_DOUBLE)
 using orb_real_t = double;
@@ -80,7 +81,7 @@ constexpr void legendreCoeffs(int ell, int m, orb_real_t *coeff);
 constexpr orb_real_t computePLM(orb_real_t theta, int ell, int m, const orb_real_t *coeff)
 {
     orb_real_t u = std::cos(theta);
-    int absM = m < 0 ? -m : m;
+    int absM = std::abs(m);
     orb_real_t sum = orb_real_t(0);
     orb_real_t uPowJ;
     if ((ell - absM) % 2 == 0)
@@ -98,7 +99,7 @@ constexpr void legendreCoeffs(int ell, int m, orb_real_t *coeff)
     for (int i = 0; i <= ell; i++)
         coeff[i] = orb_real_t(0);
 
-    int absM = m < 0 ? -m : m;
+    int absM = std::abs(m);
     int ellEll1 = ell * (ell + 1);
     coeff[0] = orb_real_t(1 - 2 * (ell % 2));
 
@@ -169,10 +170,8 @@ constexpr void laguerreCoeffs(int n, int ell, orb_real_t *coeff)
     for (int k = 0; k < kOrbitalNMax; k++)
         coeff[k] = orb_real_t(0);
 
-    int nClamped = n < kOrbitalNMax ? n : kOrbitalNMax;
-    int ellClamped = ell < nClamped - 1 ? ell : nClamped - 1;
-    if (ellClamped < 0)
-        ellClamped = 0;
+    int nClamped = std::min(n, kOrbitalNMax);
+    int ellClamped = std::max(std::min(ell, nClamped - 1), 0);
     int degree = nClamped - ellClamped;
 
     coeff[0] = orb_real_t(1);

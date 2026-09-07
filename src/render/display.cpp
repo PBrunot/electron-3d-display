@@ -115,7 +115,7 @@ Display::Display()
         probe_cfg.spics_io_num = -1;
         probe_cfg.queue_size = 1;
         probe_cfg.flags = SPI_DEVICE_HALFDUPLEX;
-        spi_device_handle_t probe_dev = NULL;
+        spi_device_handle_t probe_dev = nullptr;
         if (spi_bus_add_device(LCD_HOST, &probe_cfg, &probe_dev) == ESP_OK)
         {
             int actualKhz = 0;
@@ -131,7 +131,7 @@ Display::Display()
         }
     }
 
-    esp_lcd_panel_io_handle_t io_handle = NULL;
+    esp_lcd_panel_io_handle_t io_handle = nullptr;
     esp_lcd_panel_io_spi_config_t io_config = {};
     io_config.dc_gpio_num = PIN_DC;
     io_config.cs_gpio_num = PIN_CS;
@@ -142,9 +142,9 @@ Display::Display()
     io_config.lcd_param_bits = 8;
     io_config.on_color_trans_done = &Display::onColorTransDone;
     io_config.user_ctx = this;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(LCD_HOST), &io_config, &io_handle));
 
-    esp_lcd_panel_handle_t panel_handle = NULL;
+    esp_lcd_panel_handle_t panel_handle = nullptr;
     esp_lcd_panel_dev_config_t panel_config = {};
     panel_config.reset_gpio_num = PIN_RST;
     panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
@@ -193,11 +193,7 @@ Display::Display()
         // kOrbitalNumPoints/kAtomNumPoints or Display::kDisplayWidth/Height.
         size_t totalDmaFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
         size_t budget = largestFree > kSafetyMarginBytes ? largestFree - kSafetyMarginBytes : 0;
-        int candidateRows = int(budget / kRowBytes);
-        if (candidateRows > kDisplayHeight)
-            candidateRows = kDisplayHeight;
-        if (candidateRows < 1)
-            candidateRows = 1;
+        int candidateRows = std::clamp(int(budget / kRowBytes), 1, kDisplayHeight);
         ESP_LOGI(kDisplayTag,
                  "frame buffer: %dx%d logical (%u bytes needed), largest free DMA block=%u bytes, "
                  "total free DMA=%u bytes -> starting at %d rows/block",
@@ -216,7 +212,7 @@ Display::Display()
             for (int i = 0; i < need; i++)
             {
                 int rows = std::min(rowsPerBlock, kDisplayHeight - i * rowsPerBlock);
-                uint16_t *blk = (uint16_t *)heap_caps_malloc(size_t(rows) * kRowBytes, MALLOC_CAP_DMA);
+                uint16_t *blk = static_cast<uint16_t *>(heap_caps_malloc(size_t(rows) * kRowBytes, MALLOC_CAP_DMA));
                 if (blk == nullptr)
                 {
                     ok = false;
@@ -302,7 +298,7 @@ void Display::blit(int x, int y, const uint16_t *src, int srcWidth, int srcHeigh
         int py = y + row;
         if (py < 0 || py >= kDisplayHeight)
             continue;
-        int colStart = x < 0 ? -x : 0;
+        int colStart = std::max(0, -x);
         int colEnd = std::min(srcWidth, kDisplayWidth - x);
         if (colStart >= colEnd)
             continue;

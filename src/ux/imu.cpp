@@ -132,7 +132,7 @@ bool Qmi8658::checkPlanarAtBoot()
 
     orb_real_t similarity =
         (x * kDefaultBaselineX + y * kDefaultBaselineY + z * kDefaultBaselineZ) / (mag * defaultMag);
-    orb_real_t magDelta = mag > defaultMag ? mag - defaultMag : defaultMag - mag;
+    orb_real_t magDelta = std::abs(mag - defaultMag);
     bool planar = similarity >= kPlanarMinSimilarity && magDelta <= kPlanarMaxMagnitudeDeltaG;
     ESP_LOGI(kImuTag, "planar check: reading=(%.3f,%.3f,%.3f)g similarity=%.4f magDelta=%.3fg -> %s", double(x),
              double(y), double(z), double(similarity), double(magDelta), planar ? "PLANAR" : "not planar");

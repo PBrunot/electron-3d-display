@@ -318,8 +318,7 @@ namespace
 
             int64_t elapsedUs = esp_timer_get_time() - startUs;
             orb_real_t t = durationUs > 0 ? orb_real_t(double(elapsedUs) / double(durationUs)) : orb_real_t(1);
-            if (t > orb_real_t(1))
-                t = orb_real_t(1);
+            t = std::min(t, orb_real_t(1));
             orb_real_t scale = startScale + (endScale - startScale) * t;
 
             display.waitForFlushDone();
