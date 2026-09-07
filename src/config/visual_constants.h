@@ -160,9 +160,9 @@ inline constexpr uint32_t kSplashHoldMs = 2000;
 // screenshot_batch.cpp, orbital_library.cpp, atom_cloud.cpp, orbital_presets.cpp,
 // view_scratch_arena.h, view_steady_arena.h) falls back from PSRAM to internal DRAM with no
 // PSRAM to fall back to, and ESP-IDF/PlatformIO link the "main" component whole-archive, so
-// even code never called at runtime (e.g. benchmark_test.cpp when BENCHMARK_TEST isn't
-// defined) still reserves its own static buffers in that same budget. See CYD-branch.md for
-// the measured link-time headroom this value was tuned against.
+// even code never called at runtime (e.g. benchmark_test.cpp when main.cpp's kBootMode isn't
+// BootMode::kBenchmarkTest) still reserves its own static buffers in that same budget. See
+// CYD-branch.md for the measured link-time headroom this value was tuned against.
 #if CONFIG_IDF_TARGET_ESP32
 // Both runOrbitalView() and runAtomView() (and their static preset state) are always linked
 // into the CYD binary regardless of which is on screen at any given moment -- chooser.cpp's

@@ -17,8 +17,7 @@
  * one as it's confirmed via TiltGestureDetector::pollRaw(). Call once at boot, after
  * TiltGestureDetector::calibrate() (the planar baseline) and before relying on poll()
  * returning any direction -- runChooser() below already does this before its menu loop;
- * call directly only from an alternate entry point that bypasses runChooser() (e.g.
- * main.cpp's ATOM_VIEW direct-test branch).
+ * call directly only from an alternate entry point that bypasses runChooser().
  */
 void calibrateDirections(Display &display, TiltGestureDetector &tilt);
 

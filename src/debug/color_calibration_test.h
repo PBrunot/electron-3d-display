@@ -7,7 +7,7 @@
  * can compare what's logged against what the panel physically shows. Kept around in case a
  * future panel/lot exhibits a color-channel mapping bug (unlike display.h's
  * packColor565()/the esp_lcd panel config, which are unit-verified as of this writing --
- * see main.cpp's COLOR_TEST toggle to run this).
+ * see main.cpp's kBootMode, set to BootMode::kColorTest, to run this).
  */
 #pragma once
 

@@ -59,7 +59,7 @@ void runAtomViewTest(Display &display)
     // FPS benchmark: no fixed per-frame delay (a fixed vTaskDelay(33) would just measure the
     // delay, not the hardware's real ceiling) -- vTaskDelay(1) below is the minimum yield to
     // keep FreeRTOS's idle/watchdog task fed, well above the SPI-transfer-limited theoretical
-    // FPS ceiling (see display.cpp's LCD_PIXEL_CLOCK_HZ), so the delay should never be the
+    // FPS ceiling (see display.cpp's kLcdPixelClockHz), so the delay should never be the
     // bottleneck being measured.
     int64_t reportWindowStartUs = esp_timer_get_time();
     int framesSinceReport = 0;

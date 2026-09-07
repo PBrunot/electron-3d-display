@@ -8,7 +8,8 @@
 // speed regression. Config/Z_eff for the fixed element (Fe, Z=26) are additionally directly
 // comparable against tools/orbitals_host/gen_atom_reference.py's host reference (Fe is one
 // of atom_validation_test.cpp's kValidationZs) if a stronger check is ever needed -- see
-// main.cpp's BENCHMARK_TEST toggle to run this instead of the normal chooser.
+// main.cpp's kBootMode (set it to BootMode::kBenchmarkTest) to run this instead of the normal
+// chooser.
 #pragma once
 #include "render/display.h"
 

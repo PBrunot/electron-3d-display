@@ -10,6 +10,10 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
 
+// esp_lcd_ili9341.h is a separate managed component, fetched only for the CYD build
+// (src/idf_component.yml's `target == esp32` rule) -- it doesn't exist to include on the S3
+// build, so this one has to stay a real preprocessor branch; see config/board.h's header
+// comment for why kIsCYD can't reach into a #include.
 #if CONFIG_IDF_TARGET_ESP32
 // CYD (ESP32-2432S028R). Pins verified against witnessmenow/ESP32-Cheap-Yellow-Display
 // (PINS.md + Examples/Basics/1-HelloWorld/platformio.ini), NOT yet against physical
@@ -17,27 +21,27 @@
 // (see CLAUDE.md) before trusting mirror/color settings below on a real unit.
 #include "esp_lcd_ili9341.h"
 
-#define LCD_HOST SPI2_HOST // SPI2_HOST == HSPI on classic ESP32, matches PINS.md's "Uses HSPI"
-#define PIN_MOSI gpio_num_t(13)
-#define PIN_SCLK gpio_num_t(14)
-#define PIN_CS gpio_num_t(15)
-#define PIN_DC gpio_num_t(2)
-#define PIN_RST gpio_num_t(-1) // display RESET ties to board RESET on the CYD, no GPIO for it
-#define PIN_BL gpio_num_t(21)
+constexpr auto kLcdHost = SPI2_HOST; // SPI2_HOST == HSPI on classic ESP32, matches PINS.md's "Uses HSPI"
+constexpr auto kPinMosi = gpio_num_t(13);
+constexpr auto kPinSclk = gpio_num_t(14);
+constexpr auto kPinCs = gpio_num_t(15);
+constexpr auto kPinDc = gpio_num_t(2);
+constexpr auto kPinRst = gpio_num_t(-1); // display RESET ties to board RESET on the CYD, no GPIO for it
+constexpr auto kPinBl = gpio_num_t(21);
 
 // The CYD example repo's own verified-working SPI_FREQUENCY for this exact ILI9341 wiring
 // is 55MHz; running at a more conservative 40MHz here (TFT_eSPI's User_Setup.h notes "with
 // an ILI9341 display 40MHz works OK" too) -- raise back toward 55MHz once color/mirror is
 // confirmed correct on real hardware, if higher FPS is needed.
-#define LCD_PIXEL_CLOCK_HZ (40 * 1000 * 1000)
+constexpr int kLcdPixelClockHz = 40 * 1000 * 1000;
 #else
-#define LCD_HOST SPI2_HOST
-#define PIN_MOSI gpio_num_t(41)
-#define PIN_SCLK gpio_num_t(40)
-#define PIN_CS gpio_num_t(39)
-#define PIN_DC gpio_num_t(38)
-#define PIN_RST gpio_num_t(42)
-#define PIN_BL gpio_num_t(20)
+constexpr auto kLcdHost = SPI2_HOST;
+constexpr auto kPinMosi = gpio_num_t(41);
+constexpr auto kPinSclk = gpio_num_t(40);
+constexpr auto kPinCs = gpio_num_t(39);
+constexpr auto kPinDc = gpio_num_t(38);
+constexpr auto kPinRst = gpio_num_t(42);
+constexpr auto kPinBl = gpio_num_t(20);
 
 /**
  * SPI pixel clock. The GP-SPI clock divides a fixed 80MHz peripheral clock by an integer
@@ -47,7 +51,7 @@
  * (16ns min write cycle = 62.5MHz max) by 28% -- out of spec; watch for pixel glitches/noise
  * if the panel or wiring changes.
  */
-#define LCD_PIXEL_CLOCK_HZ (80 * 1000 * 1000)
+constexpr int kLcdPixelClockHz = 80 * 1000 * 1000;
 #endif
 
 auto Display::onColorTransDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *, void *userCtx) -> bool
@@ -87,22 +91,22 @@ Display::Display()
 
     gpio_config_t bl_cfg = {};
     bl_cfg.mode = GPIO_MODE_OUTPUT;
-    bl_cfg.pin_bit_mask = 1ULL << PIN_BL;
+    bl_cfg.pin_bit_mask = 1ULL << kPinBl;
     ESP_ERROR_CHECK(gpio_config(&bl_cfg));
-    gpio_set_level(PIN_BL, 1);
+    gpio_set_level(kPinBl, 1);
 
     spi_bus_config_t buscfg = {};
-    buscfg.sclk_io_num = PIN_SCLK;
-    buscfg.mosi_io_num = PIN_MOSI;
+    buscfg.sclk_io_num = kPinSclk;
+    buscfg.mosi_io_num = kPinMosi;
     buscfg.miso_io_num = -1;
     buscfg.quadwp_io_num = -1;
     buscfg.quadhd_io_num = -1;
     buscfg.max_transfer_sz = Display::kDisplayWidth * Display::kDisplayHeight * sizeof(uint16_t);
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
+    ESP_ERROR_CHECK(spi_bus_initialize(kLcdHost, &buscfg, SPI_DMA_CH_AUTO));
 
-    // Log the SPI clock actually achievable, not just the requested LCD_PIXEL_CLOCK_HZ: the
+    // Log the SPI clock actually achievable, not just the requested kLcdPixelClockHz: the
     // GP-SPI clock divider only hits discrete steps (80/N MHz), so a requested rate silently
-    // snaps down with no warning from the driver (see LCD_PIXEL_CLOCK_HZ comment above).
+    // snaps down with no warning from the driver (see kLcdPixelClockHz's comment above).
     // esp_lcd_panel_io_spi keeps its spi_device_handle_t private, so there's no public way to
     // query the real device's actual frequency directly -- instead, add a throwaway probe
     // device on the same bus with identical clock_speed_hz/mode/half-duplex flag (the inputs
@@ -111,44 +115,46 @@ Display::Display()
     {
         spi_device_interface_config_t probe_cfg = {};
         probe_cfg.mode = 0;
-        probe_cfg.clock_speed_hz = LCD_PIXEL_CLOCK_HZ;
+        probe_cfg.clock_speed_hz = kLcdPixelClockHz;
         probe_cfg.spics_io_num = -1;
         probe_cfg.queue_size = 1;
         probe_cfg.flags = SPI_DEVICE_HALFDUPLEX;
         spi_device_handle_t probe_dev = nullptr;
-        if (spi_bus_add_device(LCD_HOST, &probe_cfg, &probe_dev) == ESP_OK)
+        if (spi_bus_add_device(kLcdHost, &probe_cfg, &probe_dev) == ESP_OK)
         {
             int actualKhz = 0;
             spi_device_get_actual_freq(probe_dev, &actualKhz);
             ESP_LOGI(kDisplayTag, "SPI bus: requested %.2f MHz, actual %.3f MHz",
-                     LCD_PIXEL_CLOCK_HZ / 1e6, actualKhz / 1000.0);
+                     kLcdPixelClockHz / 1e6, actualKhz / 1000.0);
             spi_bus_remove_device(probe_dev);
         }
         else
         {
             ESP_LOGW(kDisplayTag, "SPI bus: could not probe actual clock (requested %.2f MHz)",
-                     LCD_PIXEL_CLOCK_HZ / 1e6);
+                     kLcdPixelClockHz / 1e6);
         }
     }
 
     esp_lcd_panel_io_handle_t io_handle = nullptr;
     esp_lcd_panel_io_spi_config_t io_config = {};
-    io_config.dc_gpio_num = PIN_DC;
-    io_config.cs_gpio_num = PIN_CS;
-    io_config.pclk_hz = LCD_PIXEL_CLOCK_HZ;
+    io_config.dc_gpio_num = kPinDc;
+    io_config.cs_gpio_num = kPinCs;
+    io_config.pclk_hz = kLcdPixelClockHz;
     io_config.spi_mode = 0;
     io_config.trans_queue_depth = 10;
     io_config.lcd_cmd_bits = 8;
     io_config.lcd_param_bits = 8;
     io_config.on_color_trans_done = &Display::onColorTransDone;
     io_config.user_ctx = this;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(LCD_HOST), &io_config, &io_handle));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kLcdHost), &io_config, &io_handle));
 
     esp_lcd_panel_handle_t panel_handle = nullptr;
     esp_lcd_panel_dev_config_t panel_config = {};
-    panel_config.reset_gpio_num = PIN_RST;
+    panel_config.reset_gpio_num = kPinRst;
     panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
     panel_config.bits_per_pixel = 16;
+    // Real #if, not kIsCYD -- esp_lcd_new_panel_ili9341() only exists when the CYD-only
+    // include above pulled its header in (see that comment).
 #if CONFIG_IDF_TARGET_ESP32
     panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
     panel_config.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE;
@@ -308,12 +314,15 @@ void Display::blit(int x, int y, const uint16_t *src, int srcWidth, int srcHeigh
         uint16_t *dst = blk + size_t(rowInBlock) * kDisplayWidth + (x + colStart);
         const uint16_t *s = src + row * srcWidth + colStart;
         int n = colEnd - colStart;
-#if CONFIG_IDF_TARGET_ESP32
-        for (int i = 0; i < n; i++)
-            dst[i] = storageColor(s[i]);
-#else
-        std::memcpy(dst, s, size_t(n) * sizeof(uint16_t));
-#endif
+        if constexpr (kIsCYD)
+        {
+            for (int i = 0; i < n; i++)
+                dst[i] = storageColor(s[i]);
+        }
+        else
+        {
+            std::memcpy(dst, s, size_t(n) * sizeof(uint16_t));
+        }
     }
 }
 

@@ -2,7 +2,7 @@
  * @file display.h
  * @brief ESP-IDF `esp_lcd` SPI bring-up and framebuffer management.
  *
- * Two targets share this file at compile time (CONFIG_IDF_TARGET_ESP32 branches below):
+ * Two targets share this file at compile time (kIsCYD branches below, see config/board.h):
  * - Waveshare ESP32-S3-LCD-1.3: ST7789V2 240x240 panel, PSRAM available.
  * - CYD (ESP32-2432S028R, "Cheap Yellow Display"): ILI9341 240x320 panel, plain ESP32
  *   (Xtensa LX6), no PSRAM, internal SRAM fragmented into several non-contiguous heap
@@ -22,7 +22,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "sdkconfig.h" // CONFIG_IDF_TARGET_ESP32
+#include "config/board.h" // kIsCYD
 
 namespace detail
 {
@@ -214,7 +214,6 @@ public:
     static constexpr uint16_t kColorOrbitalRed = detail::packColor565Impl(210, 40, 40);
 
     /// Panel resolution in pixels; drives frame buffer size and SPI transfer size.
-#if CONFIG_IDF_TARGET_ESP32
     // CYD (ESP32-2432S028R): ILI9341, 240x320 native/portrait, full physical resolution -- no
     // letterbox. This board has no PSRAM, so the block-splitting allocator below (internal
     // SRAM is fragmented into several non-contiguous free regions at boot, see CYD-branch.md)
@@ -224,13 +223,9 @@ public:
     // physics/orbital_presets.cpp's OrderRadiiScratch freed up the internal-SRAM budget this
     // was competing against -- chiefly dropping screenshot_batch.cpp's captureOrbitals()/
     // captureAllPresets() static scratch (~53KB, a documented no-op on this board anyway, see
-    // main.cpp's CYD boot branch) entirely from the CYD build.
+    // main.cpp's CYD boot branch) entirely from the CYD build. The S3's ST7789V2 is 240x240.
     static constexpr int kDisplayWidth = 240;
-    static constexpr int kDisplayHeight = 320;
-#else
-    static constexpr int kDisplayWidth = 240;
-    static constexpr int kDisplayHeight = 240;
-#endif
+    static constexpr int kDisplayHeight = kIsCYD ? 320 : 240;
 
     /// Plain function pointer required by on_color_trans_done (no implicit `this`); the
     /// Display instance is threaded through via io_config.user_ctx instead.
@@ -249,11 +244,8 @@ public:
      */
     static inline constexpr int physicalRow(int y)
     {
-#if CONFIG_IDF_TARGET_ESP32
-        return y; // CYD: no flip verified necessary yet, see CYD-branch.md.
-#else
-        return kDisplayHeight - 1 - y;
-#endif
+        // CYD: no flip verified necessary yet, see CYD-branch.md.
+        return kIsCYD ? y : kDisplayHeight - 1 - y;
     }
 
     /**
@@ -270,11 +262,7 @@ public:
      */
     static inline constexpr uint16_t storageColor(uint16_t color565)
     {
-#if CONFIG_IDF_TARGET_ESP32
-        return __builtin_bswap16(color565);
-#else
-        return color565;
-#endif
+        return kIsCYD ? __builtin_bswap16(color565) : color565;
     }
 
 private:

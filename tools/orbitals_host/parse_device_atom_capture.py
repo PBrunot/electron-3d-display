@@ -13,8 +13,8 @@ Usage:
 
 Capture the log with e.g.:
     pio device monitor > capture.log
-(uncomment ATOM_VALIDATION_TEST in main.cpp, build+flash first; stop the
-monitor once "ATOMTEST,DONE" appears).
+(set main.cpp's kBootMode to BootMode::kAtomValidationTest, build+flash first; stop
+the monitor once "ATOMTEST,DONE" appears).
 """
 import sys
 
