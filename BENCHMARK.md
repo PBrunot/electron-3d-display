@@ -9,12 +9,12 @@ that file's header comment for the full rationale.
 
 ## How to run it
 
-1. In `src/main.cpp`, comment out whichever `#define` toggle is currently active and uncomment:
+1. In `src/main.cpp`, set the `kBootMode` constant to `BootMode::kBenchmarkTest`:
    ```c
-   #define BENCHMARK_TEST
+   constexpr BootMode kBootMode = BootMode::kBenchmarkTest;
    ```
-2. Build and flash (`-e CYD` also works -- see the "CYD" section below for that board's own,
-   smaller point-count range and why):
+2. Build and flash (`-e CYD` and `-e ES3C28P` also work -- see their own sections below for
+   board-specific point-count ranges and why):
    ```
    pio run -e WS_ESP32_S3_LCD_1_3 -t upload
    ```
@@ -24,8 +24,8 @@ that file's header comment for the full rationale.
    ```
 4. Report back the `BENCH,...` lines (or the whole capture) — compare against the "Expected
    results" sections below.
-5. When done, re-comment `BENCHMARK_TEST` in `main.cpp` and reflash to return to normal boot
-   (chooser menu).
+5. When done, set `kBootMode` back to `BootMode::kNormal` in `main.cpp` and reflash to return
+   to normal boot (chooser menu).
 
 The sweep takes ~16-18 seconds total (5 point-count steps x 60 frames each x 2 sweeps, plus
 point-cloud build time per step) and needs no IMU/tilt setup or user interaction.
@@ -279,6 +279,89 @@ sweep tops out at 1000, the S3's at 8000) and a different seed-consumption path 
 sampled per step), so the outer-subshell reference radius differs by construction, not as a
 regression signal. Confirmed the outer subshell is **4s at every step** (correct -- Fe's real
 valence shell), same as the S3 run.
+
+## ES3C28P (QDtech "2.8inch IPS ESP32-S3 Display Module", 8MB Octal PSRAM, ILI9341V 240x320)
+
+Captured 2026-09-13 on real ES3C28P hardware (`pio run -e ES3C28P -t upload`, `kBootMode =
+BootMode::kBenchmarkTest` in `main.cpp`), same methodology as the S3 sweep above (same fixed
+Fe/2pz targets, same seed). Unlike the CYD, this board has PSRAM (same 8MB octal part as
+`WS_ESP32_S3_LCD_1_3`), so it needed none of the CYD's point-count-cap/scratch-buffer-sizing
+fixes -- `benchmark_test.cpp`'s `CONFIG_IDF_TARGET_ESP32` branch is false for this board (it's
+an ESP32-S3, not a plain ESP32), so it took the same `{500, 1000, 2000, 4000, 8000}` sweep and
+`kAtomNumPoints`/`kOrbitalNumPoints` = 12000 as the flagship S3 board, unmodified. Boot log
+confirmed the whole 240x320 frame buffer (153600 bytes) fit in a single DMA-capable block (no
+fragmentation, unlike the CYD's no-PSRAM heap) and PSRAM color inversion is required on this
+panel (`kIli9341InvertColor = true`, verified on hardware -- without it black renders as white,
+see `display.cpp`).
+
+### Performance (`BENCH,STEP`)
+
+**Atom sweep (Fe, Z=26):**
+
+| points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps   | iram_free |
+|-------:|---------:|---------------:|---------------:|---------------:|------:|----------:|
+|    500 |      119 |          14.597 |          14.587 |          14.683 | 21.99 |    201155 |
+|   1000 |       22 |          15.096 |          15.091 |          15.158 | 21.98 |    201155 |
+|   2000 |       26 |          16.111 |          16.105 |          16.181 | 21.06 |    201155 |
+|   4000 |       34 |          18.690 |          18.682 |          18.746 | 20.21 |    201155 |
+|   8000 |       51 |          23.265 |          23.256 |          23.332 | 18.04 |    201155 |
+
+**Orbital sweep (2pz, `kOrbitalDefaultPresetIndex`):**
+
+| points | build_ms | avg_render_ms | min_render_ms | max_render_ms | fps   | iram_free |
+|-------:|---------:|---------------:|---------------:|---------------:|------:|----------:|
+|    500 |      104 |          14.772 |          14.767 |          14.888 | 21.98 |    200855 |
+|   1000 |       98 |          15.341 |          15.334 |          15.475 | 21.08 |    200855 |
+|   2000 |      113 |          16.517 |          16.504 |          16.649 | 21.06 |    200855 |
+|   4000 |      144 |          19.397 |          19.389 |          19.496 | 19.43 |    200855 |
+|   8000 |      212 |          24.569 |          24.545 |          24.680 | 18.03 |    200855 |
+
+Notes:
+- **8000 points is the production count here too** (same `kAtomNumPoints`/`kOrbitalNumPoints`
+  as `WS_ESP32_S3_LCD_1_3`, since this board isn't PSRAM-constrained) -- **~18 FPS at production
+  count**, noticeably below the S3's ~31-32 FPS and even below the CYD's flat ~20.9 FPS, but
+  still within the 20-30 FPS target's lower edge (`CLAUDE.md` §6) at the smaller point counts.
+- `avg_wait_ms` (not in the summary table, see the raw `BENCH,STEP` line) sits around
+  **~30-32ms across every row of both sweeps**, roughly 3x the S3's ~11-13ms and also higher
+  than the CYD's ~10-11ms -- despite both this board and the CYD driving the same ILI9341
+  family panel at the same nominal 40MHz `kLcdPixelClockHz` and the same 240x320 resolution
+  (`display.cpp`). Not fully chased down: plausibly this board's single-block frame transfer
+  (see above) leaves the SPI DMA transfer less overlapped with the next frame's CPU-side
+  rendering than the CYD's multi-block, fragmented-heap path does, but that's a plausible
+  mechanism, not a confirmed one -- flagging for a future capture rather than asserting it.
+  Whatever the cause, it's the dominant cost here: `avg_render_ms + avg_wait_ms` (the two
+  phases run sequentially, not overlapped, per `presentFrame()`/`waitForFlushDone()`'s
+  fire-then-drain design in `display.cpp`) accounts for the fps numbers above almost exactly
+  (e.g. atom @8000: 23.265 + 32.164 = 55.429ms -> 18.04 fps, matching the logged value).
+- `iram_free` stayed flat within each sweep (201155 atom, 200855 orbital) -- no leak across
+  steps, same as both other boards.
+- `build_ms` and `avg_render_ms` scale with point count the same way as the S3/CYD tables, and
+  the 500-point atom row's higher `build_ms` (119 vs the 22ms "warm" figure at 1000+) is the
+  same first-step warmup artifact documented for the other two boards above, not a regression.
+
+### Physical correctness (`BENCH,CONFIG` / `BENCH,ZEFF`)
+
+Bit-identical to the S3/CYD tables above (`[Ar] 3d6 4s2`, same seven `Z_eff` values) -- expected,
+same reasoning as the CYD section: pure functions of Z, no RNG or point sampling involved.
+
+### Geometry fingerprint (`BENCH,GEOM`, atom sweep)
+
+| points | outer subshell | outer_rref_bohr | base_scale_px |
+|-------:|-----------------|-----------------:|---------------:|
+|    500 | 4s (n=4, ell=0) |         5.196394 |      24.632463 |
+|   1000 | 4s (n=4, ell=0) |         5.522888 |      23.176281 |
+|   2000 | 4s (n=4, ell=0) |         5.389955 |      23.747881 |
+|   4000 | 4s (n=4, ell=0) |         5.376742 |      23.806236 |
+|   8000 | 4s (n=4, ell=0) |         5.411359 |      23.653946 |
+
+`outer_rref_bohr` is bit-identical to the S3 table's rows (same seed, same point counts, same
+sampling code) -- expected. `base_scale_px` is *not* expected to match the S3 table (~17.3-18.5
+there vs ~23.2-24.6 here): it's `kAtomTargetPx / outer_rref_bohr`
+(`config/visual_constants.h`/`atom_cloud.h`), and `kAtomTargetPx = Display::kDisplayHeight /
+2.5` is resolution-dependent -- 320px tall here vs 240px on the S3/CYD, so `kAtomTargetPx` is
+128 vs 96, and `128 / 5.196394 = 24.632...` matches the 500-point row above exactly. Outer
+subshell is **4s at every point count**, correct (Fe's real valence shell), same as both other
+boards.
 
 ## MicroPython (ESP32-S3, 8MB Octal PSRAM)
 
