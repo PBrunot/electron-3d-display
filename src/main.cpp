@@ -11,8 +11,9 @@
 
 #include "ux/imu.h"
 #include "ux/touch.h"
+#include "ux/ft6336g.h"
 #include "ux/touch_gesture.h"
-#include "config/board.h" // kIsCYD
+#include "config/board.h" // kBoard
 #include "debug/atom_validation_test.h"
 #include "debug/benchmark_test.h"
 #include "debug/color_calibration_test.h"
@@ -104,7 +105,7 @@ extern "C" void app_main(void)
         display.presentFrame();
         vTaskDelay(pdMS_TO_TICKS(kSplashHoldMs));
 
-        if constexpr (kIsCYD)
+        if constexpr (kBoard == Board::kCYD)
         {
             // CYD has no IMU (Qmi8658 is a no-op shim, see ux/imu.cpp) -- navigation is driven by
             // the XPT2046 touch panel instead (touch.h/touch_gesture.h). TouchGestureDetector
@@ -117,6 +118,25 @@ extern "C" void app_main(void)
             ESP_LOGI(kMainTag, "CYD build: no IMU, using touch panel for navigation");
             Xpt2046 touchPanel{};
             TouchGestureDetector tilt{touchPanel};
+            logMemory("startup: chooser");
+            runChooser(display, tilt);
+        }
+        else if constexpr (kBoard == Board::kES3C28P)
+        {
+            // ES3C28P also has no IMU -- same touch-driven navigation as the CYD branch above,
+            // just over the FT6336G's I2C capacitive panel (ft6336g.h) instead of the XPT2046's
+            // bit-banged SPI, via a TouchGestureConfig tuned for its calibrated pixel coordinates
+            // (config/hardware_constants.h's kCapTouch* constants) instead of raw ADC units.
+            ESP_LOGI(kMainTag, "ES3C28P build: no IMU, using capacitive touch panel for navigation");
+            Ft6336g touchPanel{};
+            TouchGestureConfig cfg{};
+            cfg.swipeThreshold = kCapTouchSwipeThresholdPx;
+            cfg.swipeRelease = kCapTouchSwipeReleasePx;
+            cfg.holdConfirmMs = kCapTouchHoldConfirmMs;
+            cfg.swapXY = kCapTouchSwapXY;
+            cfg.invertDx = kCapTouchInvertDx;
+            cfg.invertDy = kCapTouchInvertDy;
+            TouchGestureDetector tilt{touchPanel, cfg};
             logMemory("startup: chooser");
             runChooser(display, tilt);
         }

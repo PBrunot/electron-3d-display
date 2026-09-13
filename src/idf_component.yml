@@ -1,8 +1,10 @@
 dependencies:
-  # Only needed by render/display.cpp's CYD branch (esp_lcd_new_panel_ili9341()) -- the target
-  # rule below skips fetching this entirely when building the S3 env (esp32s3), so it adds
-  # no network dependency or extra flash to that build.
+  # Needed by render/display.cpp's ILI9341 panel branch (esp_lcd_new_panel_ili9341()), used by
+  # both the CYD (esp32) and ES3C28P (esp32s3, BOARD_ES3C28P -- see config/board.h) boards. The
+  # component manager can only gate on chip target, not our own BOARD_ES3C28P macro, so this
+  # also gets fetched (but never included/linked, see display.cpp's #if) for the
+  # WS_ESP32_S3_LCD_1_3 env, which shares the esp32s3 target but doesn't need it.
   espressif/esp_lcd_ili9341:
     version: "^2.0.0" # 1.x's esp_lcd_panel_dev_config_t.rgb_endian field predates this IDF's rgb_ele_order/data_endian split
     rules:
-      - if: "target == esp32"
+      - if: "target in [esp32, esp32s3]"

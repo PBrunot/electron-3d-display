@@ -2,11 +2,16 @@
  * @file display.h
  * @brief ESP-IDF `esp_lcd` SPI bring-up and framebuffer management.
  *
- * Two targets share this file at compile time (kIsCYD branches below, see config/board.h):
+ * Three boards share this file at compile time (kBoard/kHasIli9341Panel branches below, see
+ * config/board.h):
  * - Waveshare ESP32-S3-LCD-1.3: ST7789V2 240x240 panel, PSRAM available.
  * - CYD (ESP32-2432S028R, "Cheap Yellow Display"): ILI9341 240x320 panel, plain ESP32
  *   (Xtensa LX6), no PSRAM, internal SRAM fragmented into several non-contiguous heap
  *   regions at boot (see CYD-branch.md) -- driving the block-based frame buffer below.
+ * - ES3C28P (QDtech, boards/cyd-esp32s3/): ESP32-S3, PSRAM available, ILI9341V 240x320 panel --
+ *   same esp_lcd_new_panel_ili9341() driver/panel family as the CYD, just on S3 pins, so it
+ *   shares that branch's byte-order/mirror quirks below (kHasIli9341Panel) rather than the
+ *   Waveshare board's, despite also being an S3.
  *
  * All pixel colors in this project MUST be produced via packColor565() (or the palette
  * constants below, which are already packed) and written through writePx()/blit() -- never
@@ -22,7 +27,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "config/board.h" // kIsCYD
+#include "config/board.h" // kHasIli9341Panel
 
 namespace detail
 {
@@ -223,9 +228,11 @@ public:
     // physics/orbital_presets.cpp's OrderRadiiScratch freed up the internal-SRAM budget this
     // was competing against -- chiefly dropping screenshot_batch.cpp's captureOrbitals()/
     // captureAllPresets() static scratch (~53KB, a documented no-op on this board anyway, see
-    // main.cpp's CYD boot branch) entirely from the CYD build. The S3's ST7789V2 is 240x240.
+    // main.cpp's CYD boot branch) entirely from the CYD build. ES3C28P is also ILI9341(V)
+    // 240x320, and has PSRAM like the Waveshare board, so its frame buffer allocation is not
+    // budget-constrained the way the CYD's is. The Waveshare S3's ST7789V2 is 240x240.
     static constexpr int kDisplayWidth = 240;
-    static constexpr int kDisplayHeight = kIsCYD ? 320 : 240;
+    static constexpr int kDisplayHeight = kHasIli9341Panel ? 320 : 240;
 
     /// Plain function pointer required by on_color_trans_done (no implicit `this`); the
     /// Display instance is threaded through via io_config.user_ctx instead.
@@ -244,8 +251,9 @@ public:
      */
     static inline constexpr int physicalRow(int y)
     {
-        // CYD: no flip verified necessary yet, see CYD-branch.md.
-        return kIsCYD ? y : kDisplayHeight - 1 - y;
+        // CYD/ES3C28P (esp_lcd_new_panel_ili9341()): no flip verified necessary yet, see
+        // CYD-branch.md. Waveshare (ST7789V2): flip needed, see this function's doc comment.
+        return kHasIli9341Panel ? y : kDisplayHeight - 1 - y;
     }
 
     /**
@@ -254,15 +262,16 @@ public:
      *
      * packColor565() always produces standard-layout RGB565 (R at bits[15:11]); every color
      * constant and blend/fade helper in this class assumes that layout. But esp_lcd_ili9341
-     * (CYD) sends buffer bytes as-is over SPI and the ILI9341 expects big-endian/high-byte-
-     * first per pixel, while Xtensa stores our little-endian uint16_t values low-byte-first --
-     * so on that target, pixels are stored byte-swapped, and unswapped back on read, so
+     * (CYD and ES3C28P, both driven by esp_lcd_new_panel_ili9341() -- see kHasIli9341Panel)
+     * sends buffer bytes as-is over SPI and the ILI9341 expects big-endian/high-byte-first per
+     * pixel, while Xtensa stores our little-endian uint16_t values low-byte-first -- so on
+     * those targets, pixels are stored byte-swapped, and unswapped back on read, so
      * presentFrame() can send each block straight to the panel with no per-pixel transform or
      * scratch buffer at all.
      */
     static inline constexpr uint16_t storageColor(uint16_t color565)
     {
-        return kIsCYD ? __builtin_bswap16(color565) : color565;
+        return kHasIli9341Panel ? __builtin_bswap16(color565) : color565;
     }
 
 private:
