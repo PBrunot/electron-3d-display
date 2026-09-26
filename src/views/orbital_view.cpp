@@ -18,6 +18,7 @@
 #include "config/visual_constants.h" // kViewIdleJumpUs, kOrbitalIntro*, kOrbitalProtonMarkerSize, etc.
 #include "physics/view_scratch_arena.h" // shared load()-scratch, see that header
 #include "physics/view_steady_arena.h"  // shared points/colors/psi2Sorted, see that header
+#include "ux/orientation_tracker.h"
 
 static const char *kOrbitalViewTag = "orbital_view";
 
@@ -168,7 +169,7 @@ void OrbitalPresetState::resamplePoints(int count)
     }
 }
 
-void runOrbitalView(Display &display, GestureSource &tilt)
+void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *orientation)
 {
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
@@ -205,6 +206,8 @@ void runOrbitalView(Display &display, GestureSource &tilt)
 
     FrameStats stats; // FPS + render/prepare moving averages + last-load-ms + free IRAM, see debug/frame_stats.h
     stats.reset();
+    if (orientation)
+        orientation->resync(); // intro fly-over above spent real time without a normal update()
     stats.lastLoadMs = preset.loadMs;
 
     int cullCount = std::max(int(orb_real_t(kOrbitalNumPoints) * kOrbitalCullFraction), 1);
@@ -232,6 +235,8 @@ void runOrbitalView(Display &display, GestureSource &tilt)
         // only ever measures steady-state frames instead of charging that idle time to a
         // later window (see atom_view.cpp's switchToElement() for the same fix).
         stats.reset();
+        if (orientation)
+            orientation->resync();
     };
 
     while (true)
@@ -284,6 +289,8 @@ void runOrbitalView(Display &display, GestureSource &tilt)
             zoomExcursionCountdown = nextZoomExcursionCountdown();
             // See switchToPreset()'s comment above -- same unmeasured-time issue.
             stats.reset();
+            if (orientation)
+                orientation->resync();
             continue;
         }
 
@@ -308,7 +315,20 @@ void runOrbitalView(Display &display, GestureSource &tilt)
         stats.recordFrame(double(tAfterWait - tBeforeWait) / 1000.0, double(tAfterPresent - tAfterWait) / 1000.0);
         stats.maybeLog(kOrbitalViewTag);
 
-        stepCamera(&camera);
+        // Steady-state view: rotation follows the device's physical orientation instead of the
+        // fixed-speed auto-rotation used everywhere else (fly-overs) -- see
+        // ux/orientation_tracker.h. CYD (no IMU) falls back to the old synthetic stepCamera().
+        if (orientation != nullptr)
+        {
+            orientation->update();
+            camera.yaw = orientation->yawRad();
+            camera.tilt = kCameraTiltStart + orientation->tiltRad();
+            camera.roll = kCameraRollStart + orientation->rollRad();
+        }
+        else
+        {
+            stepCamera(&camera);
+        }
         zoomAngle += kOrbitalZoomAngleStep;
         if (zoomAngle >= kTwoPi)
             zoomAngle -= kTwoPi;

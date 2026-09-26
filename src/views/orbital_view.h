@@ -12,6 +12,10 @@
  *  - Also auto-advances to a random preset after kViewIdleJumpUs (config/visual_constants.h)
  *    of no tilt/touch input.
  *
+ * Outside of a confirmed tilt-hold gesture, the steady-state view's rotation itself is driven
+ * by the device's physical orientation (see ux/orientation_tracker.h) rather than the fixed-speed
+ * auto-rotation used during fly-overs/transitions -- tilting the board tilts the rendered orbital.
+ *
  * On CYD (no IMU -- see touch_gesture.h), the same gestures above are driven by
  * TouchGestureDetector's swipes instead of TiltGestureDetector's tilt-and-hold; see
  * tilt_gesture.h's GestureSource for the shared interface both implement.
@@ -28,6 +32,8 @@
 #include "physics/orbital_library.h" // kMaxOrbitalTitleLen, sizing OrbitalPresetState::title below
 #include "physics/orbital_presets.h"
 #include "ux/tilt_gesture.h"
+
+class OrientationTracker;
 
 /// Fixed (not randomized) point-cloud seed, for a reproducible-looking demo across boots.
 inline constexpr uint32_t kOrbitalViewSeed = 12345;
@@ -84,5 +90,8 @@ void renderOrbitalFrame(Display &display, const OrbitalPresetState &preset, cons
  * @brief Run the orbital viewer until a Left tilt-hold (or touch-swipe, on CYD) confirms.
  * @param display Target display; frames are rendered and presented each loop iteration.
  * @param tilt Gesture source for navigation input -- TiltGestureDetector or TouchGestureDetector.
+ * @param orientation Continuous tilt-driven camera rotation source (see
+ *        ux/orientation_tracker.h) -- nullptr on CYD (no IMU), in which case the steady-state
+ *        loop falls back to render/camera.h's synthetic auto-rotation.
  */
-void runOrbitalView(Display &display, GestureSource &tilt);
+void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *orientation);

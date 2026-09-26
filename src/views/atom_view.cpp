@@ -17,6 +17,7 @@
 #include "physics/slater.h"
 #include "config/visual_constants.h" // kAccentColor, kViewIdleJumpUs, kAtomProtonMarkerSize, kBoundingCircleColor, kElementIntro*, kDissect*, kFpsUpdateInterval
 #include "physics/view_steady_arena.h" // shared points storage, see that header
+#include "ux/orientation_tracker.h"
 
 static const char *kAtomViewTag = "atom_view";
 
@@ -569,7 +570,7 @@ int renderAtomDissectFrame(Display &display, const AtomPresetState &preset, cons
     return planCount;
 }
 
-void runAtomView(Display &display, GestureSource &tilt)
+void runAtomView(Display &display, GestureSource &tilt, OrientationTracker *orientation)
 {
     ESP_LOGI(kAtomViewTag, "display ready, Z=1..%d available", kMaxDisplayZ);
 
@@ -604,6 +605,8 @@ void runAtomView(Display &display, GestureSource &tilt)
 
     FrameStats stats; // FPS + render/prepare moving averages + last-load-ms + free IRAM, see debug/frame_stats.h
     stats.reset();
+    if (orientation)
+        orientation->resync(); // intro fly-over above spent real time without a normal update()
     stats.lastLoadMs = preset.loadMs;
     uint32_t buzzFrame = 0; // per-frame salt for renderSceneGrouped()'s hidden-points buzz, see camera.h
     int zoomExcursionCountdown = nextZoomExcursionCountdown();
@@ -632,6 +635,8 @@ void runAtomView(Display &display, GestureSource &tilt)
         // time without incrementing frameCount; reset the FPS window here so it only ever
         // measures steady-state frames instead of charging that idle time to a later window.
         stats.reset();
+        if (orientation)
+            orientation->resync();
     };
 
     while (true)
@@ -674,6 +679,8 @@ void runAtomView(Display &display, GestureSource &tilt)
                 zoomAngle = orb_real_t(0);
                 zoomExcursionCountdown = nextZoomExcursionCountdown();
                 stats.reset(); // see switchToElement()'s FPS-window comment above
+                if (orientation)
+                    orientation->resync();
                 continue;
             }
         }
@@ -694,6 +701,8 @@ void runAtomView(Display &display, GestureSource &tilt)
                 zoomAngle = orb_real_t(0);
                 zoomExcursionCountdown = nextZoomExcursionCountdown();
                 stats.reset(); // see switchToElement()'s FPS-window comment above
+                if (orientation)
+                    orientation->resync();
             }
             else
             {
@@ -721,6 +730,8 @@ void runAtomView(Display &display, GestureSource &tilt)
             zoomAngle = orb_real_t(0);
             zoomExcursionCountdown = nextZoomExcursionCountdown();
             stats.reset(); // see switchToElement()'s FPS-window comment above
+            if (orientation)
+                orientation->resync();
             continue;
         }
 
@@ -738,7 +749,20 @@ void runAtomView(Display &display, GestureSource &tilt)
         stats.recordFrame(double(tAfterWait - tBeforeWait) / 1000.0, double(tAfterPresent - tAfterWait) / 1000.0);
         stats.maybeLog(kAtomViewTag);
 
-        stepCamera(&camera);
+        // Steady-state view: rotation follows the device's physical orientation instead of the
+        // fixed-speed auto-rotation used everywhere else (fly-overs, dissection) -- see
+        // ux/orientation_tracker.h. CYD (no IMU) falls back to the old synthetic stepCamera().
+        if (orientation != nullptr)
+        {
+            orientation->update();
+            camera.yaw = orientation->yawRad();
+            camera.tilt = kCameraTiltStart + orientation->tiltRad();
+            camera.roll = kCameraRollStart + orientation->rollRad();
+        }
+        else
+        {
+            stepCamera(&camera);
+        }
         zoomAngle += kZoomAngleStep;
         if (zoomAngle >= kTwoPi)
             zoomAngle -= kTwoPi;

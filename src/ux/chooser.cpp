@@ -131,7 +131,7 @@ static void drawChooserScreen(Display &display, bool fullRedraw, TiltEvent ev)
  * this function is ever entered -- see checkPlanarAtBoot()/calibrateDirections() there; this
  * loop does not repeat it.
  */
-void runChooser(Display &display, GestureSource &tilt)
+void runChooser(Display &display, GestureSource &tilt, OrientationTracker *orientation)
 {
     ESP_LOGI(kChooserTag, "menu ready");
 
@@ -160,13 +160,13 @@ void runChooser(Display &display, GestureSource &tilt)
             if (ev.direction == TiltDirection::kUp)
             {
                 ESP_LOGI(kChooserTag, "-> orbital viewer");
-                runOrbitalView(display, tilt);
+                runOrbitalView(display, tilt, orientation);
                 ESP_LOGI(kChooserTag, "back to menu");
             }
             else if (ev.direction == TiltDirection::kDown)
             {
                 ESP_LOGI(kChooserTag, "-> element viewer");
-                runAtomView(display, tilt);
+                runAtomView(display, tilt, orientation);
                 ESP_LOGI(kChooserTag, "back to menu");
             }
             lastActivityUs = esp_timer_get_time();
@@ -177,12 +177,12 @@ void runChooser(Display &display, GestureSource &tilt)
             if (randomUnit() < orb_real_t(0.5))
             {
                 ESP_LOGI(kChooserTag, "idle 30s+ -- auto-launching orbital viewer");
-                runOrbitalView(display, tilt);
+                runOrbitalView(display, tilt, orientation);
             }
             else
             {
                 ESP_LOGI(kChooserTag, "idle 30s+ -- auto-launching element viewer");
-                runAtomView(display, tilt);
+                runAtomView(display, tilt, orientation);
             }
             ESP_LOGI(kChooserTag, "back to menu");
             lastActivityUs = esp_timer_get_time();

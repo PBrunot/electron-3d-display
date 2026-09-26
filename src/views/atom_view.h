@@ -28,6 +28,10 @@
  *  - Also auto-advances to a random element after kViewIdleJumpUs (config/visual_constants.h)
  *    of no tilt/touch input.
  *
+ * Outside of a confirmed tilt-hold gesture, the steady-state view's rotation itself is driven
+ * by the device's physical orientation (see ux/orientation_tracker.h) rather than the fixed-speed
+ * auto-rotation used during fly-overs/transitions -- tilting the board tilts the rendered atom.
+ *
  * On CYD (no IMU -- see touch_gesture.h), the same gestures above are driven by
  * TouchGestureDetector's swipes instead of TiltGestureDetector's tilt-and-hold; see
  * tilt_gesture.h's GestureSource for the shared interface both implement.
@@ -41,6 +45,8 @@
 #include "render/display.h"
 #include "render/font.h"
 #include "ux/tilt_gesture.h"
+
+class OrientationTracker;
 
 /// Default element shown on first boot (carbon). Every element renormalizes to the same
 /// on-screen radius (see atom_cloud.h's kAtomTargetPx), so there's no size-based reason to
@@ -115,5 +121,8 @@ int renderAtomDissectFrame(Display &display, const AtomPresetState &preset, cons
  * @brief Run the atom viewer until a Left tilt-hold (or touch-swipe, on CYD) confirms.
  * @param display Target display; frames are rendered and presented each loop iteration.
  * @param tilt Gesture source for navigation input -- TiltGestureDetector or TouchGestureDetector.
+ * @param orientation Continuous tilt-driven camera rotation source (see
+ *        ux/orientation_tracker.h) -- nullptr on CYD (no IMU), in which case the steady-state
+ *        loop falls back to render/camera.h's synthetic auto-rotation.
  */
-void runAtomView(Display &display, GestureSource &tilt);
+void runAtomView(Display &display, GestureSource &tilt, OrientationTracker *orientation);

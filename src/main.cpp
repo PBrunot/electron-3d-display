@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 
 #include "ux/imu.h"
+#include "ux/orientation_tracker.h"
 #include "ux/touch.h"
 #include "ux/touch_gesture.h"
 #include "config/board.h" // kIsCYD
@@ -118,12 +119,18 @@ extern "C" void app_main(void)
             Xpt2046 touchPanel{};
             TouchGestureDetector tilt{touchPanel};
             logMemory("startup: chooser");
-            runChooser(display, tilt);
+            runChooser(display, tilt, nullptr); // no IMU on CYD -- steady-state views keep the
+                                                 // old synthetic auto-rotation
         }
         else
         {
             Qmi8658 imu{};
             TiltGestureDetector tilt{imu};
+            OrientationTracker orientation{imu};
+            // Gyro bias/rest-pose calibration cannot be skipped via a hardcoded default like the
+            // accelerometer's planar baseline below (see ux/orientation_tracker.h's calibrate()
+            // doc comment) -- runs every boot, ~1s, board still resting from the splash hold.
+            orientation.calibrate();
 
             if (imu.checkPlanarAtBoot())
             {
@@ -144,7 +151,7 @@ extern "C" void app_main(void)
             }
 
             logMemory("startup: chooser");
-            runChooser(display, tilt);
+            runChooser(display, tilt, &orientation);
         }
     }
 }
