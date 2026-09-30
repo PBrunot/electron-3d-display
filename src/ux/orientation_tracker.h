@@ -33,13 +33,18 @@ struct OrientationTrackerConfig
     /// update(). Yaw has no accelerometer term, so this doesn't apply to it.
     orb_real_t complementaryAlpha = orb_real_t(0.98);
 
-    /// Symmetric clamp (radians) on the reported tilt/roll -- physical tilt has a natural
-    /// limited range, unlike render/camera.h's stepCamera() which wraps through the full circle.
-    /// Must stay comfortably below tilt_gesture.h's TiltGestureConfig::thresholdG's *effective*
-    /// deviation so continuous rotation saturates before the discrete extreme-tilt navigation
-    /// gesture fires -- tune both together on hardware (see the plan's verification steps).
-    orb_real_t tiltClampRad = orb_real_t(0.61); // ~35 degrees
-    orb_real_t rollClampRad = orb_real_t(0.61);
+    /// Multiplier from fused physical angle to rendered camera angle (all three axes). The
+    /// usable physical range is small -- tilt_gesture.h's thresholdG=0.45g fires navigation at
+    /// ~asin(0.45) =~ 27 degrees -- and a 1:1 mapping of <27 degrees is barely visible on a
+    /// near-spherical cloud, so small hand tilts are amplified instead.
+    orb_real_t rotationGain = orb_real_t(3.0);
+
+    /// Symmetric clamp (radians) on the reported tilt/roll, applied AFTER rotationGain -- i.e. a
+    /// limit on the rendered camera angle, not on the physical tilt. Physical tilt is already
+    /// bounded by the navigation gesture (~27 degrees, see rotationGain), so this only guards
+    /// against a gain retune producing a full flip.
+    orb_real_t tiltClampRad = orb_real_t(1.4); // ~80 degrees
+    orb_real_t rollClampRad = orb_real_t(1.4);
 
     /// Fraction of the accumulated yaw pulled back toward zero per second of real time (0
     /// disables the pull entirely). Bounds yaw's unavoidable gyro-only drift while the device
@@ -96,10 +101,10 @@ public:
     /// failure leaves the fused state unchanged (same tolerance as TiltGestureDetector::poll()).
     void update();
 
-    orb_real_t yawRad() const { return fusedYaw_; }
-    /// Clamped to +-cfg.tiltClampRad -- not wrapped, unlike render/camera.h's stepCamera().
+    orb_real_t yawRad() const { return fusedYaw_ * cfg_.rotationGain; }
+    /// Scaled by cfg.rotationGain, then clamped to +-cfg.tiltClampRad -- not wrapped, unlike render/camera.h's stepCamera().
     orb_real_t tiltRad() const;
-    /// Clamped to +-cfg.rollClampRad -- not wrapped, unlike render/camera.h's stepCamera().
+    /// Scaled by cfg.rotationGain, then clamped to +-cfg.rollClampRad -- not wrapped, unlike render/camera.h's stepCamera().
     orb_real_t rollRad() const;
 
 private:
@@ -111,5 +116,5 @@ private:
     orb_real_t fusedPitch_ = orb_real_t(0), fusedRoll_ = orb_real_t(0), fusedYaw_ = orb_real_t(0);
     int64_t lastUpdateUs_ = 0; // 0 means "no prior sample" -- update()'s first call after
                                // calibrate()/resync() contributes no gyro integration (dt=0).
-    int debugLogCounter_ = 0; // throttles update()'s periodic raw/fused dump, see kFpsUpdateInterval
+    int debugLogCounter_ = 0; // throttles update()'s periodic raw/fused dump, see kDebugLogInterval
 };

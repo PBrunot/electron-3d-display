@@ -12,6 +12,12 @@
 /// the Wi-Fi driver + lwIP + httpd need tens of KB of internal heap, so the remote is S3-only.
 inline constexpr bool kWebRemoteEnabled = !kIsCYD;
 
+/// Extreme-tilt navigation gestures (ux/tilt_gesture.h) are off whenever the web remote is on:
+/// the phone drives element/orbital selection, and the full tilt range is left to
+/// ux/orientation_tracker.h's continuous rotation instead of firing a menu move at ~27 degrees.
+/// Also skips the boot-time direction calibration, which only exists for those gestures.
+inline constexpr bool kTiltNavigationEnabled = !kWebRemoteEnabled;
+
 inline constexpr const char *kWebRemoteSsid = "Ologramma-Atomi";
 /// Empty = open network (friendliest for walk-up visitors). Otherwise WPA2, min 8 chars.
 inline constexpr const char *kWebRemotePassword = "";

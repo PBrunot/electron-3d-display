@@ -8,13 +8,16 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "config/visual_constants.h" // kFpsUpdateInterval
 
 static const char *kOrientTag = "orientation";
 
 // Safety clamp on dt even after a resync(): a single missed resync() call anywhere real time
 // passed without update() should not turn into one huge gyro-integration jump.
 static constexpr orb_real_t kMaxDtSeconds = orb_real_t(0.1);
+
+// update() calls between raw/fused debug dumps -- ~1s at 60 FPS, frequent enough to follow a
+// hand tilt in the serial monitor during axis-sign tuning.
+static constexpr int kDebugLogInterval = 60;
 
 static orb_real_t degToRad(orb_real_t deg)
 {
@@ -122,8 +125,8 @@ void OrientationTracker::update()
     // Periodic raw+fused dump for the on-hardware axis-sign tuning pass (see
     // orientation_tracker.h's OrientationTrackerConfig::{pitch,roll,yaw}AxisSign comment): tilt
     // the board around one axis at a time, watch which fused angle moves and which way, flip
-    // the sign that doesn't match. Same throttling cadence as debug/frame_stats.h's FPS line.
-    if (++debugLogCounter_ >= kFpsUpdateInterval)
+    // the sign that doesn't match.
+    if (++debugLogCounter_ >= kDebugLogInterval)
     {
         debugLogCounter_ = 0;
         ESP_LOGI(kOrientTag, "raw accel=(%.2f,%.2f,%.2f)g gyro=(%.1f,%.1f,%.1f)dps -> fused pitch=%.2f roll=%.2f yaw=%.2f rad",
@@ -134,10 +137,10 @@ void OrientationTracker::update()
 
 orb_real_t OrientationTracker::tiltRad() const
 {
-    return std::clamp(fusedPitch_, -cfg_.tiltClampRad, cfg_.tiltClampRad);
+    return std::clamp(fusedPitch_ * cfg_.rotationGain, -cfg_.tiltClampRad, cfg_.tiltClampRad);
 }
 
 orb_real_t OrientationTracker::rollRad() const
 {
-    return std::clamp(fusedRoll_, -cfg_.rollClampRad, cfg_.rollClampRad);
+    return std::clamp(fusedRoll_ * cfg_.rotationGain, -cfg_.rollClampRad, cfg_.rollClampRad);
 }

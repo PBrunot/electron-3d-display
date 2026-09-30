@@ -77,6 +77,15 @@ public:
     virtual TiltEvent poll() = 0;
 };
 
+/// GestureSource that never fires -- used when tilt navigation is disabled
+/// (config/network_constants.h's kTiltNavigationEnabled) and the web remote is the only way
+/// to switch viewers/elements, so tilting the cube only rotates the cloud.
+class NullGestureSource final : public GestureSource
+{
+public:
+    TiltEvent poll() override { return TiltEvent{}; }
+};
+
 /**
  * @brief Like TiltEvent, but the raw normalized deviation-from-baseline direction (a unit
  *        vector in board-local accelerometer axes) instead of a mapped TiltDirection.

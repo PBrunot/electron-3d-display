@@ -143,7 +143,14 @@ extern "C" void app_main(void)
             // doc comment) -- runs every boot, ~1s, board still resting from the splash hold.
             orientation.calibrate();
 
-            if (imu.checkPlanarAtBoot())
+            if constexpr (!kTiltNavigationEnabled)
+            {
+                ESP_LOGI(kMainTag, "tilt navigation disabled (web remote drives selection) -- skipping direction calibration");
+                NullGestureSource noGestures{};
+                logMemory("startup: chooser");
+                runChooser(display, noGestures, &orientation);
+            }
+            else if (imu.checkPlanarAtBoot())
             {
                 ESP_LOGI(kMainTag, "boot: planar check OK, using hardcoded calibration");
                 tilt.setBaseline(kDefaultBaselineX, kDefaultBaselineY, kDefaultBaselineZ);
