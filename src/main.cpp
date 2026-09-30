@@ -21,6 +21,8 @@
 #include "debug/screenshot_console.h"
 #include "render/splash_bitmap.h"
 #include "config/hardware_constants.h"
+#include "config/network_constants.h" // kWebRemoteEnabled
+#include "net/web_remote.h"
 #include "config/visual_constants.h" // kSplashHoldMs
 #include "ux/tilt_gesture.h"
 #include "util/storage_mount.h"
@@ -99,6 +101,15 @@ extern "C" void app_main(void)
         // MALLOC_CAP_SPIRAM, which always fails with no PSRAM) -- see config/visual_constants.h's
         // kOrbitalNumPoints comment. That RAM instead goes toward restoring full 240x320 resolution
         // (Display::kDisplayWidth/Height) and a higher point count.
+
+        // After Display (its DMA frame buffers need the internal heap first; a Wi-Fi failure
+        // is only logged, the hologram then just runs tilt-only) and before the splash, so the
+        // access point is already up by the time the menu appears.
+        if constexpr (kWebRemoteEnabled)
+        {
+            startWebRemote();
+            logMemory("startup: web remote");
+        }
 
         display.waitForFlushDone();
         drawSplashScreen(display);

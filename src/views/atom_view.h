@@ -124,5 +124,11 @@ int renderAtomDissectFrame(Display &display, const AtomPresetState &preset, cons
  * @param orientation Continuous tilt-driven camera rotation source (see
  *        ux/orientation_tracker.h) -- nullptr on CYD (no IMU), in which case the steady-state
  *        loop falls back to render/camera.h's synthetic auto-rotation.
+ * @param startZ Element to open on (chooser.cpp passes a web-remote pick here, see
+ *        ux/remote_command.h); 0 = resume whichever element was shown last (carbon on first run).
+ *
+ * Also serves ux/remote_command.h's web-remote requests every frame, mirroring the tilt
+ * gestures above (kNext/kPrev = Down/Up, kDissect = Right, kMenu = Left); a kShowOrbital
+ * request is handed back to the chooser, which relaunches into orbital_view.
  */
-void runAtomView(Display &display, GestureSource &tilt, OrientationTracker *orientation);
+void runAtomView(Display &display, GestureSource &tilt, OrientationTracker *orientation, int startZ = 0);

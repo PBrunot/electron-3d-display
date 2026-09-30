@@ -36,3 +36,9 @@ CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
 CONFIG_ESP32S3_SPIRAM_SUPPORT=y
+
+# Web remote (src/net/web_remote.cpp): let the Wi-Fi driver/lwIP put their buffers in PSRAM
+# so they don't compete with Display's internal-RAM DMA frame buffers, and run the Wi-Fi task
+# on core 1 -- the render loop (app_main) lives on core 0.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y

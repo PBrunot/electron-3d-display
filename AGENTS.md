@@ -65,6 +65,7 @@ src/
   config/                        costanti trasversali, adjustable-by-eye
     visual_constants.h              colori/dimensioni/pacing animazioni (viewer, chooser, overlay)
     hardware_constants.h            bus I2C IMU, register map, calibrazione tilt di default
+    network_constants.h             SSID/password/canale del web remote
 
   physics/                       modello dati/scienza, nessuna dipendenza da IMU/UI
     orbitals.h/.cpp                 |ψ|² campionamento, coefficienti armoniche
@@ -95,7 +96,14 @@ src/
     chooser.h/.cpp                  menu: tilt Up/Down lancia orbital/atom viewer,
                                      idle auto-launch, calibrazione direzioni guidata
     periodic_grid.h                 navigazione tabella periodica (snake order)
+    remote_command.h/.cpp           mailbox lock-free web remote -> loop di rendering
+                                     (+ stato corrente pubblicato dai viewer per la pagina)
     element_names_it.h              nomi elementi in italiano
+
+  net/                           telecomando da smartphone (solo S3, vedi kWebRemoteEnabled)
+    web_remote.h/.cpp               soft-AP Wi-Fi + DNS captive portal + esp_http_server
+                                     (/, /api/catalog, /api/state, /api/cmd)
+    web_remote_page.h               pagina HTML/JS mobile (raw string, scritta a mano)
 
   views/                         composizione app-level (physics + render + ux)
     orbital_view.h/.cpp              viewer orbitali idrogenoidi

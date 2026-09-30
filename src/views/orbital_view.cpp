@@ -19,6 +19,7 @@
 #include "physics/view_scratch_arena.h" // shared load()-scratch, see that header
 #include "physics/view_steady_arena.h"  // shared points/colors/psi2Sorted, see that header
 #include "ux/orientation_tracker.h"
+#include "ux/remote_command.h"
 
 static const char *kOrbitalViewTag = "orbital_view";
 
@@ -169,7 +170,7 @@ void OrbitalPresetState::resamplePoints(int count)
     }
 }
 
-void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *orientation)
+void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *orientation, int startIndex)
 {
     ESP_LOGI(kOrbitalViewTag, "display ready, %d presets available", kOrbitalLibraryCount);
 
@@ -188,6 +189,8 @@ void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *o
         preset.resample.psi2Sorted = viewSteadyArena().orbital.psi2Sorted;
         presetIndex = kOrbitalDefaultPresetIndex;
     }
+    if (startIndex >= 0)
+        presetIndex = startIndex;
     // Always reload (not just on the very first call): this view's points/colors/resample
     // share physical storage with atom_view.cpp's AtomPresetState (view_steady_arena.h), so a
     // re-entry after the sibling view ran can't assume they still hold what they held before
@@ -195,6 +198,7 @@ void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *o
     // this rebuilds the SAME preset (same fixed RNG seed -> bit-identical result), just paying
     // a fresh load() instead of instantly resuming.
     preset.load(presetIndex);
+    remote::publishState({remote::ViewMode::kOrbital, presetIndex});
 
     constexpr uint32_t kBuzzThreshold = kHiddenPointsThreshold; // see config/visual_constants.h's comment
 
@@ -220,6 +224,7 @@ void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *o
     auto switchToPreset = [&](int newIndex)
     {
         ESP_LOGI(kOrbitalViewTag, "switching preset %d -> %d", presetIndex, newIndex);
+        remote::publishState({remote::ViewMode::kOrbital, newIndex}); // before the intro, see atom_view.cpp
         const OrbitalDescriptor &newD = kOrbitalLibrary[newIndex];
         orb_real_t currentScale = preset.baseScale + preset.zoomAmplitude * std::sin(zoomAngle);
         scrollOrbitalIntro(display, newD.n, newD.ell, newD.m);
@@ -261,6 +266,36 @@ void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *o
                 ESP_LOGI(kOrbitalViewTag, "tilt %s confirmed", tiltDirectionName(tiltEv.direction));
                 switchToPreset(newIndex);
                 continue;
+            }
+        }
+
+        // Web remote (net/web_remote.cpp): same actions as the tilt gestures above.
+        remote::Request request = remote::take();
+        if (request.cmd != remote::Command::kNone)
+        {
+            lastActivityUs = esp_timer_get_time();
+            switch (request.cmd)
+            {
+            case remote::Command::kShowOrbital:
+                if (request.arg != presetIndex)
+                    switchToPreset(request.arg);
+                continue;
+            case remote::Command::kNext:
+            case remote::Command::kPrev:
+            {
+                int delta = request.cmd == remote::Command::kNext ? 1 : -1;
+                switchToPreset((presetIndex + delta + kOrbitalLibraryCount) % kOrbitalLibraryCount);
+                continue;
+            }
+            case remote::Command::kMenu:
+                ESP_LOGI(kOrbitalViewTag, "web remote -- returning to menu");
+                return;
+            case remote::Command::kShowElement:
+            case remote::Command::kDissect: // not this viewer's -- chooser relaunches into atom_view
+                remote::postIfEmpty(request);
+                return;
+            case remote::Command::kNone:
+                break;
             }
         }
 

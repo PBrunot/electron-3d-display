@@ -93,5 +93,11 @@ void renderOrbitalFrame(Display &display, const OrbitalPresetState &preset, cons
  * @param orientation Continuous tilt-driven camera rotation source (see
  *        ux/orientation_tracker.h) -- nullptr on CYD (no IMU), in which case the steady-state
  *        loop falls back to render/camera.h's synthetic auto-rotation.
+ * @param startIndex kOrbitalLibrary index to open on (chooser.cpp passes a web-remote pick
+ *        here, see ux/remote_command.h); -1 = resume whichever preset was shown last.
+ *
+ * Also serves ux/remote_command.h's web-remote requests every frame, mirroring the tilt
+ * gestures above (kNext/kPrev = Down/Up, kMenu = Left); kShowElement/kDissect requests are
+ * handed back to the chooser, which relaunches into atom_view.
  */
-void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *orientation);
+void runOrbitalView(Display &display, GestureSource &tilt, OrientationTracker *orientation, int startIndex = -1);
