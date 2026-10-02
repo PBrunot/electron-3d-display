@@ -799,20 +799,9 @@ void runAtomView(Display &display, GestureSource &tilt, OrientationTracker *orie
         stats.recordFrame(double(tAfterWait - tBeforeWait) / 1000.0, double(tAfterPresent - tAfterWait) / 1000.0);
         stats.maybeLog(kAtomViewTag);
 
-        // Steady-state view: rotation follows the device's physical orientation instead of the
-        // fixed-speed auto-rotation used everywhere else (fly-overs, dissection) -- see
-        // ux/orientation_tracker.h. CYD (no IMU) falls back to the old synthetic stepCamera().
-        if (orientation != nullptr)
-        {
-            orientation->update();
-            camera.yaw = orientation->yawRad();
-            camera.tilt = kCameraTiltStart + orientation->tiltRad();
-            camera.roll = kCameraRollStart + orientation->rollRad();
-        }
-        else
-        {
-            stepCamera(&camera);
-        }
+        // IMU-driven via OrientationTracker's CameraDriver (auto-spin only after 30s idle);
+        // CYD (no IMU) keeps the fixed spin.
+        stepCamera(&camera);
         zoomAngle += kZoomAngleStep;
         if (zoomAngle >= kTwoPi)
             zoomAngle -= kTwoPi;

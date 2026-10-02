@@ -39,7 +39,20 @@ struct CameraState
     orb_real_t roll = kCameraRollStart;
 };
 
-/// Advance all three angles by one frame's step, wrapping into [0, 2*pi).
+/// Optional override for stepCamera() (e.g. IMU-driven rotation, see ux/orientation_tracker.h).
+struct CameraDriver
+{
+    virtual void step(CameraState *cam) = 0;
+
+protected:
+    ~CameraDriver() = default;
+};
+
+/// Install (or clear with nullptr) the driver used by every stepCamera() call, fly-overs included.
+void setCameraDriver(CameraDriver *driver);
+
+/// Advance the camera one frame: the installed CameraDriver if any, else the fixed auto-spin
+/// (all three angles by one frame's step, wrapping into [0, 2*pi)).
 void stepCamera(CameraState *cam);
 
 /// Precomputed sin/cos for one frame's rotation -- reused for every point that frame.

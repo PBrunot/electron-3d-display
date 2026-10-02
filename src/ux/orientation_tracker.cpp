@@ -55,6 +55,8 @@ void OrientationTracker::calibrate()
     fusedRoll_ = orb_real_t(0);
     fusedYaw_ = orb_real_t(0);
     lastUpdateUs_ = 0;
+    lastMotionUs_ = esp_timer_get_time();
+    spin_ = CameraState{0, 0, 0};
 
     if (ok == 0)
     {
@@ -100,6 +102,10 @@ void OrientationTracker::update()
     lastUpdateUs_ = now;
     dt = std::clamp(dt, orb_real_t(0), kMaxDtSeconds);
 
+    orb_real_t gxc = gx - gyroBiasX_, gyc = gy - gyroBiasY_, gzc = gz - gyroBiasZ_;
+    if (std::sqrt(gxc * gxc + gyc * gyc + gzc * gzc) > cfg_.motionThresholdDps)
+        lastMotionUs_ = now;
+
     orb_real_t pitchSign = orb_real_t(cfg_.pitchAxisSign);
     orb_real_t rollSign = orb_real_t(cfg_.rollAxisSign);
     orb_real_t yawSign = orb_real_t(cfg_.yawAxisSign);
@@ -133,6 +139,25 @@ void OrientationTracker::update()
                  double(ax), double(ay), double(az), double(gx), double(gy), double(gz), double(fusedPitch_),
                  double(fusedRoll_), double(fusedYaw_));
     }
+}
+
+void OrientationTracker::step(CameraState *cam)
+{
+    update();
+    if (esp_timer_get_time() - lastMotionUs_ > cfg_.idleSpinDelayUs)
+    {
+        auto advance = [](orb_real_t a, orb_real_t step)
+        {
+            a += step;
+            return a >= kTwoPi ? a - kTwoPi : a;
+        };
+        spin_.yaw = advance(spin_.yaw, kCameraAngleStep);
+        spin_.tilt = advance(spin_.tilt, kCameraTiltStep);
+        spin_.roll = advance(spin_.roll, kCameraRollStep);
+    }
+    cam->yaw = yawRad() + spin_.yaw;
+    cam->tilt = kCameraTiltStart + tiltRad() + spin_.tilt;
+    cam->roll = kCameraRollStart + rollRad() + spin_.roll;
 }
 
 orb_real_t OrientationTracker::tiltRad() const

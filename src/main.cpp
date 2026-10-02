@@ -142,6 +142,7 @@ extern "C" void app_main(void)
             // accelerometer's planar baseline below (see ux/orientation_tracker.h's calibrate()
             // doc comment) -- runs every boot, ~1s, board still resting from the splash hold.
             orientation.calibrate();
+            setCameraDriver(&orientation); // every stepCamera() (fly-overs too) now follows the IMU
 
             if constexpr (!kTiltNavigationEnabled)
             {

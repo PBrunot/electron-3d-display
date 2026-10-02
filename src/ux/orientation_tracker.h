@@ -25,6 +25,7 @@
 class Qmi8658;
 
 #include "physics/orbitals.h" // orb_real_t
+#include "render/camera.h"    // CameraDriver
 
 struct OrientationTrackerConfig
 {
@@ -69,6 +70,12 @@ struct OrientationTrackerConfig
     /// which way the rendered atom should turn, so this starts at +1 and gets tuned on real
     /// hardware (tilt one axis at a time, watch which fused angle moves and which way, flip the
     /// sign that doesn't match). See the plan's "Tuning assi" step.
+    /// Gyro magnitude (deg/s, bias-corrected) above which the board counts as being moved.
+    /// Above hand tremor, below any deliberate tilt.
+    orb_real_t motionThresholdDps = orb_real_t(6.0);
+    /// Time without motion before the auto-spin takes over; any motion stops it again.
+    int64_t idleSpinDelayUs = 30'000'000;
+
     int pitchAxisSign = 1;
     int rollAxisSign = 1;
     int yawAxisSign = 1;
@@ -78,7 +85,7 @@ struct OrientationTrackerConfig
 /// estimate. One instance shared across the app lifetime (constructed next to the shared
 /// Qmi8658/TiltGestureDetector in main.cpp), threaded down to runChooser()/runAtomView()/
 /// runOrbitalView() as a nullable pointer (nullptr on CYD, which has no IMU).
-class OrientationTracker
+class OrientationTracker : public CameraDriver
 {
 public:
     explicit OrientationTracker(Qmi8658 &imu, const OrientationTrackerConfig &cfg = OrientationTrackerConfig());
@@ -101,6 +108,10 @@ public:
     /// failure leaves the fused state unchanged (same tolerance as TiltGestureDetector::poll()).
     void update();
 
+    /// CameraDriver: IMU orientation, plus the fixed auto-spin only after cfg.idleSpinDelayUs
+    /// without motion (frozen, not undone, when motion resumes).
+    void step(CameraState *cam) override;
+
     orb_real_t yawRad() const { return fusedYaw_ * cfg_.rotationGain; }
     /// Scaled by cfg.rotationGain, then clamped to +-cfg.tiltClampRad -- not wrapped, unlike render/camera.h's stepCamera().
     orb_real_t tiltRad() const;
@@ -116,5 +127,7 @@ private:
     orb_real_t fusedPitch_ = orb_real_t(0), fusedRoll_ = orb_real_t(0), fusedYaw_ = orb_real_t(0);
     int64_t lastUpdateUs_ = 0; // 0 means "no prior sample" -- update()'s first call after
                                // calibrate()/resync() contributes no gyro integration (dt=0).
+    int64_t lastMotionUs_ = 0; // last time the gyro exceeded cfg.motionThresholdDps
+    CameraState spin_{0, 0, 0}; // accumulated auto-spin, added on top of the IMU angles
     int debugLogCounter_ = 0; // throttles update()'s periodic raw/fused dump, see kDebugLogInterval
 };

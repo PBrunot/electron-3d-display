@@ -4,8 +4,23 @@
 
 #include "esp_random.h"
 
+namespace
+{
+CameraDriver *gCameraDriver = nullptr;
+}
+
+void setCameraDriver(CameraDriver *driver)
+{
+    gCameraDriver = driver;
+}
+
 void stepCamera(CameraState *cam)
 {
+    if (gCameraDriver)
+    {
+        gCameraDriver->step(cam);
+        return;
+    }
     cam->yaw += kCameraAngleStep;
     if (cam->yaw >= kTwoPi)
         cam->yaw -= kTwoPi;
