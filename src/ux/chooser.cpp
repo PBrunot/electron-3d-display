@@ -1,6 +1,9 @@
 #include "ux/chooser.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 #include "views/atom_view.h"
 #include "render/camera.h"
@@ -12,8 +15,11 @@
 #include "views/orbital_view.h"
 #include "debug/screenshot_pause.h"
 #include "render/splash_bitmap.h"
+#include "ux/orientation_tracker.h"
+#include "ux/remote_command.h"
 #include "ux/tilt_gesture.h"
-#include "config/visual_constants.h" // kTextColor, kAccentColor, kChooserPollDelayMs, kChooserIdleJumpUs, kCalibLine*, kChooserOption*, kChooserBlinkHalfPeriodMs
+#include "config/visual_constants.h" // kTextColor, kAccentColor, kChooserPollDelayMs, kChooserIdleJumpUs, kCalibLine*, kChooserOption*, kChooserBlinkHalfPeriodMs, kOrientGauge*, kWebHint*
+#include "config/network_constants.h" // kWebRemoteEnabled, kWebRemoteSsid
 
 static const char *kChooserTag = "chooser";
 
@@ -94,19 +100,135 @@ void calibrateDirections(Display &display, TiltGestureDetector &tilt)
     ESP_LOGI(kChooserTag, "direction calibration complete");
 }
 
+namespace
+{
+    /// Plain Bresenham line -- writePx()-bounds-checked per pixel via Display, so no manual
+    /// clipping needed here. Nothing else in the codebase needs an arbitrary-angle line yet
+    /// (tilt_gesture.cpp's arrows only ever point along one of 4 fixed cardinal directions, so
+    /// it draws filled triangles directly instead) -- kept local to this file rather than
+    /// factored out until a second caller actually needs it.
+    void drawLine(Display &display, int x0, int y0, int x1, int y1, uint16_t color)
+    {
+        int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+        int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+        while (true)
+        {
+            display.writePx(x0, y0, color);
+            if (x0 == x1 && y0 == y1)
+                break;
+            int e2 = 2 * err;
+            if (e2 >= dy)
+            {
+                err += dy;
+                x0 += sx;
+            }
+            if (e2 <= dx)
+            {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+    /// One dial: a pivot dot, a needle from the pivot pointing at `angleRad` (0 = straight up,
+    /// positive = clockwise, matching a clock face), and a kFontSmall label centered under it.
+    /// Angle is NOT wrapped/clamped here -- yaw sweeps past +-pi and the needle just keeps
+    /// spinning, which is the point (a stuck needle reads as "not moving" just as clearly as a
+    /// wrong-signed one reads as "moving the wrong way").
+    void drawOrientationDial(Display &display, int cx, int cy, orb_real_t angleRad, const char *label)
+    {
+        int tipX = cx + int(orb_real_t(kOrientGaugeRadiusPx) * std::sin(angleRad));
+        int tipY = cy - int(orb_real_t(kOrientGaugeRadiusPx) * std::cos(angleRad));
+        drawLine(display, cx, cy, tipX, tipY, kOrientGaugeNeedleColor);
+        display.writePx(cx, cy, kOrientGaugeNeedleColor);
+
+        int labelX = cx - textWidth(label, kFontSmall) / 2;
+        drawText(display, labelX, kOrientGaugeLabelY, label, kOrientGaugeLabelColor, kFontSmall);
+    }
+
+    /// Top-left tilt/roll/yaw needle cluster -- see kOrientGauge* in visual_constants.h for the
+    /// full rationale. No-op if `orientation` is nullptr (CYD: no IMU, see main.cpp).
+    void drawOrientationGauges(Display &display, OrientationTracker *orientation)
+    {
+        if (orientation == nullptr)
+            return;
+
+        for (int y = kOrientGaugeAreaY; y < kOrientGaugeAreaY + kOrientGaugeAreaH; y++)
+            for (int x = kOrientGaugeAreaX; x < kOrientGaugeAreaX + kOrientGaugeAreaW; x++)
+                display.writePx(x, y, kOrientGaugeBgColor);
+
+        int cx = kOrientGaugeFirstCx;
+        drawOrientationDial(display, cx, kOrientGaugeCy, orientation->tiltRad(), "TILT");
+        cx += kOrientGaugeSpacingPx;
+        drawOrientationDial(display, cx, kOrientGaugeCy, orientation->rollRad(), "ROLL");
+        cx += kOrientGaugeSpacingPx;
+        drawOrientationDial(display, cx, kOrientGaugeCy, orientation->yawRad(), "YAW");
+    }
+
+    /// Top-right "WiFi / <ssid>" hint -- see kWebHint* in visual_constants.h.
+    void drawWebRemoteHint(Display &display)
+    {
+        if constexpr (!kWebRemoteEnabled)
+            return;
+
+        constexpr const char *kHeading = "WiFi";
+        int width = std::max(textWidth(kHeading, kFontSmall), textWidth(kWebRemoteSsid, kFontSmall));
+        int lineAdvance = kFontSmall.lineAdvance;
+        for (int y = kWebHintY - kWebHintPadPx; y < kWebHintY + 2 * lineAdvance + kWebHintPadPx; y++)
+            for (int x = kWebHintRightX - width - kWebHintPadPx; x <= kWebHintRightX + kWebHintPadPx; x++)
+                display.writePx(x, y, kWebHintBgColor);
+        drawText(display, kWebHintRightX - textWidth(kHeading, kFontSmall), kWebHintY, kHeading, kAccentColor,
+                 kFontSmall);
+        drawText(display, kWebHintRightX - textWidth(kWebRemoteSsid, kFontSmall), kWebHintY + lineAdvance,
+                 kWebRemoteSsid, kWebHintColor, kFontSmall);
+    }
+
+    /// Launches the viewer a pending web-remote request asks for (net/web_remote.cpp), opened
+    /// directly on the requested element/orbital. Returns true if a viewer ran (and has since
+    /// returned). kNext/kPrev/kMenu have nothing to act on from the menu and are dropped.
+    bool launchRemoteRequest(Display &display, GestureSource &tilt, OrientationTracker *orientation)
+    {
+        remote::Request request = remote::take();
+        switch (request.cmd)
+        {
+        case remote::Command::kShowElement:
+            ESP_LOGI(kChooserTag, "web remote -> element viewer (Z=%d)", request.arg);
+            runAtomView(display, tilt, orientation, request.arg);
+            return true;
+        case remote::Command::kShowOrbital:
+            ESP_LOGI(kChooserTag, "web remote -> orbital viewer (preset %d)", request.arg);
+            runOrbitalView(display, tilt, orientation, request.arg);
+            return true;
+        case remote::Command::kDissect:
+            ESP_LOGI(kChooserTag, "web remote -> element viewer, then dissect");
+            remote::postIfEmpty(request); // picked up by runAtomView()'s loop once its intro is done
+            runAtomView(display, tilt, orientation);
+            return true;
+        case remote::Command::kNext:
+        case remote::Command::kPrev:
+        case remote::Command::kMenu:
+        case remote::Command::kNone:
+            break;
+        }
+        return false;
+    }
+} // namespace
+
 /**
  * @brief Draw the menu screen -- background art, the fixed-color toolbar band, the two
- *        blinking option lines, and (while a tilt is held) the direction-cluster arrow.
+ *        blinking option lines, (while a tilt is held) the direction-cluster arrow, and (IMU
+ *        boards only) the top-left tilt/roll/yaw orientation gauges.
  *
  * `fullRedraw` gates the (comparatively expensive, ~60-90ms) background decode-and-draw: false
  * on every steady-state poll, since the background never changes on its own between polls.
- * The toolbar band (kChooserBandY down to the screen bottom) is repainted flat every poll
- * regardless -- a plain rect fill, not a decode -- so the option text and arrow cluster always
- * sit on a known, graphics-free backdrop; drawing over the band from scratch each time means
- * nothing here ever needs to preserve or restore whatever was underneath it (unlike the old
- * screen-edge arrow, which had to snapshot/restore the splash artwork it was drawn over).
+ * The toolbar band (kChooserBandY down to the screen bottom) and the orientation gauge area
+ * are both repainted flat every poll regardless -- plain rect fills, not a decode -- so
+ * nothing drawn on top of either ever needs to preserve or restore whatever was underneath it
+ * (unlike the old screen-edge arrow, which had to snapshot/restore the splash artwork it was
+ * drawn over).
  */
-static void drawChooserScreen(Display &display, bool fullRedraw, TiltEvent ev)
+static void drawChooserScreen(Display &display, bool fullRedraw, TiltEvent ev, OrientationTracker *orientation)
 {
     if (fullRedraw)
         drawSplashScreen(display); // no-op (logged) on mount/decode failure, not a crash
@@ -122,6 +244,9 @@ static void drawChooserScreen(Display &display, bool fullRedraw, TiltEvent ev)
     if (ev.phase != TiltPhase::kIdle)
         drawTiltArrowAt(display, ev.direction, kChooserArrowClusterCx, kChooserArrowClusterCy, kChooserArrowLengthPx,
                         kChooserArrowHalfWidthPx, kAccentColor);
+
+    drawOrientationGauges(display, orientation);
+    drawWebRemoteHint(display);
 }
 
 /**
@@ -131,7 +256,7 @@ static void drawChooserScreen(Display &display, bool fullRedraw, TiltEvent ev)
  * this function is ever entered -- see checkPlanarAtBoot()/calibrateDirections() there; this
  * loop does not repeat it.
  */
-void runChooser(Display &display, GestureSource &tilt)
+void runChooser(Display &display, GestureSource &tilt, OrientationTracker *orientation)
 {
     ESP_LOGI(kChooserTag, "menu ready");
 
@@ -147,10 +272,26 @@ void runChooser(Display &display, GestureSource &tilt)
     while (true)
     {
         screenshot_pause::checkpoint(); // see screenshot_pause.h -- lets a screenshot capture happen safely
+
+        // Checked before drawing, so a request a viewer handed back on its way out (see
+        // remote::postIfEmpty()) relaunches straight into the other viewer without first
+        // paying the menu's full background redraw.
+        if (launchRemoteRequest(display, tilt, orientation))
+        {
+            ESP_LOGI(kChooserTag, "back to menu");
+            lastActivityUs = esp_timer_get_time();
+            needsFullRedraw = true;
+            continue;
+        }
+
         display.waitForFlushDone();
+        if (needsFullRedraw)
+            remote::publishState({remote::ViewMode::kMenu, 0});
 
         TiltEvent ev = tilt.poll();
-        drawChooserScreen(display, needsFullRedraw, ev);
+        if (orientation != nullptr)
+            orientation->update(); // feeds drawChooserScreen()'s top-left tilt/roll/yaw gauges
+        drawChooserScreen(display, needsFullRedraw, ev, orientation);
         needsFullRedraw = false;
         display.presentFrame();
 
@@ -160,13 +301,13 @@ void runChooser(Display &display, GestureSource &tilt)
             if (ev.direction == TiltDirection::kUp)
             {
                 ESP_LOGI(kChooserTag, "-> orbital viewer");
-                runOrbitalView(display, tilt);
+                runOrbitalView(display, tilt, orientation);
                 ESP_LOGI(kChooserTag, "back to menu");
             }
             else if (ev.direction == TiltDirection::kDown)
             {
                 ESP_LOGI(kChooserTag, "-> element viewer");
-                runAtomView(display, tilt);
+                runAtomView(display, tilt, orientation);
                 ESP_LOGI(kChooserTag, "back to menu");
             }
             lastActivityUs = esp_timer_get_time();
@@ -177,12 +318,12 @@ void runChooser(Display &display, GestureSource &tilt)
             if (randomUnit() < orb_real_t(0.5))
             {
                 ESP_LOGI(kChooserTag, "idle 30s+ -- auto-launching orbital viewer");
-                runOrbitalView(display, tilt);
+                runOrbitalView(display, tilt, orientation);
             }
             else
             {
                 ESP_LOGI(kChooserTag, "idle 30s+ -- auto-launching element viewer");
-                runAtomView(display, tilt);
+                runAtomView(display, tilt, orientation);
             }
             ESP_LOGI(kChooserTag, "back to menu");
             lastActivityUs = esp_timer_get_time();

@@ -77,6 +77,15 @@ public:
     virtual TiltEvent poll() = 0;
 };
 
+/// GestureSource that never fires -- used when tilt navigation is disabled
+/// (config/network_constants.h's kTiltNavigationEnabled) and the web remote is the only way
+/// to switch viewers/elements, so tilting the cube only rotates the cloud.
+class NullGestureSource final : public GestureSource
+{
+public:
+    TiltEvent poll() override { return TiltEvent{}; }
+};
+
 /**
  * @brief Like TiltEvent, but the raw normalized deviation-from-baseline direction (a unit
  *        vector in board-local accelerometer axes) instead of a mapped TiltDirection.
@@ -93,10 +102,16 @@ struct RawTiltEvent
 
 struct TiltGestureConfig
 {
-    orb_real_t thresholdG = orb_real_t(0.28); ///< Deviation magnitude to arm a candidate direction.
+    /// Deviation magnitude to arm a candidate direction. Raised from the original 0.28 to leave
+    /// headroom below it for orientation_tracker.h's continuous tilt-driven rotation (clamped to
+    /// OrientationTrackerConfig::tiltClampRad/rollClampRad) to saturate before this gesture
+    /// fires -- the two live in different unit spaces (radians of fused angle vs. g of raw
+    /// accelerometer deviation) with no exact closed-form relationship, so both were tuned
+    /// together on hardware; adjust in tandem if either changes.
+    orb_real_t thresholdG = orb_real_t(0.45);
     /// Deviation must drop below this to re-arm -- hysteresis so a reading sitting right at
-    /// thresholdG doesn't chatter.
-    orb_real_t releaseG = orb_real_t(0.18);
+    /// thresholdG doesn't chatter. Same margin as before, shifted up with thresholdG.
+    orb_real_t releaseG = orb_real_t(0.32);
     /// Sustained-hold duration required to confirm a tilt.
     uint32_t holdConfirmMs = 1000;
 

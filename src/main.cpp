@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 
 #include "ux/imu.h"
+#include "ux/orientation_tracker.h"
 #include "ux/touch.h"
 #include "ux/ft6336g.h"
 #include "ux/touch_gesture.h"
@@ -21,6 +22,8 @@
 #include "debug/screenshot_console.h"
 #include "render/splash_bitmap.h"
 #include "config/hardware_constants.h"
+#include "config/network_constants.h" // kWebRemoteEnabled
+#include "net/web_remote.h"
 #include "config/visual_constants.h" // kSplashHoldMs
 #include "ux/tilt_gesture.h"
 #include "util/storage_mount.h"
@@ -100,6 +103,15 @@ extern "C" void app_main(void)
         // kOrbitalNumPoints comment. That RAM instead goes toward restoring full 240x320 resolution
         // (Display::kDisplayWidth/Height) and a higher point count.
 
+        // After Display (its DMA frame buffers need the internal heap first; a Wi-Fi failure
+        // is only logged, the hologram then just runs tilt-only) and before the splash, so the
+        // access point is already up by the time the menu appears.
+        if constexpr (kWebRemoteEnabled)
+        {
+            startWebRemote();
+            logMemory("startup: web remote");
+        }
+
         display.waitForFlushDone();
         drawSplashScreen(display);
         display.presentFrame();
@@ -119,7 +131,8 @@ extern "C" void app_main(void)
             Xpt2046 touchPanel{};
             TouchGestureDetector tilt{touchPanel};
             logMemory("startup: chooser");
-            runChooser(display, tilt);
+            runChooser(display, tilt, nullptr); // no IMU on CYD -- steady-state views keep the
+                                                 // old synthetic auto-rotation
         }
         else if constexpr (kBoard == Board::kES3C28P)
         {
@@ -144,8 +157,21 @@ extern "C" void app_main(void)
         {
             Qmi8658 imu{};
             TiltGestureDetector tilt{imu};
+            OrientationTracker orientation{imu};
+            // Gyro bias/rest-pose calibration cannot be skipped via a hardcoded default like the
+            // accelerometer's planar baseline below (see ux/orientation_tracker.h's calibrate()
+            // doc comment) -- runs every boot, ~1s, board still resting from the splash hold.
+            orientation.calibrate();
+            setCameraDriver(&orientation); // every stepCamera() (fly-overs too) now follows the IMU
 
-            if (imu.checkPlanarAtBoot())
+            if constexpr (!kTiltNavigationEnabled)
+            {
+                ESP_LOGI(kMainTag, "tilt navigation disabled (web remote drives selection) -- skipping direction calibration");
+                NullGestureSource noGestures{};
+                logMemory("startup: chooser");
+                runChooser(display, noGestures, &orientation);
+            }
+            else if (imu.checkPlanarAtBoot())
             {
                 ESP_LOGI(kMainTag, "boot: planar check OK, using hardcoded calibration");
                 tilt.setBaseline(kDefaultBaselineX, kDefaultBaselineY, kDefaultBaselineZ);
@@ -164,7 +190,7 @@ extern "C" void app_main(void)
             }
 
             logMemory("startup: chooser");
-            runChooser(display, tilt);
+            runChooser(display, tilt, &orientation);
         }
     }
 }

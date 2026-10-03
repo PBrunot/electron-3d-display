@@ -3,13 +3,14 @@
  * @brief ESP-IDF driver for the QMI8658 6-axis IMU on the Waveshare ESP32-S3-LCD-1.3
  *        (SDA=47, SCL=48).
  *
- * Only the accelerometer is enabled/read -- tilt_gesture.h's detector only needs linear
- * acceleration, not gyro rate. Register map, init sequence, and scale factor (WHO_AM_I=0x6B/
- * 0x05, CTRL1/CTRL2/CTRL7, ACCEL_OUT@0x35, +-4g/8192 LSB-per-g) match
- * boards/QMI8658C_datasheet_rev_0.9.pdf's UI Register Overview table. Built on ESP-IDF's
- * `driver/i2c_master.h` peripheral driver (the standard bus/device handle API) rather than a
- * third-party component -- no dedicated ESP-IDF QMI8658 component exists, and this register
- * sequence is short enough not to need one.
+ * Both accelerometer and gyroscope are enabled/read: tilt_gesture.h's detector only needs
+ * readAccelG() (linear acceleration), while ux/orientation_tracker.h fuses both via
+ * readAccelGyro() to drive continuous camera rotation. Register map, init sequence, and scale
+ * factors (WHO_AM_I=0x6B/0x05, CTRL1/CTRL2/CTRL3/CTRL7, ACCEL_OUT@0x35, +-4g/8192 LSB-per-g,
+ * +-512dps/64 LSB-per-dps) match boards/QMI8658C_datasheet_rev_0.9.pdf's UI Register Overview
+ * table. Built on ESP-IDF's `driver/i2c_master.h` peripheral driver (the standard bus/device
+ * handle API) rather than a third-party component -- no dedicated ESP-IDF QMI8658 component
+ * exists, and this register sequence is short enough not to need one.
  */
 #pragma once
 
@@ -23,7 +24,7 @@ class Qmi8658
 public:
     /**
      * @brief Bring up the I2C bus (SDA=47/SCL=48, 400kHz), probe WHO_AM_I, and configure the
-     *        accelerometer (+-4g, 250Hz ODR, accel-only).
+     *        accelerometer (+-4g, 250Hz ODR) and gyroscope (+-512dps, ~235Hz ODR), both enabled.
      * @note Aborts via ESP_ERROR_CHECK/abort() on failure, matching Display's boot-time error
      *       handling -- this project has no code path that runs meaningfully without the IMU
      *       once this constructor is reached.
@@ -51,6 +52,17 @@ public:
      *         (tilt_gesture.cpp logs it).
      */
     bool readAccelG(orb_real_t *outX, orb_real_t *outY, orb_real_t *outZ);
+
+    /**
+     * @brief Read linear acceleration in g (same as readAccelG()) and angular rate in
+     *        degrees/second, board-local axes, from one 12-byte burst read (accel and gyro
+     *        output registers are contiguous -- see config/hardware_constants.h's kRegAccelOut
+     *        comment).
+     * @return false (outputs unwritten) on an I2C transaction failure, same convention as
+     *         readAccelG().
+     */
+    bool readAccelGyro(orb_real_t *outAx, orb_real_t *outAy, orb_real_t *outAz, orb_real_t *outGx, orb_real_t *outGy,
+                       orb_real_t *outGz);
 
     /**
      * @brief Quick go/no-go read to decide whether the device is resting in its known-good

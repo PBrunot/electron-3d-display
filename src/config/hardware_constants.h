@@ -25,8 +25,11 @@ inline constexpr int kImuXferTimeoutMs = 1000;
 inline constexpr uint8_t kRegWhoAmI = 0x00;
 inline constexpr uint8_t kRegCtrl1 = 0x02;
 inline constexpr uint8_t kRegCtrl2 = 0x03;
+inline constexpr uint8_t kRegCtrl3 = 0x04; // gyro range/ODR -- same bit layout as CTRL2, for the gyro
 inline constexpr uint8_t kRegCtrl7 = 0x08;
-inline constexpr uint8_t kRegAccelOut = 0x35; // AX_L, 6 bytes: AX/AY/AZ, little-endian, 2's complement
+inline constexpr uint8_t kRegAccelOut = 0x35; // AX_L, 12 bytes: AX/AY/AZ then GX/GY/GZ (0x35-0x40),
+                                               // little-endian, 2's complement -- accel and gyro output
+                                               // registers are contiguous, so one burst read gets both.
 
 inline constexpr uint8_t kExpectedWhoAmI = 0x05;
 
@@ -34,6 +37,19 @@ inline constexpr uint8_t kExpectedWhoAmI = 0x05;
 inline constexpr uint8_t kRange4gBits = 1;
 inline constexpr uint8_t kOdr250HzBits = 5;
 inline constexpr orb_real_t kRange4gScale = orb_real_t(8192.0); // LSB/g at +-4g full scale
+
+// CTRL3 = gyro range in bits [6:4] | ODR in bits [3:0], identical layout to CTRL2. Range 101 ->
+// +-512dps: generous headroom for a fast hand flick (a saturated/clipped sample would corrupt
+// orientation_tracker.h's integral for the rest of that motion -- worse than the coarser but
+// still fine, ~0.0156dps/LSB, resolution at this range). ODR bit code reused from kOdr250HzBits
+// (same ladder position -> ~235Hz for the gyro, close enough to accel's 250Hz to sample both in
+// the same per-frame burst read without either one going stale).
+inline constexpr uint8_t kGyroRange512dpsBits = 5;
+inline constexpr orb_real_t kGyroScale512dps = orb_real_t(64.0); // LSB/dps at +-512dps full scale
+
+// CTRL7 sensor-enable bits: aEN=bit0, gEN=bit1. Existing accel-only boot used 0x01; the
+// orientation tracker (ux/orientation_tracker.h) needs the gyro too.
+inline constexpr uint8_t kCtrl7AccelGyroEnabled = 0x03;
 
 // ============================================================================================
 // Boot-time planarity check tuning (ux/imu.cpp's checkPlanarAtBoot())

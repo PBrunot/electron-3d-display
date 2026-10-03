@@ -354,6 +354,36 @@ inline constexpr int kChooserArrowClusterCy = 259;
 inline constexpr int kChooserArrowLengthPx = 16;    ///< Tip-to-base along the pointing direction.
 inline constexpr int kChooserArrowHalfWidthPx = 10; ///< Half the base width.
 
+/// Top-left HUD: one small needle dial per OrientationTracker axis (tilt/roll/yaw), redrawn
+/// every poll straight from the live fused angles -- lets the axis-sign tuning pass (see
+/// IMU-ROTATION-branch.md) be read at a glance on the device's own screen instead of a serial
+/// monitor. Entirely skipped when orientation is nullptr (CYD: no IMU, see main.cpp).
+/// Reserved rect, flat-filled every poll first (same "graphics-free chrome redrawn from
+/// scratch" reasoning as kChooserBandColor above) so old needle positions never need erasing.
+inline constexpr int kOrientGaugeAreaX = 2;
+inline constexpr int kOrientGaugeAreaY = 2;
+inline constexpr int kOrientGaugeAreaW = 112;
+inline constexpr int kOrientGaugeAreaH = 36;
+inline constexpr uint16_t kOrientGaugeBgColor = Display::kColorBlack;
+
+inline constexpr int kOrientGaugeCy = kOrientGaugeAreaY + 16;      ///< Needle pivot row.
+inline constexpr int kOrientGaugeFirstCx = kOrientGaugeAreaX + 18; ///< First (tilt) dial's center x.
+inline constexpr int kOrientGaugeSpacingPx = 38;                  ///< Gap between dial centers.
+inline constexpr int kOrientGaugeRadiusPx = 11;                   ///< Needle pivot-to-tip length.
+inline constexpr int kOrientGaugeLabelY = kOrientGaugeAreaY + 27; ///< Top of each dial's kFontSmall label.
+inline constexpr uint16_t kOrientGaugeNeedleColor = kAccentColor;
+inline constexpr uint16_t kOrientGaugeLabelColor = kTextColor;
+
+/// Top-right chooser hint naming the web remote's Wi-Fi network (net/web_remote.cpp), so a
+/// visitor knows what to join on their phone. Two right-aligned kFontSmall lines on a flat
+/// rect repainted every poll (same reasoning as kOrientGaugeAreaX above); only drawn when
+/// config/network_constants.h's kWebRemoteEnabled is true.
+inline constexpr int kWebHintRightX = 237;     ///< Right edge of both lines.
+inline constexpr int kWebHintY = 3;            ///< Top of the first line.
+inline constexpr int kWebHintPadPx = 2;        ///< Background rect margin around the text.
+inline constexpr uint16_t kWebHintColor = kTextColor;
+inline constexpr uint16_t kWebHintBgColor = Display::kColorBlack;
+
 // ============================================================================================
 // Orbital-view intro/switch pacing (views/orbital_view.cpp)
 // ============================================================================================

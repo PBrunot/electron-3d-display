@@ -39,3 +39,4 @@ pio_run1.log
 /tools/splash_gen/__pycache__
 /pc/out/slice_preview
 /.design-mocks
+/boards/cyd-esp32s3

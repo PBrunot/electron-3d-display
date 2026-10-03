@@ -65,9 +65,10 @@ Qmi8658::Qmi8658()
         ESP_LOGI(kImuTag, "QMI8658 found at 0x%02x, WHO_AM_I=0x%02x", kImuAddr, who);
 
         if (!writeReg(kRegCtrl1, 0x60) || !writeReg(kRegCtrl2, uint8_t((kRange4gBits << 4) | kOdr250HzBits)) ||
-            !writeReg(kRegCtrl7, 0x01))
+            !writeReg(kRegCtrl3, uint8_t((kGyroRange512dpsBits << 4) | kOdr250HzBits)) ||
+            !writeReg(kRegCtrl7, kCtrl7AccelGyroEnabled))
         {
-            ESP_LOGE(kImuTag, "failed to configure accelerometer (CTRL1/CTRL2/CTRL7 write)");
+            ESP_LOGE(kImuTag, "failed to configure accelerometer/gyroscope (CTRL1/CTRL2/CTRL3/CTRL7 write)");
             abort();
         }
     }
@@ -98,6 +99,34 @@ bool Qmi8658::readAccelG(orb_real_t *outX, orb_real_t *outY, orb_real_t *outZ)
         *outX = orb_real_t(signed16(d[0], d[1])) / kRange4gScale;
         *outY = orb_real_t(signed16(d[2], d[3])) / kRange4gScale;
         *outZ = orb_real_t(signed16(d[4], d[5])) / kRange4gScale;
+        return true;
+    }
+}
+
+bool Qmi8658::readAccelGyro(orb_real_t *outAx, orb_real_t *outAy, orb_real_t *outAz, orb_real_t *outGx,
+                            orb_real_t *outGy, orb_real_t *outGz)
+{
+    if constexpr (kIsCYD)
+    {
+        (void)outAx;
+        (void)outAy;
+        (void)outAz;
+        (void)outGx;
+        (void)outGy;
+        (void)outGz;
+        return false;
+    }
+    else
+    {
+        uint8_t d[12];
+        if (!readRegs(kRegAccelOut, d, sizeof(d)))
+            return false;
+        *outAx = orb_real_t(signed16(d[0], d[1])) / kRange4gScale;
+        *outAy = orb_real_t(signed16(d[2], d[3])) / kRange4gScale;
+        *outAz = orb_real_t(signed16(d[4], d[5])) / kRange4gScale;
+        *outGx = orb_real_t(signed16(d[6], d[7])) / kGyroScale512dps;
+        *outGy = orb_real_t(signed16(d[8], d[9])) / kGyroScale512dps;
+        *outGz = orb_real_t(signed16(d[10], d[11])) / kGyroScale512dps;
         return true;
     }
 }
