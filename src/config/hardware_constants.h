@@ -119,3 +119,34 @@ inline constexpr uint32_t kTouchHoldConfirmMs = 500;
 inline constexpr bool kTouchSwapXY = false;
 inline constexpr bool kTouchInvertDx = true;
 inline constexpr bool kTouchInvertDy = false;
+
+// ============================================================================================
+// FT6336G capacitive touch (ux/ft6336g.cpp, ES3C28P board only)
+// ============================================================================================
+
+inline constexpr uint16_t kFt6336Addr = 0x38; // per ES3C28P_ES2N28P_Specification_V1.0.pdf 3.3
+// Conservative default -- no FT6336G-specific datasheet in this repo to confirm a faster rate
+// against; FocalTech's FT6x36 family is commonly run at 100-400kHz in third-party drivers.
+inline constexpr uint32_t kFt6336I2cFreqHz = 100000;
+inline constexpr int kFt6336XferTimeoutMs = 1000;
+
+// ============================================================================================
+// Capacitive-touch swipe gesture tuning (ux/touch_gesture.cpp via ux/ft6336g.h's Ft6336g,
+// ES3C28P only -- see kTouchSwipeThresholdRaw etc. above for the CYD's XPT2046 equivalents)
+// ============================================================================================
+//
+// The FT6336G reports calibrated screen-pixel coordinates (240x320), unlike the CYD's raw
+// uncalibrated XPT2046 ADC units above, so these thresholds are in pixels instead of raw ADC
+// counts. Picked as roughly the same ~8-9% of full scale as the XPT2046 defaults (350/4095 ~=
+// 8.5%) applied to the shorter axis (240px); UNVERIFIED on real hardware -- tune via the same
+// touch_gesture.cpp dx/dy logging (tag "touch_gesture") described above once a unit is on hand.
+inline constexpr int kCapTouchSwipeThresholdPx = 20;
+inline constexpr int kCapTouchSwipeReleasePx = 12;
+inline constexpr uint32_t kCapTouchHoldConfirmMs = 500;
+
+// Orientation of the FT6336G's X/Y axes relative to the display's on-screen up/down/left/right.
+// UNVERIFIED (no unit on hand) -- default to no swap/invert; tune the same way as
+// kTouchSwapXY/kTouchInvertDx/kTouchInvertDy above once real hardware is available.
+inline constexpr bool kCapTouchSwapXY = false;
+inline constexpr bool kCapTouchInvertDx = false;
+inline constexpr bool kCapTouchInvertDy = false;

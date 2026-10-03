@@ -5,7 +5,6 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "config/hardware_constants.h" // kTouchSwipeThresholdRaw/ReleaseRaw, kTouchHoldConfirmMs, kTouchSwapXY/InvertDx/InvertDy
 
 static const char *kTouchGestureTag = "touch_gesture";
 
@@ -14,7 +13,9 @@ static uint32_t nowMs()
     return uint32_t(esp_timer_get_time() / 1000);
 }
 
-TouchGestureDetector::TouchGestureDetector(Xpt2046 &touch) : touch_(touch) {}
+TouchGestureDetector::TouchGestureDetector(TouchPanel &touch, const TouchGestureConfig &cfg) : touch_(touch), cfg_(cfg)
+{
+}
 
 TiltEvent TouchGestureDetector::poll()
 {
@@ -45,12 +46,13 @@ TiltEvent TouchGestureDetector::poll()
     int rawDx = int(x) - int(downX_);
     int rawDy = int(y) - int(downY_);
     // Map the touch panel's raw axes onto screen left/right/up/down -- see
-    // hardware_constants.h's kTouchSwapXY/kTouchInvertDx/kTouchInvertDy doc comment.
-    int dx = kTouchSwapXY ? rawDy : rawDx;
-    int dy = kTouchSwapXY ? rawDx : rawDy;
-    if (kTouchInvertDx)
+    // hardware_constants.h's kTouchSwapXY/kTouchInvertDx/kTouchInvertDy doc comment (or the
+    // kCapTouch* equivalents for a capacitive panel's TouchGestureConfig).
+    int dx = cfg_.swapXY ? rawDy : rawDx;
+    int dy = cfg_.swapXY ? rawDx : rawDy;
+    if (cfg_.invertDx)
         dx = -dx;
-    if (kTouchInvertDy)
+    if (cfg_.invertDy)
         dy = -dy;
 
     int adx = std::abs(dx);
@@ -59,7 +61,7 @@ TiltEvent TouchGestureDetector::poll()
 
     if (!active_)
     {
-        if (mag < kTouchSwipeThresholdRaw)
+        if (mag < cfg_.swipeThreshold)
             return TiltEvent{};
 
         // Latch the dominant axis/sign for the whole hold, same as TiltGestureDetector latching
@@ -75,7 +77,7 @@ TiltEvent TouchGestureDetector::poll()
         return TiltEvent{activeDir_, TiltPhase::kHolding, 0};
     }
 
-    if (mag < kTouchSwipeReleaseRaw)
+    if (mag < cfg_.swipeRelease)
     {
         ESP_LOGI(kTouchGestureTag, "candidate %s dropped below release threshold (dx=%d dy=%d)",
                  tiltDirectionName(activeDir_), dx, dy);
@@ -84,7 +86,7 @@ TiltEvent TouchGestureDetector::poll()
     }
 
     uint32_t heldMs = now - holdStartMs_;
-    if (!confirmedFired_ && heldMs >= kTouchHoldConfirmMs)
+    if (!confirmedFired_ && heldMs >= cfg_.holdConfirmMs)
     {
         confirmedFired_ = true;
         ESP_LOGI(kTouchGestureTag, "CONFIRMED %s after %ums", tiltDirectionName(activeDir_), heldMs);

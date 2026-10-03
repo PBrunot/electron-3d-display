@@ -17,8 +17,9 @@
  * movement between samples, not absolute on-screen coordinates, so unlike imu.h's
  * checkPlanarAtBoot() there is nothing here to calibrate against a known-good reading.
  *
- * @note No-op on non-CYD targets, mirroring imu.h's Qmi8658 CYD no-op: the Waveshare S3 board
- *       has no XPT2046 and never constructs this class.
+ * @note No-op on non-CYD targets, mirroring imu.h's Qmi8658 CYD no-op: neither the Waveshare S3
+ *       nor the ES3C28P board (which has its own capacitive touch, see ux/ft6336g.h) has an
+ *       XPT2046 and neither ever constructs this class.
  * @note The XPT2046 has no identifying register (unlike the QMI8658's WHO_AM_I), so there is no
  *       probe/handshake to abort boot over -- a miswired or absent panel just never reports
  *       isTouched(), same failure mode as any other disconnected GPIO.
@@ -27,7 +28,9 @@
 
 #include <cstdint>
 
-class Xpt2046
+#include "ux/touch_panel.h"
+
+class Xpt2046 : public TouchPanel
 {
 public:
     /// Configures CLK/MOSI/CS as outputs and MISO/IRQ as inputs (IRQ with an internal pull-up,
@@ -35,7 +38,7 @@ public:
     Xpt2046();
 
     /// True while the panel is currently pressed (IRQ pin low).
-    bool isTouched() const;
+    bool isTouched() const override;
 
     /**
      * @brief Raw 12-bit ADC samples (0..4095, uncalibrated -- see file comment).
@@ -43,7 +46,7 @@ public:
      *         was released mid-transaction (resistive panels bounce at the edge of contact --
      *         a torn sample here is discarded rather than returned as a false direction).
      */
-    bool readRaw(uint16_t *outX, uint16_t *outY);
+    bool readRaw(uint16_t *outX, uint16_t *outY) override;
 
 private:
     /// One 8-bit-command/16-bit-response bit-banged transaction; returns the 12-bit result

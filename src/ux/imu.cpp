@@ -5,7 +5,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "config/board.h" // kIsCYD
+#include "config/board.h" // kHasTouchNav
 #include "config/hardware_constants.h"
 
 static const char *kImuTag = "imu";
@@ -31,12 +31,12 @@ bool Qmi8658::readRegs(uint8_t reg, uint8_t *buf, size_t len)
 
 Qmi8658::Qmi8658()
 {
-    if constexpr (kIsCYD)
+    if constexpr (kHasTouchNav)
     {
-        // CYD has no QMI8658 and no wiring for one -- see imu.h's note. Deliberately skip I2C
-        // bus bring-up entirely rather than attempting it with the S3's pins (47/48 aren't even
-        // valid GPIO numbers on plain ESP32, which only goes up to 39).
-        ESP_LOGI(kImuTag, "no IMU on this target (CYD) -- Qmi8658 is a no-op, readAccelG() always fails");
+        // CYD/ES3C28P have no QMI8658 and no wiring for one -- see imu.h's note. Deliberately
+        // skip I2C bus bring-up entirely rather than attempting it with the Waveshare board's
+        // pins (47/48 aren't even valid GPIO numbers on plain ESP32, which only goes up to 39).
+        ESP_LOGI(kImuTag, "no IMU on this board -- Qmi8658 is a no-op, readAccelG() always fails");
         return;
     }
     else
@@ -84,7 +84,7 @@ Qmi8658::~Qmi8658()
 
 bool Qmi8658::readAccelG(orb_real_t *outX, orb_real_t *outY, orb_real_t *outZ)
 {
-    if constexpr (kIsCYD)
+    if constexpr (kHasTouchNav)
     {
         (void)outX;
         (void)outY;

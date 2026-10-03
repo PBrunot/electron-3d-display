@@ -10,17 +10,19 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
 
-// esp_lcd_ili9341.h is a separate managed component, fetched only for the CYD build
-// (src/idf_component.yml's `target == esp32` rule) -- it doesn't exist to include on the S3
-// build, so this one has to stay a real preprocessor branch; see config/board.h's header
-// comment for why kIsCYD can't reach into a #include.
+// esp_lcd_ili9341.h is a separate managed component, fetched for the CYD and ES3C28P builds
+// (src/idf_component.yml's `target in [esp32, esp32s3]` rule) -- it doesn't exist to include on
+// a plain Waveshare S3 build (no BOARD_ES3C28P define), so this one has to stay a real
+// preprocessor branch; see config/board.h's header comment for why kBoard can't reach into a
+// #include.
+#if CONFIG_IDF_TARGET_ESP32 || defined(BOARD_ES3C28P)
+#include "esp_lcd_ili9341.h"
+
 #if CONFIG_IDF_TARGET_ESP32
 // CYD (ESP32-2432S028R). Pins verified against witnessmenow/ESP32-Cheap-Yellow-Display
 // (PINS.md + Examples/Basics/1-HelloWorld/platformio.ini), NOT yet against physical
 // hardware for this project -- re-verify with the examples/corner_calibration methodology
 // (see CLAUDE.md) before trusting mirror/color settings below on a real unit.
-#include "esp_lcd_ili9341.h"
-
 constexpr auto kLcdHost = SPI2_HOST; // SPI2_HOST == HSPI on classic ESP32, matches PINS.md's "Uses HSPI"
 constexpr auto kPinMosi = gpio_num_t(13);
 constexpr auto kPinSclk = gpio_num_t(14);
@@ -34,6 +36,29 @@ constexpr auto kPinBl = gpio_num_t(21);
 // an ILI9341 display 40MHz works OK" too) -- raise back toward 55MHz once color/mirror is
 // confirmed correct on real hardware, if higher FPS is needed.
 constexpr int kLcdPixelClockHz = 40 * 1000 * 1000;
+constexpr bool kIli9341InvertColor = false; // unverified guess, see comment above
+#else
+// ES3C28P (QDtech "2.8inch IPS ESP32-S3 Display Module", see boards/cyd-esp32s3/). Pins from
+// ES3C28P_ES2N28P_Specification_V1.0.pdf section 4.2 ("ESP32-S3 pin allocation"). Mirror
+// setting below still unverified; color inversion IS verified on real hardware (2026-09-13):
+// without it, black (this project's background/fade-to color, see Display::clearScreen()/
+// fade()) renders as white.
+constexpr auto kLcdHost = SPI2_HOST;
+constexpr auto kPinMosi = gpio_num_t(11); // "LCD screen SPI bus write data signal"
+constexpr auto kPinSclk = gpio_num_t(12);
+constexpr auto kPinCs = gpio_num_t(10);
+constexpr auto kPinDc = gpio_num_t(46);
+constexpr auto kPinRst = gpio_num_t(-1); // shares the board's CHIP_PU/EN reset, no dedicated GPIO
+constexpr auto kPinBl = gpio_num_t(45);
+
+// No vendor-published safe SPI_FREQUENCY for this exact module to start from (unlike the CYD's
+// example repo above) -- reusing the same conservative 40MHz as a starting point since it's the
+// same ILI9341 family panel; raise it once mirror/orientation is confirmed correct on real
+// hardware.
+constexpr int kLcdPixelClockHz = 40 * 1000 * 1000;
+constexpr bool kIli9341InvertColor = true; // verified on real hardware, see comment above
+#endif
+
 #else
 constexpr auto kLcdHost = SPI2_HOST;
 constexpr auto kPinMosi = gpio_num_t(41);
@@ -153,16 +178,18 @@ Display::Display()
     panel_config.reset_gpio_num = kPinRst;
     panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
     panel_config.bits_per_pixel = 16;
-    // Real #if, not kIsCYD -- esp_lcd_new_panel_ili9341() only exists when the CYD-only
-    // include above pulled its header in (see that comment).
-#if CONFIG_IDF_TARGET_ESP32
+    // Real #if, not kHasIli9341Panel -- esp_lcd_new_panel_ili9341() only exists when the
+    // CYD/ES3C28P-only include above pulled its header in (see that comment). Both boards use
+    // the exact same init sequence here (only the pins above differ), so no further branching
+    // needed inside this block.
+#if CONFIG_IDF_TARGET_ESP32 || defined(BOARD_ES3C28P)
     panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
     panel_config.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE;
     ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_config, &panel_handle));
 
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, false));
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, kIli9341InvertColor));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 #else
@@ -314,7 +341,7 @@ void Display::blit(int x, int y, const uint16_t *src, int srcWidth, int srcHeigh
         uint16_t *dst = blk + size_t(rowInBlock) * kDisplayWidth + (x + colStart);
         const uint16_t *s = src + row * srcWidth + colStart;
         int n = colEnd - colStart;
-        if constexpr (kIsCYD)
+        if constexpr (kHasIli9341Panel)
         {
             for (int i = 0; i < n; i++)
                 dst[i] = storageColor(s[i]);
