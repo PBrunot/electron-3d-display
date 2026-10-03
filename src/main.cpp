@@ -151,7 +151,7 @@ extern "C" void app_main(void)
             cfg.invertDy = kCapTouchInvertDy;
             TouchGestureDetector tilt{touchPanel, cfg};
             logMemory("startup: chooser");
-            runChooser(display, tilt);
+            runChooser(display, tilt, nullptr); // no IMU -- same as the CYD branch above
         }
         else
         {
