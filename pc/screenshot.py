@@ -129,7 +129,7 @@ ORBITAL_ZOOM_TARGET_PX = ATOM_ZOOM_TARGET_PX
 # subsample factor derives from it as round(50/GIF_FPS), so actual FPS =
 # 1000 / (GIF_SUBSAMPLE * 20ms)). Lower GIF_FPS = smaller file.
 GIF_SIZE = 1.0
-GIF_FPS = 12                                 # nominal GIF frame rate (12.5 actual)
+GIF_FPS = 1.25                               # subsample knob: 40 x 5ms source frames = 200ms, i.e. 5 fps actual
 GIF_SUBSAMPLE = max(1, round(50.0 / GIF_FPS))  # write every Nth source frame
 GIF_FRAME_MS = GIF_SUBSAMPLE * FRAME_DELAY_MS  # playback delay of written frames
 ORBITAL_GIF_SECONDS = 1.5                    # spin time per orbital
