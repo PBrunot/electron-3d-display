@@ -83,7 +83,7 @@ src/
                                      PSRAM (DMA), packColor565()
     camera.h/.cpp                   rotazione/proiezione/fly-over
     overlay.h/.cpp                  scale bar, tilt arrow, titoli overlay comuni
-    font.h/.cpp + font_data.h       font bitmap proprietario (vedi §5.1)
+    font.h/.cpp + font_data.h       font bitmap proprietario (vedi §4.1)
     ticker.h/.cpp                   testo scorrevole (banner intro)
     jpeg_bg.h/.cpp                   decoder JPEG on-demand condiviso (TJpgDec via ROM)
     splash_bitmap.h/.cpp            splash screen di boot (decodifica data/atomic_cube.jpg)
@@ -221,3 +221,45 @@ cause misurate su hardware reale) e le decisioni prese finora, vedi
 **`CYD-branch.md`** in root — tenuto separato da questo file perché è
 lavoro/scoperte specifiche del branch, non architettura stabile del
 progetto principale.
+
+## 9. Guida per i contributori
+
+### Comandi di sviluppo e verifica
+
+Eseguire dalla root del repository, nell'ambiente WSL descritto in §3:
+
+- `pio run -e WS_ESP32_S3_LCD_1_3` — compila il firmware Waveshare.
+- `pio run -e CYD` — compila la variante CYD; consultare prima `CYD-branch.md`.
+- `pio device monitor -p /dev/ttyACM0 -b 115200` — apre il monitor seriale.
+- `python3 pc/main.py` — avvia il simulatore desktop; richiede Tkinter e
+  Pillow, con NumPy per accelerare il rendering (vedi `pc/README.md`).
+
+Per gli agenti resta valido il vincolo di §3: chiedere all'utente di eseguire
+build, flash e monitor e riportare i risultati. Consultare `platformio.ini`
+per gli environment disponibili e i target di caricamento degli asset:
+`uploadfs_s3` e `uploadfs_cyd` sono operazioni distinte dal flash del firmware.
+
+### Stile e test
+
+Seguire `STYLE.MD` e lo stile del modulo modificato: indentazione di quattro
+spazi, funzioni camelCase, tipi PascalCase e costanti con prefisso `k` dove
+questa convenzione è già adottata. Evitare eccezioni sul target ESP32.
+
+Gli harness del device sono in `src/debug/*_test.cpp`, attivati tramite i
+`#define` in `src/main.cpp`; scegliere quello pertinente e richiedere la
+verifica sull'hardware. Per modifiche alla fisica, usare i riferimenti in
+`tools/orbitals_host/`; per modifiche visive, confrontare screenshot e
+simulatore. Non è definita una soglia numerica di copertura. Documentare le
+verifiche eseguite e quelle ancora da effettuare, senza dichiarare test
+hardware non eseguiti. Per regressioni prestazionali, seguire §5.
+
+### Commit e pull request
+
+La cronologia usa titoli brevi all'imperativo, ad esempio
+`Adjust screenshot storage and gallery assets`; non emerge un prefisso
+obbligatorio. Mantenere i commit focalizzati su una modifica coerente.
+
+Nelle pull request descrivere problema, comportamento risultante, schede
+coinvolte e verifiche effettuate. Collegare eventuali issue pertinenti e
+allegare screenshot per modifiche visive. Indicare esplicitamente le
+verifiche hardware ancora necessarie.
