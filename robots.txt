@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://pbrunot.github.io/electron-3d-display/sitemap.xml

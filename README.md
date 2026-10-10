@@ -11,8 +11,10 @@
 > completi — rese come nuvole di punti rotanti e riflesse da un prisma di
 > vetro, così da fluttuare a mezz'aria sopra lo schermo.
 
-**[Try it in your browser](https://pbrunot.github.io/electron-3d-display/)** — no hardware needed, runs the same math as the device.
-**[Provalo nel browser](https://pbrunot.github.io/electron-3d-display/)** — nessun hardware richiesto, usa la stessa matematica del dispositivo.
+**[Explore inside the atom](https://pbrunot.github.io/electron-3d-display/)** — electron filling lessons, the 3D viewer and calculation guides; no hardware needed.
+**[Esplora l’interno dell’atomo](https://pbrunot.github.io/electron-3d-display/it/)** — lezioni sul riempimento elettronico, visualizzatore 3D e guide ai calcoli; nessun hardware richiesto.
+
+**Electron filling / Riempimento elettronico:** [English animation](https://pbrunot.github.io/electron-3d-display/web/shell_filling.html) · [Animazione in italiano](https://pbrunot.github.io/electron-3d-display/web/shell_filling_it.html).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform: ESP32](https://img.shields.io/badge/platform-ESP32-blue.svg)](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3)

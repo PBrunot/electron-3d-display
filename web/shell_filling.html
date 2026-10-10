@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electron configuration animation: shell filling & orbital diagrams | Atom Cube</title>
+<meta name="description" content="Learn electron configurations with an interactive shell-filling animation. Build atoms from hydrogen to calcium and explore Aufbau, Hund’s rule and Pauli spin pairing.">
+<link rel="canonical" href="https://pbrunot.github.io/electron-3d-display/web/shell_filling.html">
+<link rel="alternate" hreflang="en" href="https://pbrunot.github.io/electron-3d-display/web/shell_filling.html">
+<link rel="alternate" hreflang="it" href="https://pbrunot.github.io/electron-3d-display/web/shell_filling_it.html">
+<link rel="alternate" hreflang="x-default" href="https://pbrunot.github.io/electron-3d-display/web/shell_filling.html">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Electron configuration animation | Atom Cube">
+<meta property="og:description" content="Watch an atom fill while orbital boxes explain Aufbau, Hund and Pauli.">
+<meta property="og:url" content="https://pbrunot.github.io/electron-3d-display/web/shell_filling.html">
+<meta property="og:image" content="https://pbrunot.github.io/electron-3d-display/img/atom_C.png">
+<meta property="og:locale" content="en_GB">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #090e18; color: #e9eef8; }
+    body { margin: 0; }
+    main { max-width: 980px; margin: auto; padding: 28px 20px; }
+    a { color: #86ceff; }
+    h1 { font-size: clamp(28px, 5vw, 44px); margin-bottom: 8px; }
+    p { line-height: 1.6; }
+    .muted { color: #aebbd0; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 24px 0; }
+    button, select { font: inherit; background: #19263a; color: inherit; border: 1px solid #496078; border-radius: 8px; padding: 10px 14px; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
+    :focus-visible { outline: 3px solid #ffd080; outline-offset: 3px; }
+    input[type=range] { width: 100%; accent-color: #86ceff; }
+    .panels { display: grid; grid-template-columns: 1.25fr 1fr; gap: 20px; }
+    section { background: #111c2c; border: 1px solid #2c3c53; border-radius: 16px; padding: 20px; }
+    h2 { font-size: 20px; margin-top: 0; }
+    .row { display: flex; align-items: center; gap: 14px; margin: 12px 0; }
+    .label { min-width: 30px; color: var(--shell); font-weight: bold; }
+    .box { display: inline-flex; width: 56px; height: 44px; border: 1px solid #61738b; border-radius: 5px; align-items: center; justify-content: center; font-size: 28px; }
+    .box.active { border-color: #ffd080; background: #433724; }
+    .new { color: #ffd080; animation: arrive .6s ease-out; display: inline-block; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(-22px); } to { opacity: 1; transform: translateY(0); } }
+    .shell { margin: 14px 0; }
+    .track { background: #243148; height: 14px; border-radius: 8px; overflow: hidden; margin-top: 6px; }
+    .fill { height: 100%; background: var(--shell); transition: width .6s ease; }
+    #configuration { font-size: 22px; min-height: 34px; }
+    #explanation { min-height: 76px; }
+    .rules { margin-top: 20px; }
+    #atom { display: block; width: 100%; aspect-ratio: 1; border-radius: 12px; }
+    .atom-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 16px 0; }
+    .atom-controls input[type=range] { width: 130px; vertical-align: middle; }
+    .totals { grid-column: 1 / -1; }
+    @media (max-width: 650px) { .panels { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { .new { animation: none; } .fill { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+    <nav aria-label="Main navigation"><a href="../index.html">← Explore the atom</a> · <a href="index.html">3D orbital viewer</a> · <a href="shell_filling_it.html" lang="it" hreflang="it">Italiano</a></nav>
+    <h1>Electron configuration: watch an atom fill</h1>
+    <p class="muted">One electron at a time, from hydrogen to calcium. Watch subshells fill, then see how their electrons add up to shells.</p>
+    <div class="controls">
+        <label>Target atom <select id="element"></select></label>
+        <button id="play">Play</button>
+        <button id="back" aria-label="Remove one electron">− Electron</button>
+        <button id="next" aria-label="Add one electron">+ Electron</button>
+        <button id="reset">Reset</button>
+        <label>Pace <select id="speed"><option value="1800">Slow</option><option value="1000" selected>Normal</option><option value="500">Fast</option></select></label>
+    </div>
+    <label for="progress" id="progress-label">Electrons placed: 0</label>
+    <input id="progress" type="range" min="0" max="8" value="0">
+    <p id="explanation" role="status" aria-live="polite"></p>
+    <div class="panels">
+        <section>
+            <h2>Watch the atom fill</h2>
+            <canvas id="atom" width="480" height="480" role="img" aria-label="Atom filling visualization">Shell-colored schematic electron probability clouds. The shell totals below give the electron counts.</canvas>
+            <div class="atom-controls">
+                <label><input id="rotation" type="checkbox" checked> Rotate atom</label>
+                <label>Points <input id="density" type="range" min="10" max="100" value="40" step="5"> <output id="density-value" for="density">40%</output></label>
+            </div>
+            <p class="muted">Watch the atom build electron by electron, in sync with the orbital boxes.</p>
+            <p class="muted">Schematic s spheres and p lobes at a fixed scale. Dots represent probability density, not individual electrons; radii and radial nodes are simplified.</p>
+        </section>
+        <section aria-label="Orbital filling diagram">
+            <h2>Subshells & orbital boxes</h2>
+            <p class="muted">Read top to bottom in filling order. One box = one orbital; each arrow = one electron’s spin.</p>
+            <div id="orbitals"></div>
+            <p id="configuration" aria-label="Electron configuration"></p>
+        </section>
+        <section class="totals">
+            <h2>Shell totals</h2>
+            <p class="muted">The number in 2p means shell n = 2; p identifies the subshell within it.</p>
+            <div id="shells"></div>
+            <p class="muted">Bars compare occupancy with the shell capacity 2n². Calcium has 2, 8, 8, 2: 4s fills before 3d, so shell 3 is still below its capacity of 18.</p>
+        </section>
+    </div>
+    <section class="rules">
+        <h2>Three rules to watch</h2>
+        <p><strong>Aufbau:</strong> for these neutral ground states, follow 1s → 2s → 2p → 3s → 3p → 4s.<br>
+        <strong>Hund:</strong> in a p subshell, occupy all three equal-energy orbitals with parallel spins before pairing.<br>
+        <strong>Pauli:</strong> an orbital holds at most two electrons, with opposite spins.</p>
+        <p class="muted">This is a construction diagram for a selected neutral atom, not a simulation of adding electrons to an ion over time. Arrows show spin states, not electron trajectories. Box spacing does not represent measured energies. Beyond calcium, ground-state exceptions require additional treatment.</p>
+        <a href="https://openstax.org/books/chemistry-atoms-first-2e/pages/3-4-electronic-structure-of-atoms-electron-configurations">Reference: OpenStax · Electronic structure of atoms</a>
+        <h2>Try these electron configurations</h2>
+        <p><a href="?z=7">Nitrogen: 1s² 2s² 2p³</a> shows three singly occupied p orbitals.
+        <a href="?z=8">Oxygen: 1s² 2s² 2p⁴</a> adds the first pair.
+        <a href="?z=20">Calcium: [Ar] 4s²</a> shows why the outer shell starts before 3d fills.</p>
+    </section>
+</main>
+<script src="shell_filling_model.js"></script>
+<script src="shell_filling_locale.js"></script>
+<script src="shell_filling_atom.js"></script>
+<script src="shell_filling.js"></script>
+</body>
+</html>
